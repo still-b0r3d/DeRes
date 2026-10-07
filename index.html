@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>b0r3d DeRes</title>
+    <meta
+      name="description"
+      content="Turn a photo into what old hardware could show: real palettes, resolutions and dithering, in your browser. Nothing is uploaded."
+    />
+    <meta property="og:title" content="b0r3d DeRes" />
+    <meta
+      property="og:description"
+      content="Turn a photo into what old hardware could show: real palettes, resolutions and dithering, in your browser."
+    />
+    <meta property="og:url" content="https://img.b0r3d.org/" />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#131313" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" type="image/png" href="./b0r3d-brand/favicon.png" />
+    <link rel="apple-touch-icon" href="./b0r3d-brand/cup.png" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="top">
+        <a class="brand" href="./">
+          <img src="./b0r3d-brand/cup.png" alt="" width="40" height="40" />
+          <span class="brand-title">b0r3d DeRes</span>
+        </a>
+        <p class="note">
+          Turn a photo into what old hardware could show. It all happens in your browser: your
+          photo is never uploaded.
+        </p>
+      </header>
+      <main class="layout">
+        <section class="stage-col" id="stage-slot" aria-label="Preview"></section>
+        <aside class="controls" id="controls" aria-label="Settings"></aside>
+      </main>
+      <footer class="app-footer">
+        <p class="privacy">
+          The app loads nothing from any other site. Like the rest of b0r3d.org, the site counts
+          visits; that never includes your pictures.
+        </p>
+        <a href="https://b0r3d.org" class="back-link">← b0r3d.org</a>
+        <div id="app-version" data-testid="app-version">b0r3d DeRes</div>
+      </footer>
+    </div>
+    <noscript><p class="noscript">b0r3d DeRes needs JavaScript: all the work happens in your browser.</p></noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

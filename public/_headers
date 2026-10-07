@@ -1,0 +1,31 @@
+# Response header rules, copied to the root of dist/ by the build.
+# The rest of the Content-Security-Policy is a <meta> tag in the built page
+# (see vite.config.ts); a <meta> can't set frame-ancestors, so it's here.
+# Permissions-Policy turns off every device feature: the app needs none.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: frame-ancestors 'self' https://b0r3d.org https://*.b0r3d.org
+  Permissions-Policy: accelerometer=(), autoplay=(), bluetooth=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=(), xr-spatial-tracking=()
+  Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+
+# No long cache rule for assets/ on purpose (learned on qr.b0r3d.org,
+# 2026-10-05). For a few seconds after a deploy, a request for a new file can
+# reach a server that doesn't have it yet. Without a 404.html, Pages answers
+# that with index.html (its single-page fallback); with a "max-age=1 year,
+# immutable" header the HTML then got cached in place of the app's script, at
+# the edge and in browsers: a blank page until a purge. This site ships a real
+# 404.html (so a missing file is a 404, never the page), and assets keep the
+# default (max-age=0, must-revalidate, with an ETag), which heals on the next
+# load.
+
+# The page must be revalidated on every load so a new deploy is picked up.
+# "/" is listed because that is the URL visitors request; /index.html is
+# served from it.
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
