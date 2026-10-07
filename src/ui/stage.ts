@@ -209,10 +209,12 @@ export class Stage {
     const bh = this.el.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)
     let scale = Math.max(0.01, Math.min(bw / w, bh / h))
     if (crisp) {
-      // Whole device pixels per picture pixel, when it can be at least 1.
+      // Whole device pixels per picture pixel keep every pixel the same
+      // size; worth it unless it would shrink the picture by more than a
+      // quarter (512 px wide on a 1× screen would drop to 1×).
       const dpr = window.devicePixelRatio || 1
       const k = Math.floor(scale * dpr)
-      if (k >= 1) scale = k / dpr
+      if (k >= 1 && k / (scale * dpr) >= 0.75) scale = k / dpr
     }
     return { cssW: Math.round(w * scale), cssH: Math.round(h * scale), scale }
   }
