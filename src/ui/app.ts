@@ -1,3 +1,15 @@
+import {
+  generateAscii,
+  toAnsiBytes,
+  toAnsiText,
+  toHtml,
+  toMarkdown,
+  toPlainText,
+  DEFAULT_ASCII_SETTINGS,
+  type AsciiResult,
+  type AsciiSettings
+} from '../core/ascii'
+import { renderAsciiToCanvas, renderHalfBlockPng } from '../core/ascii-render'
 import { BYTE_TO_LINEAR, rgbToHex } from '../core/color'
 import { baseName } from '../core/filename'
 import { planGeometry, type Geometry } from '../core/geometry'
@@ -8,6 +20,8 @@ import { quantizeRgb } from '../core/quantize'
 import { decodeSettings, encodeSettings } from '../core/share'
 import rukusUrl from '../../b0r3d-brand/rukus.png'
 import type { RenderedMessage } from '../worker/protocol'
+import { buildAsciiControls } from './ascii-controls'
+import { AsciiStage } from './ascii-stage'
 import { buildControls } from './controls'
 import { h, show } from './dom'
 import { Engine } from './engine'
@@ -16,7 +30,7 @@ import { loadSettings, saveSettings, type Settings } from './settings'
 import { Stage } from './stage'
 
 // Wires the page together: one loaded picture, the image worker, the preview
-// and the controls.
+// and the controls across DeRes and ASCII / ANSI Studio.
 
 interface Picture {
   copy: WorkingCopy
@@ -25,12 +39,37 @@ interface Picture {
   hasAlpha: boolean
 }
 
+const ASCII_STORAGE_KEY = 'b0r3d_ascii_settings'
+
+function loadAsciiSettings(): AsciiSettings {
+  try {
+    const raw = localStorage.getItem(ASCII_STORAGE_KEY)
+    if (raw) return { ...DEFAULT_ASCII_SETTINGS, ...JSON.parse(raw) }
+  } catch {
+    // Storage disabled or quota
+  }
+  return { ...DEFAULT_ASCII_SETTINGS }
+}
+
+function saveAsciiSettings(settings: AsciiSettings): void {
+  try {
+    localStorage.setItem(ASCII_STORAGE_KEY, JSON.stringify(settings))
+  } catch {
+    // Storage disabled or quota
+  }
+}
+
 export function startApp(): void {
+  let activeTool: 'deres' | 'ascii' = 'deres'
   let settings: Settings = loadSettings()
+  let asciiSettings: AsciiSettings = loadAsciiSettings()
   let picture: Picture | null = null
+  let currentAsciiResult: AsciiResult | null = null
   let opening = 0
+
   const engine = new Engine()
   const stage = new Stage()
+  const asciiStage = new AsciiStage()
 
   const readout = h('p', { class: 'readout', 'data-testid': 'readout' })
   const busy = h('span', { class: 'busy', hidden: true }, 'working…')
@@ -40,7 +79,10 @@ export function startApp(): void {
     'Hold the picture to see the original',
     h('span', { class: 'desktop-only' }, ' (or hold Space)')
   )
-  document.getElementById('stage-slot')!.append(stage.el, h('div', { class: 'readout-row' }, readout, busy), holdHint)
+
+  const deresStageSlot = h('div', { class: 'deres-stage-slot' }, stage.el, h('div', { class: 'readout-row' }, readout, busy), holdHint)
+  const asciiStageSlot = h('div', { class: 'ascii-stage-slot', hidden: true }, asciiStage.el)
+  document.getElementById('stage-slot')!.append(deresStageSlot, asciiStageSlot)
 
   const fileInput = h('input', { id: 'file-input', type: 'file', accept: 'image/*', class: 'visually-hidden', tabindex: -1 })
   document.body.append(fileInput)
@@ -179,6 +221,20 @@ export function startApp(): void {
     engine.render({ settings: deres(settings), fxScale })
   }
 
+  const renderAscii = () => {
+    if (!picture) {
+      asciiStage.message('Choose a photo to start.')
+      return
+    }
+    try {
+      const res = generateAscii(picture.copy.rgba, picture.copy.width, picture.copy.height, asciiSettings)
+      currentAsciiResult = res
+      asciiStage.show(res)
+    } catch (err) {
+      asciiStage.problem(`Error rendering ASCII: ${(err as Error).message}`)
+    }
+  }
+
   const controls = buildControls({
     get: () => settings,
     set(patch) {
@@ -210,8 +266,148 @@ export function startApp(): void {
       },
     geometry
   })
-  document.getElementById('controls')!.append(controls.el)
+
+  const asciiControls = buildAsciiControls({
+    get: () => asciiSettings,
+    set(patch) {
+      asciiSettings = { ...asciiSettings, ...patch }
+      saveAsciiSettings(asciiSettings)
+      asciiControls.sync()
+      renderAscii()
+    },
+    openFile: () => fileInput.click(),
+    loadSample,
+    copyText: () => {
+      if (!currentAsciiResult) return
+      navigator.clipboard.writeText(toPlainText(currentAsciiResult)).then(
+        () => asciiControls.status('Copied plain text to clipboard.'),
+        () => asciiControls.status('Failed to copy to clipboard.')
+      )
+    },
+    copyMarkdown: () => {
+      if (!currentAsciiResult) return
+      navigator.clipboard.writeText(toMarkdown(currentAsciiResult)).then(
+        () => asciiControls.status('Copied Markdown code block to clipboard.'),
+        () => asciiControls.status('Failed to copy to clipboard.')
+      )
+    },
+    copyAnsi: () => {
+      if (!currentAsciiResult) return
+      navigator.clipboard.writeText(toAnsiText(currentAsciiResult)).then(
+        () => asciiControls.status('Copied ANSI escape sequence text to clipboard.'),
+        () => asciiControls.status('Failed to copy to clipboard.')
+      )
+    },
+    copyHtml: () => {
+      if (!currentAsciiResult) return
+      navigator.clipboard.writeText(toHtml(currentAsciiResult)).then(
+        () => asciiControls.status('Copied HTML <pre> block to clipboard.'),
+        () => asciiControls.status('Failed to copy to clipboard.')
+      )
+    },
+    downloadAns: () => {
+      if (!currentAsciiResult || !picture) return
+      try {
+        const bytes = toAnsiBytes(currentAsciiResult, {
+          title: picture.base,
+          author: 'still_b0r3d',
+          group: 'b0r3d.org'
+        })
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' })
+        const url = URL.createObjectURL(blob)
+        const a = h('a', { href: url, download: `${picture.base}.ans`, class: 'visually-hidden' })
+        document.body.append(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        asciiControls.status(`Saved ${picture.base}.ans (${bytes.length.toLocaleString()} bytes with SAUCE record).`)
+      } catch (err) {
+        asciiControls.status(`Couldn't export .ans: ${(err as Error).message}`)
+      }
+    },
+    downloadPng: async (multiplier: number) => {
+      if (!currentAsciiResult || !picture) return
+      asciiControls.status(`Making ASCII PNG (${multiplier}×)…`)
+      try {
+        if (currentAsciiResult.settings.mode === 'half-block') {
+          const res = await renderHalfBlockPng(currentAsciiResult, multiplier)
+          const blob = new Blob([res.png.buffer as ArrayBuffer], { type: 'image/png' })
+          const url = URL.createObjectURL(blob)
+          const filename = `${picture.base}-ansi-${res.width}x${res.height}-${multiplier}x.png`
+          const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
+          document.body.append(a)
+          a.click()
+          a.remove()
+          setTimeout(() => URL.revokeObjectURL(url), 60_000)
+          asciiControls.status(`Saved ${filename} (${res.width}×${res.height}).`)
+        } else {
+          const canvas = renderAsciiToCanvas(currentAsciiResult, multiplier)
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              asciiControls.status("Couldn't encode PNG")
+              return
+            }
+            const url = URL.createObjectURL(blob)
+            const filename = `${picture!.base}-ascii-${canvas.width}x${canvas.height}-${multiplier}x.png`
+            const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
+            document.body.append(a)
+            a.click()
+            a.remove()
+            setTimeout(() => URL.revokeObjectURL(url), 60_000)
+            asciiControls.status(`Saved ${filename} (${canvas.width}×${canvas.height}).`)
+          }, 'image/png')
+        }
+      } catch (err) {
+        asciiControls.status(`Couldn't make PNG: ${(err as Error).message}`)
+      }
+    },
+    picture: () =>
+      picture && {
+        name: picture.name,
+        origW: picture.copy.origW,
+        origH: picture.copy.origH
+      }
+  })
+
+  const deresControlsSlot = controls.el
+  const asciiControlsSlot = asciiControls.el
+  asciiControlsSlot.hidden = true
+  document.getElementById('controls')!.append(deresControlsSlot, asciiControlsSlot)
+
+  // Tabs
+  const tabDeres = document.getElementById('tab-deres') as HTMLButtonElement | null
+  const tabAscii = document.getElementById('tab-ascii') as HTMLButtonElement | null
+
+  function switchTool(tool: 'deres' | 'ascii'): void {
+    activeTool = tool
+    if (tabDeres) {
+      tabDeres.classList.toggle('active', tool === 'deres')
+      tabDeres.setAttribute('aria-selected', String(tool === 'deres'))
+    }
+    if (tabAscii) {
+      tabAscii.classList.toggle('active', tool === 'ascii')
+      tabAscii.setAttribute('aria-selected', String(tool === 'ascii'))
+    }
+
+    show(deresStageSlot, tool === 'deres')
+    show(deresControlsSlot, tool === 'deres')
+    show(asciiStageSlot, tool === 'ascii')
+    show(asciiControlsSlot, tool === 'ascii')
+
+    if (tool === 'ascii') {
+      asciiControls.sync()
+      renderAscii()
+    } else {
+      controls.sync()
+      render()
+    }
+  }
+
+  tabDeres?.addEventListener('click', () => switchTool('deres'))
+  tabAscii?.addEventListener('click', () => switchTool('ascii'))
+
   controls.sync()
+  asciiControls.sync()
 
   engine.onRendered = (m: RenderedMessage) => {
     const tv = settings.pixelShape === 'tv'
@@ -238,17 +434,26 @@ export function startApp(): void {
 
   async function open(blob: Blob, name: string): Promise<void> {
     const ticket = ++opening
-    if (!picture) stage.message('Opening…')
-    else readout.textContent = 'Opening…'
+    if (!picture) {
+      stage.message('Opening…')
+      asciiStage.message('Opening…')
+    } else {
+      readout.textContent = 'Opening…'
+    }
     let copy: WorkingCopy
     try {
       copy = await decodeToWorkingCopy(blob)
     } catch (err) {
       if (ticket !== opening) return
       const text = err instanceof DecodeError ? DECODE_MESSAGES[err.problem] : DECODE_MESSAGES.unreadable
-      if (!picture) stage.message('Choose a photo to start.')
+      if (!picture) {
+        stage.message('Choose a photo to start.')
+        asciiStage.message('Choose a photo to start.')
+      }
       stage.problem(text)
+      asciiStage.problem(text)
       controls.sync()
+      asciiControls.sync()
       return
     }
     if (ticket !== opening) return
@@ -257,7 +462,12 @@ export function startApp(): void {
     picture = { copy, name, base: baseName(name), hasAlpha }
     stage.setSource(copy.canvas)
     controls.sync()
-    render()
+    asciiControls.sync()
+    if (activeTool === 'ascii') {
+      renderAscii()
+    } else {
+      render()
+    }
   }
 
   async function loadSample(): Promise<void> {
@@ -266,6 +476,7 @@ export function startApp(): void {
       await open(await res.blob(), 'rukus.png')
     } catch {
       stage.problem("The sample picture didn't load. Choose a photo of your own instead.")
+      asciiStage.problem("The sample picture didn't load. Choose a photo of your own instead.")
     }
   }
 
@@ -361,6 +572,7 @@ export function startApp(): void {
 
   footer()
   stage.message('Loading the sample…')
+  asciiStage.message('Loading the sample…')
   loadSample()
 }
 

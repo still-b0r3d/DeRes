@@ -38,7 +38,7 @@ export class Engine {
     this.gen++
     this.queued = null
     this.busy = false
-    const rgba = copy.rgba.buffer as ArrayBuffer
+    const rgba = copy.rgba.slice().buffer as ArrayBuffer
     this.post(
       {
         type: 'load',

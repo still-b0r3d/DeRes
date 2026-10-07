@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { decodePng, encodeRgbPng } from '../../src/core/png'
 import { paletteBytes } from '../../src/core/pipeline'
 import { PROFILES, profileById } from '../../src/core/profiles'
+import { parseSauce } from '../../src/core/sauce'
 
 // End-to-end: the real page, its worker and its controls. Results are checked
 // by reading canvas pixels and decoding exported PNGs, never by comparing
@@ -54,7 +55,7 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
   const gbPal = profileById('gameboy')!.palette
   expect(new Set(await canvasColours(page))).toEqual(new Set(gbPal.kind === 'fixed' ? gbPal.colours : []))
-  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.3.0')
+  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.4.0')
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
@@ -340,5 +341,84 @@ test('v0.3: Amiga HAM6 and N64 render authentically', async ({ page }) => {
   expect((await canvasColours(page)).length).toBeGreaterThan(0)
   await pick(page, 'n64')
   expect((await canvasColours(page)).length).toBeGreaterThan(0)
+})
+
+test('v0.4: tab switching between DeRes and ASCII / ANSI Studio', async ({ page }) => {
+  await page.getByTestId('tab-ascii').click()
+  await expect(page.getByTestId('tab-ascii')).toHaveClass(/active/)
+  await expect(page.getByTestId('tab-ascii')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('ascii-readout')).toContainText('cells')
+
+  const asciiArt = page.locator('pre.ascii-art')
+  await expect(asciiArt).toBeVisible()
+  const text = await asciiArt.textContent()
+  expect(text).toContain('▀')
+
+  await page.getByTestId('tab-deres').click()
+  await expect(page.getByTestId('tab-deres')).toHaveClass(/active/)
+  await expect(readout(page)).toBeVisible()
+})
+
+test('v0.4: ASCII studio supports mode and column preset switches', async ({ page }) => {
+  await page.getByTestId('tab-ascii').click()
+  await page.getByRole('button', { name: 'Character ramp' }).click()
+  await page.getByRole('button', { name: 'Blocks' }).click()
+
+  const asciiArt = page.locator('pre.ascii-art')
+  await expect.poll(async () => await asciiArt.textContent()).toMatch(/[░▒▓█]/)
+
+  await page.getByRole('button', { name: '132 cols' }).click()
+  await expect(page.getByTestId('ascii-readout')).toContainText('132×')
+})
+
+test('v0.4: ASCII studio downloads .ans with valid SAUCE record and rendered PNG', async ({ page }) => {
+  await page.getByTestId('tab-ascii').click()
+
+  // 1. Download .ans with SAUCE
+  const ansDownloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: /Download \.ANS/ }).click()
+  const ansDownload = await ansDownloadPromise
+  expect(ansDownload.suggestedFilename()).toBe('rukus.ans')
+
+  const ansPath = await ansDownload.path()
+  if (ansPath) {
+    const bytes = new Uint8Array(readFileSync(ansPath))
+    const sauce = parseSauce(bytes)
+    expect(sauce).not.toBeNull()
+    expect(sauce?.author).toBe('still_b0r3d')
+    expect(sauce?.fontName).toBe('IBM VGA')
+  }
+
+  // 2. Download rendered PNG
+  const pngDownloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: '2× (1280px)' }).click()
+  const pngDownload = await pngDownloadPromise
+  expect(pngDownload.suggestedFilename()).toContain('rukus-ansi-')
+  expect(pngDownload.suggestedFilename()).toContain('-2x.png')
+
+  const pngPath = await pngDownload.path()
+  if (pngPath) {
+    const pngBytes = new Uint8Array(readFileSync(pngPath))
+    const decoded = await decodePng(pngBytes)
+    expect(decoded.width).toBe(80 * 8 * 2) // 1280
+  }
+})
+
+test('v0.4: ASCII studio clipboard buttons trigger status update', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-write', 'clipboard-read']).catch(() => {})
+  await page.getByTestId('tab-ascii').click()
+  const status = page.getByTestId('ascii-status')
+
+  await page.getByRole('button', { name: 'Copy Text' }).click()
+  await expect(status).toContainText(/(Copied plain text|clipboard)/)
+
+  await page.getByRole('button', { name: 'Copy Markdown' }).click()
+  await expect(status).toContainText(/(Copied Markdown|clipboard)/)
+
+  await page.getByRole('button', { name: 'Copy ANSI' }).click()
+  await expect(status).toContainText(/(Copied ANSI|clipboard)/)
+
+  await page.getByRole('button', { name: 'Copy HTML' }).click()
+  await expect(status).toContainText(/(Copied HTML|clipboard)/)
 })
 

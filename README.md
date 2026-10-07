@@ -5,15 +5,15 @@ your browser.
 
 b0r3d DeRes turns a photo into what old hardware could show: real palettes,
 real resolutions, the pixel shapes and dithering of the machines, and the
-screens they were seen on. Later it will also make BBS-style ASCII/ANSI art and
-strip location and camera details out of photos.
+screens they were seen on. It also includes an authentic BBS-style ASCII/ANSI art
+studio and will soon add an EXIF scrubber.
 
 The app runs entirely in your browser: images are processed and exported on
 your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.3.0, per-cell colour limits, Amiga HAM6, N64 blur, tile meter and emulator file export, is built. Not live yet.
+**Status:** v0.4.0, ASCII / ANSI studio with half-block color mode, character ramps, SAUCE .ans exports, clipboard actions, and bundled CP437 font, is built. Not live yet.
 
 ---
 
@@ -74,17 +74,24 @@ images.
   stretched to the machine's pixel shape ("as on a TV"). Without screen effects
   it's an indexed PNG holding the machine's exact palette (or RGB for > 256 colors).
   Named like `photo-nes-256x240-4x.png`. Nothing but the picture is written into it.
+- **ASCII / ANSI Studio (v0.4.0):**
+  - **Half-block color mode (`▀`):** doubles vertical resolution for authentic 24-bit RGB and 16-color ANSI BBS art scenes.
+  - **Character ramps:** Standard (` .:-=+*#%@`), Detailed, Block shades (` ░▒▓█`), Katakana (half-width), Binary, and custom text inputs, with 2:1 cell aspect ratio correction.
+  - **Colour profiles:** Vintage 16-color ANSI (CGA/PC text mode), Green CRT phosphor, Amber CRT phosphor, Monochrome, and RGB Truecolor.
+  - **Clipboard copy:** one-click copy as raw text, GitHub Markdown, terminal ANSI escape codes, or formatted HTML `<pre>`.
+  - **BBS `.ans` export:** native CP437 bytes with DOS ANSI escape sequences and 128-byte SAUCE metadata record (title, author `still_b0r3d`, group `b0r3d.org`, date, dimensions).
+  - **Rendered PNG export:** crisp 1×, 2×, 4× image export rendered with the bundled CP437 font.
 - Settings are remembered on your device. The picture never is.
 
 ## Planned
 
-- **v0.4.0, ASCII / ANSI studio:** character ramps, colour profiles, 80/132/160
-  columns, half-block colour, `.ans` with SAUCE, copy as ANSI / HTML /
-  Markdown, PNG in a bundled CP437 font.
 - **v0.5.0, EXIF scrubber:** see what a photo gives away (location, camera,
   dates) and remove it at the byte level, without re-encoding the picture.
-- Then more machines, looks and screen effects. 1.0.0 is when all three tools
-  are out.
+- **v0.6.0, Analog, print & video aesthetics:** VHS mode, early CCD noise, NTSC/composite bleed, newspaper halftone rosettes, two-ink risograph, phosphor decay.
+- **v0.7.0, Extended hardware & handhelds:** Nokia 3310, Game Boy Color, Virtual Boy, Atari ST, Amstrad CPC, MSX.
+- **v0.8.0, BBS heritage & Teletext:** PETSCII studio, Teletext/Ceefax mosaics, dial-up baud playback.
+- **v0.9.0, Motion, sound & polish:** Animated PNG/GIF export, tactile UI sounds, full test verification.
+- 1.0.0 is when all three tools are complete and ready for public launch.
 
 ---
 
@@ -166,6 +173,8 @@ elsewhere. The methods come from:
   and Bayer's ordered dithering (1973).
 - PlayStation GPU hardware dither matrix.
 - ZX Spectrum memory interleaving layout and C64 Koala Painter specification.
+- Includes Px437 IBM VGA 8x16 font from The Ultimate Oldschool PC Font Pack by VileR, licensed under CC BY-SA 4.0.
+- SAUCE (Standard Architecture for Universal Comment Extentions) v00 specification.
 
 ---
 
@@ -179,6 +188,7 @@ version and the build (the commit it was built from).
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.4.0 | 2026-10-07 | ASCII / ANSI studio: half-block color mode, character ramps, ANSI 16/phosphor/RGB profiles, .ans export with SAUCE record, clipboard copy (text/MD/ANSI/HTML), CP437 font-rendered PNG export. |
 | 0.3.0 | 2026-10-07 | Per-cell modes (Spectrum clash, C64 MC, NES attributes, Apple II hi-res), Amiga HAM6, N64 blur, tile meter and emulator export (.scr, .koa, .chr). |
 | 0.2.0 | 2026-10-07 | Range profiles (SNES, Genesis, Master System, PC-98, VGA 256, custom), PS1 hardware dither, palette files (.hex, .pal, .gpl, PNG), palette grabber, settings share link. |
 | 0.1.0 | 2026-10-07 | DeRes core: 15 fixed-palette profiles, worker pipeline, 8 dithers, pre-filters, screen effects, compare divider, integer export. |
