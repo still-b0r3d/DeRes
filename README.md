@@ -13,7 +13,7 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.5.0, EXIF Scrubber with byte-level stripping (JPEG, PNG, WebP), minimal orientation preservation, uncropped-thumbnail detection, and automated privacy self-check, is built. Not live yet.
+**Status:** v0.6.0, Analog, print & video aesthetics (VHS mode, early CCD noise, NTSC/composite bleed, newspaper halftone rosettes, two-ink risograph, streaky 1-bit fax, green/amber/white monochrome phosphor decay & bloom), is built. Not live yet.
 
 ---
 
@@ -91,11 +91,19 @@ images.
   - **GPS coordinate callout:** displays coordinates as DMS and decimal with 1-click copy; loads zero external maps or tile APIs (zero phone-home rule).
   - **Uncropped-thumbnail warning:** detects embedded IFD1 thumbnails, renders a preview, and warns users when thumbnails contain uncropped original photos.
   - **Automated privacy self-check:** re-parses the scrubbed output buffer with the metadata inspector to verify zero GPS coordinates, zero camera tags, and confirms preserved color profiles and orientation.
+- **Analog, print & video aesthetics (v0.6.0):**
+  - **VHS Tape (`vhs`):** 320×240 analog magnetic tape with bottom tracking scanline jitter band, head switching noise, horizontal chroma smear (~0.4 MHz color carrier limitation), and green/white `PLAY ▶` + timestamp OSD in the corner.
+  - **Early CCD Camera (`ccd-early`):** 640×480 sensor mode, CCD sensor noise (photon shot noise + thermal chroma grain), and burnt-orange 7-segment digital date stamp (`'99 10 24`) in bottom right.
+  - **NTSC Composite chroma bleed (`composite`):** Horizontal YIQ color subcarrier cross-talk, phase ringing, and color fringing on sharp vertical transitions.
+  - **JPEG Deep Fry (`deepfry`):** 8×8 block Discrete Cosine Transform (DCT) quantization crunch, high-frequency edge ringing (Gibbs phenomenon), and extreme contrast & saturation boost.
+  - **Newspaper Halftone Rosettes (`newspaper`):** CMYK angled screen dot rosettes (Cyan 15°, Magenta 75°, Yellow 0°, Black 45°) over unbleached newsprint paper.
+  - **Two-Ink Risograph (`risograph`):** Dual spot-color ink layering (Fluorescent Pink `#ff48b0` + Teal `#00838a`) with halftone screening and mechanical drum misregistration jitter.
+  - **Streaky 1-Bit Fax (`fax`):** High-contrast 1-bit thermal print with dirty roller vertical streaks, scanline dropouts, and transmission header (`FROM: B0R3D FAX G3...`).
+  - **Monochrome phosphor decay & bloom:** P1 Green (525nm peak), P3 Amber (600nm peak), and P4 White CRT phosphor spectral emission, beam scanlines, and decay bloom.
 - Settings are remembered on your device. The picture never is.
 
 ## Planned
 
-- **v0.6.0, Analog, print & video aesthetics:** VHS mode, early CCD noise, NTSC/composite bleed, newspaper halftone rosettes, two-ink risograph, phosphor decay.
 - **v0.7.0, Extended hardware & handhelds:** Nokia 3310, Game Boy Color, Virtual Boy, Atari ST, Amstrad CPC, MSX.
 - **v0.8.0, BBS heritage & Teletext:** PETSCII studio, Teletext/Ceefax mosaics, dial-up baud playback.
 - **v0.9.0, Motion, sound & polish:** Animated PNG/GIF export, tactile UI sounds, full test verification.
@@ -196,6 +204,7 @@ version and the build (the commit it was built from).
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.6.0 | 2026-10-07 | Analog, print & video aesthetics: VHS mode (tracking jitter, head noise, chroma smear, PLAY ▶ OSD), early CCD (640×480, noise, date stamp), NTSC composite bleed, JPEG deep fry DCT crunch, newspaper halftone rosettes, two-ink risograph, streaky 1-bit fax, monochrome P1/P3/P4 phosphors. |
 | 0.5.0 | 2026-10-07 | EXIF Scrubber: byte-level stripping (JPEG, PNG, WebP), minimal orientation preservation, GPS coordinates inspector & copy, uncropped-thumbnail warning, trailing data removal, automated privacy self-check. |
 | 0.4.0 | 2026-10-07 | ASCII / ANSI studio: half-block color mode, character ramps, ANSI 16/phosphor/RGB profiles, .ans export with SAUCE record, clipboard copy (text/MD/ANSI/HTML), CP437 font-rendered PNG export. |
 | 0.3.0 | 2026-10-07 | Per-cell modes (Spectrum clash, C64 MC, NES attributes, Apple II hi-res), Amiga HAM6, N64 blur, tile meter and emulator export (.scr, .koa, .chr). |

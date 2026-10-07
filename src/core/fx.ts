@@ -5,7 +5,7 @@ import { BYTE_TO_LINEAR, linearToByte, luminance } from './color'
 // they render an enlarged copy. Preview-only by default; the export can keep
 // them from 3× up. Nothing here moves or flickers.
 
-export type Screen = 'off' | 'crt' | 'lcd'
+export type Screen = 'off' | 'crt' | 'lcd' | 'vhs' | 'composite' | 'p1-green' | 'p3-amber' | 'p4-white'
 export type Mask = 'none' | 'shadow' | 'grille'
 
 export interface Fx {
@@ -20,6 +20,10 @@ export interface Fx {
   grid: number
   /** LCD, 0 … 1: the shadow each dark pixel casts. */
   ghost: number
+  /** VHS tracking noise intensity (0..1) */
+  vhsTracking?: number
+  /** VHS OSD toggle */
+  vhsOsd?: boolean
 }
 
 export const DEFAULT_FX: Fx = {
@@ -29,7 +33,9 @@ export const DEFAULT_FX: Fx = {
   curve: 0.3,
   bloom: 0.3,
   grid: 0.5,
-  ghost: 0.4
+  ghost: 0.4,
+  vhsTracking: 0.8,
+  vhsOsd: true
 }
 
 export interface FxSource {
@@ -41,10 +47,63 @@ export interface FxSource {
   paper: readonly [number, number, number]
 }
 
-// The electron beam across one pixel row: a soft line that is thin where the
-// picture is dark and spreads where it's bright, so dark areas show clear
-// gaps and highlights stay bright (as on a real tube). A table by brightness
-// (16 steps) and position across the row (64 steps).
+// 5×7 monospace bitmap font for VHS OSD
+const OSD_FONT: Record<string, number[]> = {
+  ' ': [0, 0, 0, 0, 0],
+  ':': [0, 0x24, 0, 0, 0],
+  '-': [0x08, 0x08, 0x08, 0x08, 0x08],
+  '0': [0x3e, 0x51, 0x49, 0x45, 0x3e],
+  '1': [0x00, 0x42, 0x7f, 0x40, 0x00],
+  '2': [0x42, 0x61, 0x51, 0x49, 0x46],
+  '3': [0x21, 0x41, 0x45, 0x4b, 0x31],
+  '4': [0x18, 0x14, 0x12, 0x7f, 0x10],
+  '5': [0x27, 0x45, 0x45, 0x45, 0x39],
+  '6': [0x3c, 0x4a, 0x49, 0x49, 0x30],
+  '7': [0x01, 0x71, 0x09, 0x05, 0x03],
+  '8': [0x36, 0x49, 0x49, 0x49, 0x36],
+  '9': [0x06, 0x49, 0x49, 0x29, 0x1e],
+  A: [0x7e, 0x11, 0x11, 0x11, 0x7e],
+  L: [0x7f, 0x40, 0x40, 0x40, 0x40],
+  P: [0x7f, 0x09, 0x09, 0x09, 0x06],
+  S: [0x26, 0x49, 0x49, 0x49, 0x32],
+  Y: [0x07, 0x08, 0x70, 0x08, 0x07],
+  '▶': [0x7f, 0x3e, 0x1c, 0x08, 0x00]
+}
+
+function getOsdPixel(text: string, rx: number, ry: number, scale: number): { fg: boolean; bg: boolean } {
+  const charW = 6 * scale
+  const charH = 8 * scale
+  if (ry < 0 || ry >= charH) return { fg: false, bg: false }
+
+  const cIdx = Math.floor(rx / charW)
+  if (cIdx < 0 || cIdx >= text.length) return { fg: false, bg: false }
+
+  const ch = text[cIdx]
+  const glyph = OSD_FONT[ch] ?? OSD_FONT[' ']
+  const gx = Math.floor((rx % charW) / scale)
+  const gy = Math.floor(ry / scale)
+
+  if (gx >= 0 && gx < 5 && gy >= 0 && gy < 7) {
+    if (((glyph[gx] >> gy) & 1) === 1) return { fg: true, bg: false }
+  }
+
+  // Check drop shadow / border (1 step down and right)
+  const bgGx = Math.floor(((rx - scale) % charW) / scale)
+  const bgGy = Math.floor((ry - scale) / scale)
+  if (bgGx >= 0 && bgGx < 5 && bgGy >= 0 && bgGy < 7) {
+    if (((glyph[bgGx] >> bgGy) & 1) === 1) return { fg: false, bg: true }
+  }
+
+  return { fg: false, bg: false }
+}
+
+function fxHash(x: number, y: number, seed = 0): number {
+  let h = (Math.imul(x, 0x3456789a) ^ Math.imul(y, 0x9abcdef0) ^ seed) >>> 0
+  h = Math.imul(h ^ (h >>> 15), 0x1234567b)
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+}
+
+// The electron beam across one pixel row
 const BEAM_LEVELS = 16
 const BEAM_STEPS = 64
 const BEAM = new Float32Array(BEAM_LEVELS * (BEAM_STEPS + 1))
@@ -55,14 +114,12 @@ for (let l = 0; l < BEAM_LEVELS; l++) {
     BEAM[l * (BEAM_STEPS + 1) + i] = Math.exp(-(d * d) / (2 * sigma * sigma))
   }
 }
-// The middle of each line is driven a little brighter than the picture.
 const BEAM_PEAK = 1.2
 const MASK_DIM = 0.45
 
 /**
  * Sets up rendering the picture at outW×outH with the screen effect. The
- * returned function fills one output row (3 bytes per pixel), in any order,
- * so an export can be encoded row by row without the whole image in memory.
+ * returned function fills one output row (3 bytes per pixel), in any order.
  */
 export function fxRenderer(
   src: FxSource,
@@ -75,33 +132,73 @@ export function fxRenderer(
   for (let i = 0; i < lin.length; i++) lin[i] = BYTE_TO_LINEAR[src.rgb[i]]
   const sx = outW / w
   const sy = outH / h
+
   const crt = fx.screen === 'crt'
   const lcd = fx.screen === 'lcd'
+  const vhs = fx.screen === 'vhs'
+  const composite = fx.screen === 'composite'
+  const p1 = fx.screen === 'p1-green'
+  const p3 = fx.screen === 'p3-amber'
+  const p4 = fx.screen === 'p4-white'
+  const isPhosphor = p1 || p3 || p4
+  const hasCrtPhysics = crt || isPhosphor || vhs || composite
 
   // Scanlines need at least 2 output rows per picture row to show.
-  const scan = crt ? fx.scanlines * clamp01(sy - 1) : 0
-  const curve = crt ? fx.curve : 0
+  const scan = hasCrtPhysics ? fx.scanlines * clamp01(sy - 1) : 0
+  const curve = hasCrtPhysics ? fx.curve : 0
   const k = curve * 0.08
-  const glow = crt && fx.bloom > 0 ? blur(lin, w, h) : null
+  const glow = (hasCrtPhysics || isPhosphor) && fx.bloom > 0 ? blur(lin, w, h) : null
   const bloom = glow ? fx.bloom * 0.7 : 0
   const mask = crt ? fx.mask : 'none'
-  // Wins back the brightness the mask's dark stripes cost.
   const gain = mask !== 'none' ? 3 / (1 + 2 * MASK_DIM) : 1
 
-  // LCD gaps are one output pixel wide, fading in from 2× to 3×.
+  // LCD gaps
   const grid = lcd ? fx.grid * 0.65 * clamp01(Math.min(sx, sy) - 2) : 0
   const ghost = lcd ? fx.ghost * 0.45 : 0
   const paper = src.paper.map((b) => BYTE_TO_LINEAR[b])
   const gapU = 1 / sx
   const gapV = 1 / sy
 
+  // VHS parameters
+  const trackingIntensity = fx.vhsTracking ?? 0.8
+  const showVhsOsd = fx.vhsOsd !== false
+  const osdScale = Math.max(1, Math.min(4, Math.floor(outH / 160)))
+  const vhsTopOsd = 'PLAY ▶'
+  const vhsBotOsd = 'SP -0:12:34'
+
   const c = new Float32Array(3)
+  const chromaFiltered = new Float32Array(3)
+
   return (oy, row) => {
     const ny = ((oy + 0.5) / outH) * 2 - 1
+
+    // VHS Tracking scanlines & head jitter band in bottom ~6% of scanlines
+    let vhsJitterX = 0
+    let vhsHeadNoise = false
+    if (vhs && oy >= Math.floor(outH * 0.94)) {
+      const lineProgress = (oy - outH * 0.94) / (outH * 0.06)
+      const wave = Math.sin(oy * 0.5) * 8 * lineProgress
+      const noise = (fxHash(0, oy, 11) - 0.5) * 16 * trackingIntensity
+      vhsJitterX = (wave + noise) * sx * 0.5
+      vhsHeadNoise = fxHash(1, oy, 22) < 0.28 * trackingIntensity
+    }
+
+    // Reset composite chroma I/Q filters for the scanline
+    let compI = 0
+    let compQ = 0
+    let lastY = 0
+    let compRing = 0
+
+    // Reset VHS horizontal chroma smear filter
+    chromaFiltered[0] = 0
+    chromaFiltered[1] = 0
+    chromaFiltered[2] = 0
+
     for (let ox = 0; ox < outW; ox++) {
       let u: number
       let v: number
       let fade = 1
+
       if (curve > 0) {
         const nx = ((ox + 0.5) / outW) * 2 - 1
         const cx = nx * (1 + k * ny * ny)
@@ -111,7 +208,6 @@ export function fxRenderer(
           row[ox * 3] = row[ox * 3 + 1] = row[ox * 3 + 2] = 0
           continue
         }
-        // Soft corners and a gentle vignette.
         fade = Math.min(1, edge * 60) * (1 - curve * 0.25 * (cx * cx + cy * cy) * 0.5)
         u = ((cx + 1) / 2) * w
         v = ((cy + 1) / 2) * h
@@ -119,8 +215,14 @@ export function fxRenderer(
         u = (ox + 0.5) / sx
         v = (oy + 0.5) / sy
       }
-      const px = Math.min(w - 1, Math.floor(u))
-      const py = Math.min(h - 1, Math.floor(v))
+
+      // VHS head jitter shift
+      if (vhs && vhsJitterX !== 0) {
+        u += vhsJitterX / sx
+      }
+
+      const px = Math.min(w - 1, Math.max(0, Math.floor(u)))
+      const py = Math.min(h - 1, Math.max(0, Math.floor(v)))
       const p = (py * w + px) * 3
       c[0] = lin[p]
       c[1] = lin[p + 1]
@@ -138,6 +240,120 @@ export function fxRenderer(
         if (grid > 0 && (u - px < gapU || v - py < gapV)) {
           for (let j = 0; j < 3; j++) c[j] += (paper[j] - c[j]) * grid
         }
+      } else if (isPhosphor) {
+        // Monochrome CRT Phosphor Decay & Bloom (P1 Green, P3 Amber, P4 White)
+        const lum = luminance(c[0], c[1], c[2])
+        if (p1) {
+          // P1 Green Phosphor (525nm peak)
+          c[0] = lum * 0.16
+          c[1] = lum * 1.0
+          c[2] = lum * 0.2
+        } else if (p3) {
+          // P3 Amber Phosphor (600nm peak)
+          c[0] = lum * 1.0
+          c[1] = lum * 0.58
+          c[2] = lum * 0.04
+        } else {
+          // P4 White Phosphor
+          c[0] = lum * 0.92
+          c[1] = lum * 0.96
+          c[2] = lum * 1.0
+        }
+
+        // CRT beam scanlines
+        let beam = 1
+        if (scan > 0) {
+          const level = Math.min(BEAM_LEVELS - 1, (Math.sqrt(lum) * BEAM_LEVELS) | 0)
+          const across = Math.min(BEAM_STEPS, ((v - py) * BEAM_STEPS + 0.5) | 0)
+          beam = 1 - scan + scan * BEAM_PEAK * BEAM[level * (BEAM_STEPS + 1) + across]
+        }
+        const f = beam * fade
+        c[0] *= f
+        c[1] *= f
+        c[2] *= f
+
+        if (glow) {
+          const glowColor = new Float32Array(3)
+          sampleBilinear(glow, w, h, u - 0.5, v - 0.5, glowColor, 1.0)
+          const glowLum = luminance(glowColor[0], glowColor[1], glowColor[2]) * bloom * fade
+          if (p1) {
+            c[0] += glowLum * 0.16
+            c[1] += glowLum * 1.0
+            c[2] += glowLum * 0.2
+          } else if (p3) {
+            c[0] += glowLum * 1.0
+            c[1] += glowLum * 0.58
+            c[2] += glowLum * 0.04
+          } else {
+            c[0] += glowLum * 0.92
+            c[1] += glowLum * 0.96
+            c[2] += glowLum * 1.0
+          }
+        }
+      } else if (composite) {
+        // NTSC Composite Video Chroma Bleed & Subcarrier Cross-talk
+        // RGB to YIQ
+        const curY = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+        const inI = 0.596 * c[0] - 0.274 * c[1] - 0.322 * c[2]
+        const inQ = 0.211 * c[0] - 0.523 * c[1] + 0.312 * c[2]
+
+        // Low-pass horizontal chroma smear
+        compI = compI * 0.72 + inI * 0.28
+        compQ = compQ * 0.65 + inQ * 0.35
+
+        // Phase cross-talk on sharp luma transitions (chroma fringing & ringing)
+        const dY = curY - lastY
+        lastY = curY
+        compRing = compRing * 0.65 + dY * 0.35
+        const phaseI = compI + compRing * Math.sin(ox * 1.2)
+
+        // Inverse YIQ to linear RGB
+        c[0] = Math.max(0, curY + 0.956 * phaseI + 0.621 * compQ)
+        c[1] = Math.max(0, curY - 0.272 * phaseI - 0.647 * compQ)
+        c[2] = Math.max(0, curY - 1.106 * phaseI + 1.703 * compQ)
+
+        // CRT scanline modulation
+        if (scan > 0) {
+          const across = Math.min(BEAM_STEPS, ((v - py) * BEAM_STEPS + 0.5) | 0)
+          const beam = 1 - scan + scan * BEAM_PEAK * BEAM[across]
+          c[0] *= beam * fade
+          c[1] *= beam * fade
+          c[2] *= beam * fade
+        }
+      } else if (vhs) {
+        // VHS Analog Tape Chroma Smear + Tracking Noise Band
+        const curLum = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+
+        // Horizontal chroma bleed: low-pass filter color difference signals
+        // Chroma lags horizontally (tape reading head bandwidth ~0.4MHz)
+        const alpha = 0.22
+        chromaFiltered[0] = chromaFiltered[0] * (1 - alpha) + (c[0] - curLum) * alpha
+        chromaFiltered[1] = chromaFiltered[1] * (1 - alpha) + (c[1] - curLum) * alpha
+        chromaFiltered[2] = chromaFiltered[2] * (1 - alpha) + (c[2] - curLum) * alpha
+
+        // Sample slightly to the right for color bleeding
+        const smearU = Math.min(w - 1, u + 2.5 / sx)
+        const smearP = (py * w + Math.floor(smearU)) * 3
+        const smearLum = 0.299 * lin[smearP] + 0.587 * lin[smearP + 1] + 0.114 * lin[smearP + 2]
+
+        c[0] = Math.max(0, curLum + chromaFiltered[0] * 0.6 + (lin[smearP] - smearLum) * 0.4)
+        c[1] = Math.max(0, curLum + chromaFiltered[1] * 0.6 + (lin[smearP + 1] - smearLum) * 0.4)
+        c[2] = Math.max(0, curLum + chromaFiltered[2] * 0.6 + (lin[smearP + 2] - smearLum) * 0.4)
+
+        // Analog tape head snow noise in bottom tracking band
+        if (vhsHeadNoise && fxHash(ox, oy, 33) < 0.45 * trackingIntensity) {
+          const noiseByte = fxHash(ox, oy, 44) > 0.5 ? 0.95 : 0.05
+          c[0] = c[1] = c[2] = noiseByte
+        }
+
+        // Soft scanlines
+        if (scan > 0) {
+          const across = Math.min(BEAM_STEPS, ((v - py) * BEAM_STEPS + 0.5) | 0)
+          const beam = 1 - scan * 0.6 + scan * 0.6 * BEAM_PEAK * BEAM[across]
+          c[0] *= beam * fade
+          c[1] *= beam * fade
+          c[2] *= beam * fade
+        }
       } else if (crt) {
         let beam = 1
         if (scan > 0) {
@@ -150,7 +366,6 @@ export function fxRenderer(
         let mb = 1
         if (mask !== 'none') {
           const phase = ox % 3
-          // Slot mask: the grille plus gaps, staggered from triad to triad.
           const dark = mask === 'shadow' && (oy + (Math.floor(ox / 3) & 1) * 2) % 4 === 0
           mr = phase === 0 ? 1 : MASK_DIM
           mg = phase === 1 ? 1 : MASK_DIM
@@ -169,6 +384,32 @@ export function fxRenderer(
           sampleBilinear(glow, w, h, u - 0.5, v - 0.5, c, bloom * fade)
         }
       }
+
+      // VHS OSD (PLAY ▶ top-left, SP -0:12:34 bottom-left)
+      if (vhs && showVhsOsd) {
+        // Top-left PLAY ▶
+        const topX0 = 14 * osdScale
+        const topY0 = 12 * osdScale
+        const { fg: topFg, bg: topBg } = getOsdPixel(vhsTopOsd, ox - topX0, oy - topY0, osdScale)
+
+        // Bottom-left SP -0:12:34
+        const botX0 = 14 * osdScale
+        const botY0 = outH - (22 * osdScale)
+        const { fg: botFg, bg: botBg } = getOsdPixel(vhsBotOsd, ox - botX0, oy - botY0, osdScale)
+
+        if (topFg || botFg) {
+          // Retro phosphor green OSD: sRGB [0, 255, 65]
+          c[0] = 0
+          c[1] = 1.0
+          c[2] = 0.06
+        } else if (topBg || botBg) {
+          // Drop-shadow outline: black
+          c[0] = 0
+          c[1] = 0
+          c[2] = 0
+        }
+      }
+
       row[ox * 3] = linearToByte(c[0])
       row[ox * 3 + 1] = linearToByte(c[1])
       row[ox * 3 + 2] = linearToByte(c[2])

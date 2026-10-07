@@ -229,7 +229,12 @@ export function buildControls(ctx: ControlsContext): {
     [
       { value: 'off', text: 'Off' },
       { value: 'crt', text: 'CRT' },
-      { value: 'lcd', text: 'LCD' }
+      { value: 'lcd', text: 'LCD' },
+      { value: 'vhs', text: 'VHS' },
+      { value: 'composite', text: 'Composite' },
+      { value: 'p1-green', text: 'P1 Green' },
+      { value: 'p3-amber', text: 'P3 Amber' },
+      { value: 'p4-white', text: 'P4 White' }
     ] as const,
     (v) => fxPatch({ screen: v })
   )
@@ -252,10 +257,25 @@ export function buildControls(ctx: ControlsContext): {
     grid: fxSlider('grid', 'Pixel grid'),
     ghost: fxSlider('ghost', 'Ghosting')
   }
+  const vhsTracking = slider({
+    id: 'fx-vhs-tracking',
+    label: 'Tracking jitter & noise',
+    min: 0,
+    max: 1,
+    step: 0.05,
+    format: pct,
+    onInput: (v) => fxPatch({ vhsTracking: v })
+  })
+  const vhsOsdBox = h('input', { type: 'checkbox', id: 'fx-vhs-osd' })
+  vhsOsdBox.addEventListener('change', () => fxPatch({ vhsOsd: vhsOsdBox.checked }))
+  const vhsOsdLabel = h('label', { class: 'check', for: 'fx-vhs-osd' }, vhsOsdBox, ' On-screen display (PLAY ▶)')
+  const vhsGroup = h('div', { class: 'group' }, vhsTracking.el, vhsOsdLabel)
+
+  const maskRow = h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Mask'), mask.el)
   const crtGroup = h(
     'div',
     { class: 'group' },
-    h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Mask'), mask.el),
+    maskRow,
     fxs.scanlines.el,
     fxs.curve.el,
     fxs.bloom.el
@@ -266,6 +286,7 @@ export function buildControls(ctx: ControlsContext): {
     false,
     screen.el,
     crtGroup,
+    vhsGroup,
     lcdGroup,
     h('p', { class: 'hint' }, `For the preview. To keep it in the PNG, tick "With the screen effect" under Export (${FX_MIN_MULTIPLIER}× and up).`)
   )
@@ -402,7 +423,19 @@ export function buildControls(ctx: ControlsContext): {
     }
 
     screen.set(s.fx.screen)
-    show(crtGroup, s.fx.screen === 'crt')
+    const hasCrt =
+      s.fx.screen === 'crt' ||
+      s.fx.screen === 'vhs' ||
+      s.fx.screen === 'composite' ||
+      s.fx.screen === 'p1-green' ||
+      s.fx.screen === 'p3-amber' ||
+      s.fx.screen === 'p4-white'
+    show(crtGroup, hasCrt)
+    show(maskRow, s.fx.screen === 'crt')
+    show(fxs.bloom.el, s.fx.screen === 'crt' || s.fx.screen === 'p1-green' || s.fx.screen === 'p3-amber' || s.fx.screen === 'p4-white')
+    show(vhsGroup, s.fx.screen === 'vhs')
+    vhsTracking.set(s.fx.vhsTracking ?? 0.8)
+    vhsOsdBox.checked = s.fx.vhsOsd !== false
     show(lcdGroup, s.fx.screen === 'lcd')
     mask.set(s.fx.mask)
     for (const k of ['scanlines', 'curve', 'bloom', 'grid', 'ghost'] as const) fxs[k].set(s.fx[k])
@@ -439,6 +472,12 @@ export function buildControls(ctx: ControlsContext): {
         coloursLabel = '16-bit RGBA5551'
       } else if (p.palette.kind === 'cell') {
         coloursLabel = `cell clash (${p.palette.colours.length} colours)`
+      } else if (p.palette.kind === 'analog') {
+        if (p.palette.mode === 'fax') coloursLabel = '1-bit fax'
+        else if (p.palette.mode === 'risograph') coloursLabel = '2-ink risograph'
+        else if (p.palette.mode === 'newspaper') coloursLabel = 'CMYK halftone rosette'
+        else if (p.palette.mode === 'deepfry') coloursLabel = '8×8 DCT crunch'
+        else coloursLabel = '640×480 CCD sensor'
       } else if (p.palette.kind === 'fixed') {
         coloursLabel = `${p.palette.colours.length}-colour palette`
       } else if (p.palette.kind === 'range') {

@@ -51,6 +51,11 @@ export interface N64Palette {
   blur: boolean
 }
 
+export interface AnalogPalette {
+  kind: 'analog'
+  mode: 'ccd' | 'deepfry' | 'newspaper' | 'risograph' | 'fax'
+}
+
 export type PaletteSpec =
   | FixedPalette
   | RangePalette
@@ -59,6 +64,7 @@ export type PaletteSpec =
   | CellPalette
   | HamPalette
   | N64Palette
+  | AnalogPalette
 
 export interface HardwareLimits {
   /** Maximum unique 8×8 tiles (e.g. 256 for NES / Game Boy) */
@@ -94,7 +100,7 @@ export interface Profile {
   /** Edge sharpening before dithering (the Game Boy Camera does this). */
   edgeBoost?: number
   /** The screen effect that suits it. */
-  screen: 'crt' | 'lcd'
+  screen: 'crt' | 'lcd' | 'vhs' | 'off'
 }
 
 const EGA = [
@@ -211,6 +217,20 @@ export function representativePalette(spec: PaletteSpec): string[] {
     for (let i = 0; i < 32; i++) {
       const [r8, g8, b8] = hslToRgb(i * (360 / 32), 0.8, 0.5)
       out.push(rgbToHex(snapToBits(r8, spec.bitsPerChannel), snapToBits(g8, spec.bitsPerChannel), snapToBits(b8, spec.bitsPerChannel)))
+    }
+    return out
+  }
+  if (spec.kind === 'analog') {
+    if (spec.mode === 'fax') return ['#ffffff', '#000000']
+    if (spec.mode === 'risograph') return ['#fbf9f4', '#ff48b0', '#00838a', '#20124d']
+    if (spec.mode === 'newspaper') return ['#f2ede4', '#009ee0', '#e5007d', '#ffe600', '#1a171b']
+    if (spec.mode === 'deepfry') {
+      return ['#000000', '#ff0000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#ff00ff', '#ffffff']
+    }
+    const out: string[] = []
+    for (let i = 0; i < 32; i++) {
+      const [r8, g8, b8] = hslToRgb(i * (360 / 32), 0.8, 0.5)
+      out.push(rgbToHex(r8, g8, b8))
     }
     return out
   }
@@ -572,6 +592,79 @@ export const PROFILES: readonly Profile[] = [
     limits: { maxColours: 32768 },
     dither: 'none',
     screen: 'crt'
+  },
+  {
+    id: 'vhs',
+    name: 'VHS Tape',
+    origin: 'JVC · 1976',
+    about: 'Analog magnetic tape, 240 lines, horizontal chroma smear and tracking noise.',
+    width: 320,
+    height: 240,
+    par: [10, 11],
+    palette: { kind: 'range', bitsPerChannel: 6, count: 256 },
+    limits: { maxColours: 256 },
+    dither: 'none',
+    screen: 'vhs'
+  },
+  {
+    id: 'ccd-early',
+    name: 'Early CCD Camera',
+    origin: 'VGA Digital · 1998',
+    about: '640×480 sensor, CCD photon noise, and burnt-orange digital date stamp.',
+    width: 640,
+    height: 480,
+    par: [1, 1],
+    palette: { kind: 'analog', mode: 'ccd' },
+    dither: 'none',
+    screen: 'off'
+  },
+  {
+    id: 'deepfry',
+    name: 'JPEG Deep Fry',
+    origin: 'IJG JPEG · 1992',
+    about: '8×8 DCT block quantization crunch, high-frequency ringing, and hyper-saturated contrast.',
+    width: 480,
+    height: 360,
+    par: [1, 1],
+    palette: { kind: 'analog', mode: 'deepfry' },
+    dither: 'none',
+    screen: 'off'
+  },
+  {
+    id: 'newspaper',
+    name: 'Newspaper Halftone',
+    origin: 'Rotary Press · 1890',
+    about: 'CMYK angled screen rosettes (15°, 75°, 0°, 45°) on unbleached newsprint.',
+    width: 400,
+    height: 500,
+    par: [1, 1],
+    palette: { kind: 'analog', mode: 'newspaper' },
+    dither: 'none',
+    screen: 'off'
+  },
+  {
+    id: 'risograph',
+    name: 'Two-Ink Risograph',
+    origin: 'Riso Kagaku · 1980',
+    about: 'Dual spot-color ink layering (Fluo Pink & Teal) with mechanical drum misregistration.',
+    width: 400,
+    height: 500,
+    par: [1, 1],
+    palette: { kind: 'analog', mode: 'risograph' },
+    dither: 'none',
+    screen: 'off'
+  },
+  {
+    id: 'fax',
+    name: '1-Bit Fax Machine',
+    origin: 'ITU-T Group 3 · 1980',
+    about: 'High-contrast 1-bit thermal print with paper feed streaks and transmission header.',
+    width: 408,
+    height: 392,
+    par: [1, 1],
+    palette: { kind: 'analog', mode: 'fax' },
+    dither: 'floyd',
+    screen: 'off'
   },
   {
     id: 'custom',

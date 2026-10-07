@@ -12,6 +12,14 @@ import { quantizeRgb, snapToBits } from './quantize'
 import { resampleArea } from './resample'
 import { analyzeTileFit, encodeGbChr, type HardwareFitReport } from './tiles'
 import { YliluomaPlanner } from './yliluoma'
+import {
+  processEarlyCcd,
+  processDeepFry,
+  processNewspaperHalftone,
+  processRisograph,
+  processFax,
+  type AnalogResult
+} from './analog'
 
 // The DeRes pipeline: working copy -> crop and area-average to the machine's
 // resolution -> pre-filters -> dither to its palette. It keeps the working
@@ -391,6 +399,70 @@ export class Deres {
         used: seen.size,
         geometry: g,
         paper: [255, 255, 255],
+        tileFit
+      }
+    }
+
+    // Analog, print & video aesthetics (CCD, Deep Fry, Newspaper, Risograph, Fax)
+    if (profile.palette.kind === 'analog') {
+      let res: AnalogResult
+      if (profile.palette.mode === 'ccd') {
+        res = processEarlyCcd(rgb, width, height)
+      } else if (profile.palette.mode === 'deepfry') {
+        res = processDeepFry(rgb, width, height)
+      } else if (profile.palette.mode === 'newspaper') {
+        res = processNewspaperHalftone(rgb, width, height)
+      } else if (profile.palette.mode === 'risograph') {
+        res = processRisograph(rgb, width, height)
+      } else {
+        res = processFax(rgb, width, height)
+      }
+
+      if (bars) {
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) {
+              const i = y * width + x
+              res.indices[i] = 0
+              res.rgb[i * 3] = 0
+              res.rgb[i * 3 + 1] = 0
+              res.rgb[i * 3 + 2] = 0
+            }
+          }
+        }
+      }
+
+      const out = new Uint8Array(width * height * 3)
+      const seen = new Set<number>()
+      const palList: number[] = []
+      for (let i = 0; i < width * height; i++) {
+        const r = linearToByte(res.rgb[i * 3])
+        const g = linearToByte(res.rgb[i * 3 + 1])
+        const b = linearToByte(res.rgb[i * 3 + 2])
+        out[i * 3] = r
+        out[i * 3 + 1] = g
+        out[i * 3 + 2] = b
+        const key = (r << 16) | (g << 8) | b
+        if (!seen.has(key)) {
+          seen.add(key)
+          if (palList.length < 256 * 3) {
+            palList.push(r, g, b)
+          }
+        }
+      }
+
+      const palBytes = Uint8Array.from(palList.length > 0 ? palList : [0, 0, 0])
+      const tileFit = profile.limits ? analyzeTileFit(res.indices, width, height, profile.limits) : undefined
+
+      return {
+        width,
+        height,
+        indices: res.indices,
+        palette: palBytes,
+        rgb: out,
+        used: seen.size,
+        geometry: g,
+        paper: res.paper,
         tileFit
       }
     }

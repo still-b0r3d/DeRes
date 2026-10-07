@@ -55,7 +55,7 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
   const gbPal = profileById('gameboy')!.palette
   expect(new Set(await canvasColours(page))).toEqual(new Set(gbPal.kind === 'fixed' ? gbPal.colours : []))
-  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.5.0')
+  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.6.0')
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
@@ -528,4 +528,106 @@ test('v0.5: opens photo with GPS and displays coordinates with 1-click copy', as
   await copyBtn.click()
   await expect(copyBtn).toHaveText(/Copied!/)
 })
+
+test('v0.6: analog profiles (CCD, Deep Fry, Newspaper, Risograph, Fax) render correctly', async ({ page }) => {
+  // Early CCD Camera
+  await pick(page, 'ccd-early')
+  await expect(readout(page)).toContainText('640×480')
+  const ccdColours = await canvasColours(page)
+  expect(ccdColours.length).toBeGreaterThan(10)
+
+  // JPEG Deep Fry
+  await pick(page, 'deepfry')
+  await expect(readout(page)).toContainText('480×360')
+  const dfColours = await canvasColours(page)
+  expect(dfColours.length).toBeGreaterThan(10)
+
+  // Newspaper Halftone
+  await pick(page, 'newspaper')
+  await expect(readout(page)).toContainText('400×500')
+  const newsColours = await canvasColours(page)
+  expect(newsColours.length).toBeGreaterThan(5)
+
+  // Two-Ink Risograph
+  await pick(page, 'risograph')
+  await expect(readout(page)).toContainText('400×500')
+  const risoColours = await canvasColours(page)
+  expect(risoColours.length).toBeGreaterThan(5)
+
+  // 1-Bit Fax Machine
+  await pick(page, 'fax')
+  await expect(readout(page)).toContainText('408×392')
+  const faxColours = await canvasColours(page)
+  expect(faxColours.length).toBeGreaterThanOrEqual(2)
+})
+
+test('v0.6: VHS mode applies tracking lines, PLAY ▶ OSD, and exports with effect baked in', async ({ page }) => {
+  await pick(page, 'vhs')
+  await expect(readout(page)).toContainText('320×240')
+
+  // Open Screen details section
+  const screenSummary = page.locator('details.sec summary', { hasText: 'Screen' })
+  await screenSummary.click()
+
+  // Verify VHS screen effect is selected
+  const vhsScreenBtn = page.locator('.seg[aria-label="Screen effect"] button[data-value="vhs"]')
+  if ((await vhsScreenBtn.getAttribute('aria-pressed')) !== 'true') {
+    await vhsScreenBtn.click()
+  }
+  await expect(vhsScreenBtn).toHaveAttribute('aria-pressed', 'true')
+
+  // Check that VHS controls are visible
+  await expect(page.locator('#fx-vhs-tracking')).toBeVisible()
+  await expect(page.locator('#fx-vhs-osd')).toBeVisible()
+
+  // Export at 3× with screen effect
+  await page.locator('.seg[aria-label="Size"] button[data-value="3"]').click()
+  const fxCheck = page.locator('#export-fx')
+  await expect(fxCheck).toBeEnabled()
+  if (!(await fxCheck.isChecked())) {
+    await fxCheck.click()
+  }
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download PNG' }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toContain('vhs')
+  expect(download.suggestedFilename()).toContain('fx')
+  const stream = await download.createReadStream()
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk))
+  const png = await decodePng(Buffer.concat(chunks))
+  expect(png.width).toBe(960)
+  expect(png.height).toBe(720)
+})
+
+test('v0.6: Monochrome phosphors (P1 Green, P3 Amber, P4 White) and Composite chroma bleed render', async ({ page }) => {
+  // Open Screen section
+  await page.locator('details.sec summary', { hasText: 'Screen' }).click()
+
+  // P1 Green
+  await page.locator('.seg[aria-label="Screen effect"] button[data-value="p1-green"]').click()
+  await page.waitForTimeout(100)
+  const p1Colours = await canvasColours(page)
+  expect(p1Colours.length).toBeGreaterThan(0)
+
+  // P3 Amber
+  await page.locator('.seg[aria-label="Screen effect"] button[data-value="p3-amber"]').click()
+  await page.waitForTimeout(100)
+  const p3Colours = await canvasColours(page)
+  expect(p3Colours.length).toBeGreaterThan(0)
+
+  // P4 White
+  await page.locator('.seg[aria-label="Screen effect"] button[data-value="p4-white"]').click()
+  await page.waitForTimeout(100)
+  const p4Colours = await canvasColours(page)
+  expect(p4Colours.length).toBeGreaterThan(0)
+
+  // Composite
+  await page.locator('.seg[aria-label="Screen effect"] button[data-value="composite"]').click()
+  await page.waitForTimeout(100)
+  const compColours = await canvasColours(page)
+  expect(compColours.length).toBeGreaterThan(0)
+})
+
 

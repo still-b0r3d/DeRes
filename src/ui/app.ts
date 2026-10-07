@@ -258,7 +258,8 @@ export function startApp(): void {
       const p = profileById(id)
       if (!p) return
       // Each machine starts with the dither and screen that suit it.
-      const fx = settings.fx.screen === 'off' ? settings.fx : { ...settings.fx, screen: p.screen }
+      const screen = p.id === 'vhs' ? 'vhs' : (settings.fx.screen === 'off' ? settings.fx.screen : p.screen)
+      const fx = { ...settings.fx, screen }
       this.set({ profileId: id, dither: p.dither, fx })
     },
     openFile: () => fileInput.click(),

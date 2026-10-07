@@ -54,13 +54,19 @@ export function loadSettings(): Settings {
   const a = (loaded.adjust ?? {}) as Record<string, unknown>
   const f = (loaded.fx ?? {}) as Record<string, unknown>
   const fx: Fx = {
-    screen: oneOf(f.screen, ['off', 'crt', 'lcd'] as const, d.fx.screen),
+    screen: oneOf(
+      f.screen,
+      ['off', 'crt', 'lcd', 'vhs', 'composite', 'p1-green', 'p3-amber', 'p4-white'] as const,
+      d.fx.screen
+    ),
     mask: oneOf(f.mask, ['none', 'shadow', 'grille'] as const, d.fx.mask),
     scanlines: num(f.scanlines, 0, 1, d.fx.scanlines),
     curve: num(f.curve, 0, 1, d.fx.curve),
     bloom: num(f.bloom, 0, 1, d.fx.bloom),
     grid: num(f.grid, 0, 1, d.fx.grid),
-    ghost: num(f.ghost, 0, 1, d.fx.ghost)
+    ghost: num(f.ghost, 0, 1, d.fx.ghost),
+    vhsTracking: num(f.vhsTracking, 0, 1, d.fx.vhsTracking ?? 0.8),
+    vhsOsd: f.vhsOsd !== false
   }
   const profileId = profileById(String(loaded.profileId)) ? String(loaded.profileId) : d.profileId
   const customCount = typeof loaded.customCount === 'number' ? Math.round(num(loaded.customCount, 2, 256, 16)) : d.customCount
