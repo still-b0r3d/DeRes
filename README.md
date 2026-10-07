@@ -13,11 +13,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.2.0, range profiles, custom palettes and share links, is built. Not live yet.
+**Status:** v0.3.0, per-cell colour limits, Amiga HAM6, N64 blur, tile meter and emulator file export, is built. Not live yet.
 
 ---
 
-## What it does (v0.2.0)
+## What it does (v0.3.0)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try the sample (Rukus). It's decoded once into a
@@ -30,11 +30,23 @@ images.
     dither), CGA palettes 0 and 1, EGA, C64 hi-res, NES, PICO-8, Atari 2600,
     Apple II lo-res, Mac 1-bit, Web-safe 216, a thermal receipt printer and the
     b0r3d palette.
+  - **Per-cell graphics modes & attribute clash:**
+    - **ZX Spectrum:** 256×192 with 8×8 cell attribute clash (1 ink + 1 paper colour per cell, both normal or both bright).
+    - **C64 Multicolour:** 160×200 wide pixels with 4×8 double-width cells (1 shared backdrop + 3 cell colours).
+    - **NES attributes:** 256×240 with 16×16 attribute blocks (4 hardware sub-palettes of 3 colours + 1 shared backdrop).
+    - **Apple II hi-res:** 280×192 with 7-pixel byte rule (high bit selecting Green/Violet vs Orange/Blue).
   - **Picked from a range (bit-grid snapped):** Master System (2 bits per channel, 32 colours),
     Genesis (3 bits per channel, 64 colours), SNES (5 bits per channel, 256 colours),
     PC-9801 (4 bits per channel, 16 colours), VGA 256 (6 bits per channel, 256 colours),
     and Custom N colours.
+  - **Amiga HAM6 (Hold-And-Modify):** 320×200, 12-bit hardware colour (4096 colours), 16 base palette colours with horizontal channel hold-and-modify fringing across scanlines.
+  - **Nintendo 64:** 320×240 at 16-bit colour (RGBA5551) with authentic RDP 3-point triangular sample filter and VI horizontal anti-aliasing blur.
   - **Direct color:** PlayStation (15-bit direct color with the GPU's hardware dither table).
+- **"Would it fit?" hardware tile meter:** slices the processed image into 8×8 tiles, hashes unique patterns, computes unique tile counts and distinct colours, and checks against target machine VRAM/tile budgets (e.g. 256 tiles on NES/Game Boy).
+- **Emulator file exports:**
+  - **ZX Spectrum `.scr`:** exactly 6,912 bytes (6,144 bytes interleaved bitmap + 768 bytes attributes), ready to load directly in Spectrum emulators.
+  - **C64 Koala Painter `.koa`:** exactly 10,003 bytes (load address `$6000`, 8,000 bytes bitmap, 1,000 screen RAM, 1,000 color RAM, 1 background byte).
+  - **Game Boy `.chr`:** 2BPP planar tiles (16 bytes per 8×8 tile, deduplicated tile sheet).
 - **Quantization & bit grids:** range and custom profiles use deterministic
   weighted median-cut quantization snapped to the machine's exact hardware bit depth.
 - **Custom palette files:** import palettes from `.hex`, JASC `.pal`, GIMP `.gpl`,
@@ -56,7 +68,7 @@ images.
   shadow mask or aperture grille, scanlines, curve and bloom; Game Boy LCD grid
   with ghosting. Nothing flickers.
 - **Compare:** a draggable divider, or hold the picture (or Space) to see the
-  original. A readout shows e.g. "14 of 16 colours used · 320×200 · 5:6 pixels".
+  original. A readout shows e.g. "14 of 16 colours used · 320×200 · 5:6 pixels · 217 / 256 tiles (fits in VRAM)".
 - **Export:** a PNG enlarged by a whole number (1× to 16×, sizes past about 16
   megapixels are greyed out) so every pixel stays a sharp block. Raw pixels or
   stretched to the machine's pixel shape ("as on a TV"). Without screen effects
@@ -66,9 +78,6 @@ images.
 
 ## Planned
 
-- **v0.3.0:** per-cell colour limits (ZX Spectrum, C64 multicolour, NES
-  attributes, Apple II hi-res), N64, Amiga HAM6, a "would it fit?" meter, files
-  that load in emulators (Spectrum .scr, C64 Koala, Game Boy tiles).
 - **v0.4.0, ASCII / ANSI studio:** character ramps, colour profiles, 80/132/160
   columns, half-block colour, `.ans` with SAUCE, copy as ANSI / HTML /
   Markdown, PNG in a bundled CP437 font.
@@ -138,6 +147,12 @@ their colours and every emulator's numbers differ a little.
 | PC-9801 | 4,096-colour range (4 bits per channel), 16 on screen |
 | VGA 256 | 262,144-colour range (6 bits per channel), 256 on screen |
 | PlayStation | 15-bit direct colour (5 bits per channel) with GPU dither table |
+| ZX Spectrum | Sinclair 15-colour palette (8 normal, 7 bright duplicates merged) |
+| C64 multicolour | The Colodore palette (double-width 2:1 pixels) |
+| NES attributes | NES palette with 4 hardware sub-palettes of 3 colours + 1 shared backdrop |
+| Apple II hi-res | 6 NTSC artifact colours (Black, White, Green, Violet, Orange, Blue) |
+| Amiga HAM6 | 12-bit hardware colour (4096 colours) with 16 base palette colours |
+| Nintendo 64 | 15-bit color (RGBA5551) with RDP 3-point sample filter and VI blur |
 | Custom | User-defined palette file or quantized from picture |
 
 ## Credits
@@ -150,6 +165,7 @@ elsewhere. The methods come from:
 - Floyd–Steinberg (1976), Bill Atkinson's dither from the original Macintosh,
   and Bayer's ordered dithering (1973).
 - PlayStation GPU hardware dither matrix.
+- ZX Spectrum memory interleaving layout and C64 Koala Painter specification.
 
 ---
 
@@ -163,6 +179,7 @@ version and the build (the commit it was built from).
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.3.0 | 2026-10-07 | Per-cell modes (Spectrum clash, C64 MC, NES attributes, Apple II hi-res), Amiga HAM6, N64 blur, tile meter and emulator export (.scr, .koa, .chr). |
 | 0.2.0 | 2026-10-07 | Range profiles (SNES, Genesis, Master System, PC-98, VGA 256, custom), PS1 hardware dither, palette files (.hex, .pal, .gpl, PNG), palette grabber, settings share link. |
 | 0.1.0 | 2026-10-07 | DeRes core: 15 fixed-palette profiles, worker pipeline, 8 dithers, pre-filters, screen effects, compare divider, integer export. |
 

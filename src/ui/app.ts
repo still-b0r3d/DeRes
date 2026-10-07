@@ -197,6 +197,7 @@ export function startApp(): void {
     openFile: () => fileInput.click(),
     loadSample,
     download,
+    downloadEmulator,
     loadPaletteFile: () => paletteFileInput.click(),
     grabPalette,
     shareLink,
@@ -216,7 +217,12 @@ export function startApp(): void {
     const tv = settings.pixelShape === 'tv'
     stage.show(m, tv, settings.background === 'white' ? '#ffffff' : '#000000')
     const shape = m.par[0] === m.par[1] ? 'square pixels' : `${m.par[0]}:${m.par[1]} pixels`
-    readout.textContent = `${m.used} of ${m.colours} colours used · ${m.width}×${m.height} · ${shape}`
+    controls.setTileFit(m.tileFit)
+    let tileText = ''
+    if (m.tileFit) {
+      tileText = ` · ${m.tileFit.summary}`
+    }
+    readout.textContent = `${m.used} of ${m.colours} colours used · ${m.width}×${m.height} · ${shape}${tileText}`
     readout.dataset.ms = String(m.ms)
   }
   engine.onError = (message) => stage.problem(`Something went wrong: ${message}`)
@@ -278,6 +284,24 @@ export function startApp(): void {
       controls.status(`Saved ${res.filename} (${res.width}×${res.height}).`)
     } catch (err) {
       controls.status(`Couldn't make the PNG: ${(err as Error).message}`)
+    }
+  }
+
+  async function downloadEmulator(format: 'scr' | 'koa' | 'chr'): Promise<void> {
+    if (!picture) return
+    controls.status(`Making the .${format}…`)
+    try {
+      const res = await engine.exportEmulator(deres(settings), format, picture.base)
+      const blob = new Blob([res.data.buffer as ArrayBuffer], { type: res.mimeType })
+      const url = URL.createObjectURL(blob)
+      const a = h('a', { href: url, download: res.filename, class: 'visually-hidden' })
+      document.body.append(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      controls.status(`Saved ${res.filename} (${res.data.length.toLocaleString()} bytes).`)
+    } catch (err) {
+      controls.status(`Couldn't export .${format}: ${(err as Error).message}`)
     }
   }
 

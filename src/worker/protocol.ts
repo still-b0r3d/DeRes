@@ -1,5 +1,6 @@
 import type { Rect } from '../core/resample'
 import type { DeresSettings } from '../core/pipeline'
+import type { HardwareFitReport } from '../core/tiles'
 
 // Messages between the page and the image worker. The picture goes over once
 // (load); after that the page only sends settings.
@@ -32,6 +33,14 @@ export type ToWorker =
       withFx: boolean
       base: string
     }
+  | {
+      type: 'export-emulator'
+      id: number
+      gen: number
+      settings: DeresSettings
+      format: 'scr' | 'koa' | 'chr'
+      base: string
+    }
 
 export interface RenderedMessage {
   type: 'rendered'
@@ -48,10 +57,13 @@ export interface RenderedMessage {
   src: Rect
   dst: Rect
   ms: number
+  tileFit?: HardwareFitReport
+  emulatorFormats?: readonly ('scr' | 'koa' | 'chr')[]
 }
 
 export type FromWorker =
   | { type: 'loaded'; gen: number; hasAlpha: boolean }
   | RenderedMessage
   | { type: 'exported'; id: number; png: ArrayBuffer; filename: string; width: number; height: number }
+  | { type: 'exported-emulator'; id: number; data: ArrayBuffer; filename: string; mimeType: string }
   | { type: 'error'; job?: number; id?: number; gen: number; message: string }

@@ -719,6 +719,55 @@ button:disabled {
   flex: 1 1 auto;
 }
 
+/* "Would it fit?" tile meter badge */
+.tile-fit-badge {
+  font-family: var(--brand-font);
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tile-fit-badge.fit-ok {
+  border-color: rgba(0, 255, 157, 0.4);
+  color: var(--mint);
+}
+
+.tile-fit-badge.fit-warn {
+  border-color: rgba(255, 100, 100, 0.5);
+  color: #ff7777;
+}
+
+/* Emulator export actions */
+.emu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.emu-btn {
+  width: 100%;
+  padding: 8px 10px;
+  font-family: var(--brand-font);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  background: rgba(255, 102, 255, 0.08);
+  border: 1px solid var(--pink);
+  border-radius: 5px;
+  color: var(--pink);
+}
+
+.emu-btn:hover:not(:disabled) {
+  background: rgba(255, 102, 255, 0.18);
+  color: #ffffff;
+}
+
 /* Drag and drop */
 .drop-overlay {
   position: fixed;

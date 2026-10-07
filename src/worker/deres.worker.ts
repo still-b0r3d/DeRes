@@ -3,6 +3,7 @@ import { exportFilename } from '../core/filename'
 import { renderFxRgba } from '../core/fx'
 import { Deres, exportSize, type DeresSettings, type Rendered } from '../core/pipeline'
 import { profileById } from '../core/profiles'
+import { encodeGbChr } from '../core/tiles'
 import type { FromWorker, ToWorker } from './protocol'
 
 // The image worker. It keeps the working copy, so the page's slider moves
@@ -55,6 +56,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       }
       const transfer: Transferable[] = [rgba.buffer]
       if (fx) transfer.push(fx.rgba)
+      const prof = profileById(msg.settings.profileId)
       post(
         {
           type: 'rendered',
@@ -69,7 +71,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
           par: r.geometry.par,
           src: r.geometry.src,
           dst: r.geometry.dst,
-          ms: Math.round(performance.now() - t0)
+          ms: Math.round(performance.now() - t0),
+          tileFit: r.tileFit,
+          emulatorFormats: prof?.limits?.emulatorFormats
         },
         transfer
       )
@@ -97,6 +101,36 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       post(
         { type: 'exported', id: msg.id, png: out.png.buffer, filename, width: out.width, height: out.height },
         [out.png.buffer]
+      )
+    } catch (err) {
+      post({ type: 'error', id: msg.id, gen, message: String((err as Error)?.message ?? err) })
+    }
+  }
+
+  if (msg.type === 'export-emulator') {
+    try {
+      const s = msg.settings
+      const r = renderFor(s)
+      const prof = profileById(s.profileId)
+      let data: Uint8Array
+      const format = msg.format
+      if (format === 'chr') {
+        data = encodeGbChr(r.indices, r.width, r.height, true)
+      } else if (r.emulatorData && r.emulatorData.format === format) {
+        data = r.emulatorData.data
+      } else {
+        throw new Error(`Profile ${s.profileId} does not support export format .${format}`)
+      }
+      const filename = `${msg.base}-${prof?.id ?? s.profileId}.${format}`
+      post(
+        {
+          type: 'exported-emulator',
+          id: msg.id,
+          data: data.buffer as ArrayBuffer,
+          filename,
+          mimeType: 'application/octet-stream'
+        },
+        [data.buffer as ArrayBuffer]
       )
     } catch (err) {
       post({ type: 'error', id: msg.id, gen, message: String((err as Error)?.message ?? err) })

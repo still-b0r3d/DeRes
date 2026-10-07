@@ -1,3 +1,4 @@
+import { SPECTRUM_PALETTE, C64_PALETTE, NES_PALETTE, APPLE2_HIRES_PALETTE } from './cell'
 import { rgbToHex } from './color'
 import type { DitherId } from './dither'
 import { snapToBits } from './quantize'
@@ -7,8 +8,9 @@ import { snapToBits } from './quantize'
 // palette, and the dither and screen it suits.
 //
 // v0.1 has the fixed-palette machines.
-// v0.2 adds palettes picked from a range (a quantizer snapping to the machine's
-// bits per channel), direct 15-bit PlayStation dither, and custom palettes.
+// v0.2 adds palettes picked from a range, PS1 dither, and custom palettes.
+// v0.3 adds per-cell modes (Spectrum, C64 MC, NES attributes, Apple II hi-res),
+// Amiga HAM6, N64 3-point blur, and emulator export formats.
 // Sources are listed in the README.
 
 export interface FixedPalette {
@@ -32,7 +34,40 @@ export interface CustomPalette {
   count: number
 }
 
-export type PaletteSpec = FixedPalette | RangePalette | DirectPalette | CustomPalette
+export interface CellPalette {
+  kind: 'cell'
+  mode: 'spectrum' | 'c64-mc' | 'nes-attr' | 'apple2-hires'
+  colours: readonly string[]
+}
+
+export interface HamPalette {
+  kind: 'ham'
+  mode: 'ham6'
+  bitsPerChannel: number
+}
+
+export interface N64Palette {
+  kind: 'n64'
+  blur: boolean
+}
+
+export type PaletteSpec =
+  | FixedPalette
+  | RangePalette
+  | DirectPalette
+  | CustomPalette
+  | CellPalette
+  | HamPalette
+  | N64Palette
+
+export interface HardwareLimits {
+  /** Maximum unique 8×8 tiles (e.g. 256 for NES / Game Boy) */
+  maxTiles?: number
+  /** Maximum total colours on screen */
+  maxColours?: number
+  /** Allowed emulator file formats for export */
+  emulatorFormats?: readonly ('scr' | 'koa' | 'chr')[]
+}
 
 export interface Profile {
   id: string
@@ -47,6 +82,7 @@ export interface Profile {
   /** Pixel width : height as shown on its screen. */
   par: readonly [number, number]
   palette: PaletteSpec
+  limits?: HardwareLimits
   /**
    * Grey levels: the picture is turned to grey and spread over the levels,
    * darkest to lightest, whatever their tint (the Game Boy's greens).
@@ -139,6 +175,23 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 
 export function representativePalette(spec: PaletteSpec): string[] {
   if (spec.kind === 'fixed') return [...spec.colours]
+  if (spec.kind === 'cell') return [...spec.colours]
+  if (spec.kind === 'ham') {
+    const out: string[] = []
+    for (let i = 0; i < 16; i++) {
+      const [r8, g8, b8] = hslToRgb(i * (360 / 16), 0.8, 0.5)
+      out.push(rgbToHex(snapToBits(r8, 4), snapToBits(g8, 4), snapToBits(b8, 4)))
+    }
+    return out
+  }
+  if (spec.kind === 'n64') {
+    const out: string[] = []
+    for (let i = 0; i < 32; i++) {
+      const [r8, g8, b8] = hslToRgb(i * (360 / 32), 0.75, 0.5)
+      out.push(rgbToHex(snapToBits(r8, 5), snapToBits(g8, 5), snapToBits(b8, 5)))
+    }
+    return out
+  }
   if (spec.kind === 'range') {
     const bits = spec.bitsPerChannel
     const count = Math.min(256, Math.max(1, spec.count))
@@ -178,6 +231,7 @@ export const PROFILES: readonly Profile[] = [
     height: 144,
     par: [1, 1],
     palette: fixed(['#081820', '#346856', '#88c070', '#e0f8d0']),
+    limits: { maxTiles: 256, maxColours: 4, emulatorFormats: ['chr'] },
     mono: true,
     dither: 'bayer4',
     screen: 'lcd'
@@ -191,6 +245,7 @@ export const PROFILES: readonly Profile[] = [
     height: 144,
     par: [1, 1],
     palette: fixed(['#1f1f1f', '#4d533c', '#8b956d', '#c4cfa1']),
+    limits: { maxTiles: 256, maxColours: 4, emulatorFormats: ['chr'] },
     mono: true,
     dither: 'floyd',
     screen: 'lcd'
@@ -204,6 +259,7 @@ export const PROFILES: readonly Profile[] = [
     height: 112,
     par: [1, 1],
     palette: fixed(['#000000', '#555555', '#aaaaaa', '#ffffff']),
+    limits: { maxTiles: 224, maxColours: 4, emulatorFormats: ['chr'] },
     mono: true,
     dither: 'gbcam',
     nativeDither: 'gbcam',
@@ -255,7 +311,34 @@ export const PROFILES: readonly Profile[] = [
     height: 200,
     par: [15, 16],
     palette: fixed(C64),
+    limits: { maxTiles: 256, maxColours: 16 },
     dither: 'floyd',
+    screen: 'crt'
+  },
+  {
+    id: 'c64-mc',
+    name: 'C64 multicolour',
+    origin: 'Commodore · 1982',
+    about: '160×200 wide pixels with 4×8 double cells: 1 shared backdrop and 3 cell colours.',
+    width: 160,
+    height: 200,
+    par: [15, 8],
+    palette: { kind: 'cell', mode: 'c64-mc', colours: C64_PALETTE },
+    limits: { maxTiles: 256, maxColours: 16, emulatorFormats: ['koa'] },
+    dither: 'none',
+    screen: 'crt'
+  },
+  {
+    id: 'zx-spectrum',
+    name: 'ZX Spectrum',
+    origin: 'Sinclair · 1982',
+    about: '256×192 with 8×8 cell attribute clash: 1 ink and 1 paper colour per cell.',
+    width: 256,
+    height: 192,
+    par: [1, 1],
+    palette: { kind: 'cell', mode: 'spectrum', colours: SPECTRUM_PALETTE },
+    limits: { maxTiles: 768, maxColours: 15, emulatorFormats: ['scr'] },
+    dither: 'none',
     screen: 'crt'
   },
   {
@@ -267,7 +350,21 @@ export const PROFILES: readonly Profile[] = [
     height: 240,
     par: [8, 7],
     palette: fixed(NES),
+    limits: { maxTiles: 256, maxColours: 25, emulatorFormats: ['chr'] },
     dither: 'floyd',
+    screen: 'crt'
+  },
+  {
+    id: 'nes-attr',
+    name: 'NES attributes',
+    origin: 'Nintendo · 1983',
+    about: '256×240 with 16×16 attribute blocks: 4 hardware sub-palettes + 1 backdrop.',
+    width: 256,
+    height: 240,
+    par: [8, 7],
+    palette: { kind: 'cell', mode: 'nes-attr', colours: NES_PALETTE },
+    limits: { maxTiles: 256, maxColours: 25, emulatorFormats: ['chr'] },
+    dither: 'none',
     screen: 'crt'
   },
   {
@@ -279,6 +376,7 @@ export const PROFILES: readonly Profile[] = [
     height: 128,
     par: [1, 1],
     palette: fixed(PICO8),
+    limits: { maxTiles: 256, maxColours: 16 },
     dither: 'floyd',
     screen: 'crt'
   },
@@ -303,6 +401,20 @@ export const PROFILES: readonly Profile[] = [
     height: 48,
     par: [8, 5],
     palette: fixed(APPLE_II),
+    limits: { maxColours: 16 },
+    dither: 'none',
+    screen: 'crt'
+  },
+  {
+    id: 'apple2-hires',
+    name: 'Apple II hi-res',
+    origin: 'Apple · 1977',
+    about: '280×192 with 7-pixel byte rule: high bit selects Green/Violet or Orange/Blue.',
+    width: 280,
+    height: 192,
+    par: [6, 7],
+    palette: { kind: 'cell', mode: 'apple2-hires', colours: APPLE2_HIRES_PALETTE },
+    limits: { maxColours: 6 },
     dither: 'none',
     screen: 'crt'
   },
@@ -328,6 +440,7 @@ export const PROFILES: readonly Profile[] = [
     height: 480,
     par: [1, 1],
     palette: fixed(webSafe()),
+    limits: { maxColours: 216 },
     dither: 'bayer4',
     screen: 'crt'
   },
@@ -357,6 +470,19 @@ export const PROFILES: readonly Profile[] = [
     screen: 'crt'
   },
   {
+    id: 'amiga-ham6',
+    name: 'Amiga HAM6',
+    origin: 'Commodore · 1985',
+    about: '320×200 Hold-And-Modify: 16 base palette colours with horizontal channel hold-and-modify fringing.',
+    width: 320,
+    height: 200,
+    par: [5, 6],
+    palette: { kind: 'ham', mode: 'ham6', bitsPerChannel: 4 },
+    limits: { maxColours: 4096 },
+    dither: 'none',
+    screen: 'crt'
+  },
+  {
     id: 'snes',
     name: 'Super Nintendo',
     origin: 'Nintendo · 1990',
@@ -365,6 +491,7 @@ export const PROFILES: readonly Profile[] = [
     height: 224,
     par: [8, 7],
     palette: { kind: 'range', bitsPerChannel: 5, count: 256 },
+    limits: { maxTiles: 1024, maxColours: 256 },
     dither: 'floyd',
     screen: 'crt'
   },
@@ -377,6 +504,7 @@ export const PROFILES: readonly Profile[] = [
     height: 224,
     par: [10, 11],
     palette: { kind: 'range', bitsPerChannel: 3, count: 61 },
+    limits: { maxTiles: 2048, maxColours: 64 },
     dither: 'floyd',
     screen: 'crt'
   },
@@ -389,6 +517,7 @@ export const PROFILES: readonly Profile[] = [
     height: 192,
     par: [8, 7],
     palette: { kind: 'range', bitsPerChannel: 2, count: 32 },
+    limits: { maxTiles: 512, maxColours: 32 },
     dither: 'floyd',
     screen: 'crt'
   },
@@ -401,6 +530,7 @@ export const PROFILES: readonly Profile[] = [
     height: 400,
     par: [1, 1],
     palette: { kind: 'range', bitsPerChannel: 4, count: 16 },
+    limits: { maxColours: 16 },
     dither: 'bayer4',
     screen: 'crt'
   },
@@ -413,6 +543,7 @@ export const PROFILES: readonly Profile[] = [
     height: 200,
     par: [5, 6],
     palette: { kind: 'range', bitsPerChannel: 6, count: 256 },
+    limits: { maxColours: 256 },
     dither: 'none',
     screen: 'crt'
   },
@@ -427,6 +558,19 @@ export const PROFILES: readonly Profile[] = [
     palette: { kind: 'direct', bitsPerChannel: 5 },
     dither: 'ps1',
     nativeDither: 'ps1',
+    screen: 'crt'
+  },
+  {
+    id: 'n64',
+    name: 'Nintendo 64',
+    origin: 'Nintendo · 1996',
+    about: '320×240 at 16-bit colour with RDP 3-point sample filter and VI anti-aliasing blur.',
+    width: 320,
+    height: 240,
+    par: [1, 1],
+    palette: { kind: 'n64', blur: true },
+    limits: { maxColours: 32768 },
+    dither: 'none',
     screen: 'crt'
   },
   {

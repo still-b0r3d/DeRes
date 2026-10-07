@@ -1,12 +1,16 @@
 import { applyAdjust, edgeBoost, toGrey, type Adjust } from './adjust'
-import { BYTE_TO_LINEAR, hexToRgb, luminance, toSrgb } from './color'
+import { processSpectrum, processC64Multicolour, processNesAttributes, processApple2Hires } from './cell'
+import { BYTE_TO_LINEAR, hexToRgb, linearToByte, luminance, toSrgb } from './color'
 import { dither, PS1_DITHER_TABLE, type DitherId } from './dither'
 import type { Fx } from './fx'
 import { planGeometry, type Fit, type Geometry } from './geometry'
+import { processAmigaHam6 } from './ham'
 import { PaletteMatcher } from './matcher'
+import { processN64 } from './n64'
 import { DEFAULT_PROFILE, profileById, representativePalette, type Profile } from './profiles'
 import { quantizeRgb, snapToBits } from './quantize'
 import { resampleArea } from './resample'
+import { analyzeTileFit, encodeGbChr, type HardwareFitReport } from './tiles'
 import { YliluomaPlanner } from './yliluoma'
 
 // The DeRes pipeline: working copy -> crop and area-average to the machine's
@@ -46,6 +50,12 @@ export interface Rendered {
   geometry: Geometry
   /** The palette's lightest colour (LCD screens show it between pixels). */
   paper: [number, number, number]
+  tileFit?: HardwareFitReport
+  emulatorData?: {
+    format: 'scr' | 'koa' | 'chr'
+    data: Uint8Array
+    defaultName: string
+  }
 }
 
 interface Source {
@@ -82,6 +92,20 @@ export function paletteBytes(profile: Profile, customPalette?: readonly string[]
 
 function lum([r, g, b]: readonly number[]): number {
   return luminance(BYTE_TO_LINEAR[r], BYTE_TO_LINEAR[g], BYTE_TO_LINEAR[b])
+}
+
+function findLightest(display: Uint8Array): [number, number, number] {
+  if (display.length < 3) return [255, 255, 255]
+  let best = 0
+  let maxLum = -1
+  for (let i = 0; i < display.length / 3; i++) {
+    const y = lum([display[i * 3], display[i * 3 + 1], display[i * 3 + 2]])
+    if (y > maxLum) {
+      maxLum = y
+      best = i
+    }
+  }
+  return [display[best * 3], display[best * 3 + 1], display[best * 3 + 2]]
 }
 
 export class Deres {
@@ -181,6 +205,7 @@ export class Deres {
         }
       }
       const palBytes = Uint8Array.from(palList.length > 0 ? palList : [0, 0, 0])
+      const tileFit = profile.limits ? analyzeTileFit(indices, width, height, profile.limits) : undefined
       return {
         width,
         height,
@@ -189,7 +214,184 @@ export class Deres {
         rgb: out,
         used,
         geometry: g,
-        paper: [255, 255, 255]
+        paper: [255, 255, 255],
+        tileFit
+      }
+    }
+
+    // Per-cell vintage hardware constraints
+    if (profile.palette.kind === 'cell') {
+      const mode = profile.palette.mode
+      let cellIndices: Uint8Array
+      let cellLinearRgb: Float32Array
+      let emuData: Uint8Array | undefined
+      let emuFormat: 'scr' | 'koa' | 'chr' | undefined
+
+      if (mode === 'spectrum') {
+        const spec = processSpectrum(rgb, width, height)
+        cellIndices = spec.indices
+        cellLinearRgb = spec.rgb
+        const scr = new Uint8Array(6912)
+        scr.set(spec.bitmap, 0)
+        scr.set(spec.attributes, 6144)
+        emuData = scr
+        emuFormat = 'scr'
+      } else if (mode === 'c64-mc') {
+        const mc = processC64Multicolour(rgb, width, height)
+        cellIndices = mc.indices
+        cellLinearRgb = mc.rgb
+        emuData = mc.koalaData
+        emuFormat = 'koa'
+      } else if (mode === 'nes-attr') {
+        const na = processNesAttributes(rgb, width, height)
+        cellIndices = na.indices
+        cellLinearRgb = na.rgb
+        if (profile.limits?.emulatorFormats?.includes('chr')) {
+          emuData = encodeGbChr(cellIndices, width, height)
+          emuFormat = 'chr'
+        }
+      } else {
+        const a2 = processApple2Hires(rgb, width, height)
+        cellIndices = a2.indices
+        cellLinearRgb = a2.rgb
+      }
+
+      if (bars) {
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) {
+              const i = y * width + x
+              cellIndices[i] = 0
+              cellLinearRgb[i * 3] = 0
+              cellLinearRgb[i * 3 + 1] = 0
+              cellLinearRgb[i * 3 + 2] = 0
+            }
+          }
+        }
+      }
+
+      const out = new Uint8Array(width * height * 3)
+      for (let i = 0; i < width * height * 3; i++) {
+        out[i] = linearToByte(cellLinearRgb[i])
+      }
+
+      const palBytes = paletteBytes(profile)
+      const seen = new Uint8Array(Math.max(256, palBytes.length / 3))
+      let used = 0
+      for (let i = 0; i < cellIndices.length; i++) {
+        const idx = cellIndices[i]
+        if (!seen[idx]) {
+          seen[idx] = 1
+          used++
+        }
+      }
+
+      const tileFit = profile.limits ? analyzeTileFit(cellIndices, width, height, profile.limits) : undefined
+      const emu =
+        emuData && emuFormat
+          ? { format: emuFormat, data: emuData, defaultName: `${profile.id}.${emuFormat}` }
+          : undefined
+
+      return {
+        width,
+        height,
+        indices: cellIndices,
+        palette: palBytes,
+        rgb: out,
+        used,
+        geometry: g,
+        paper: findLightest(palBytes),
+        tileFit,
+        emulatorData: emu
+      }
+    }
+
+    // Amiga HAM6
+    if (profile.palette.kind === 'ham') {
+      const ham = processAmigaHam6(rgb, width, height)
+      if (bars) {
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) {
+              const i = y * width + x
+              ham.indices[i] = 0
+              ham.rgb[i * 3] = 0
+              ham.rgb[i * 3 + 1] = 0
+              ham.rgb[i * 3 + 2] = 0
+            }
+          }
+        }
+      }
+
+      const out = new Uint8Array(width * height * 3)
+      for (let i = 0; i < width * height * 3; i++) {
+        out[i] = linearToByte(ham.rgb[i])
+      }
+
+      const tileFit = profile.limits ? analyzeTileFit(ham.indices, width, height, profile.limits) : undefined
+
+      return {
+        width,
+        height,
+        indices: ham.indices,
+        palette: ham.palette,
+        rgb: out,
+        used: ham.usedColours,
+        geometry: g,
+        paper: findLightest(ham.palette),
+        tileFit
+      }
+    }
+
+    // Nintendo 64 3-point sample + VI blur
+    if (profile.palette.kind === 'n64') {
+      const n64 = processN64(rgb, width, height)
+      if (bars) {
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) {
+              const i = y * width + x
+              n64.indices[i] = 0
+              n64.rgb[i * 3] = 0
+              n64.rgb[i * 3 + 1] = 0
+              n64.rgb[i * 3 + 2] = 0
+            }
+          }
+        }
+      }
+
+      const out = new Uint8Array(width * height * 3)
+      const seen = new Set<number>()
+      const palList: number[] = []
+      for (let i = 0; i < width * height; i++) {
+        const r = linearToByte(n64.rgb[i * 3])
+        const g = linearToByte(n64.rgb[i * 3 + 1])
+        const b = linearToByte(n64.rgb[i * 3 + 2])
+        out[i * 3] = r
+        out[i * 3 + 1] = g
+        out[i * 3 + 2] = b
+        const key = (r << 16) | (g << 8) | b
+        if (!seen.has(key)) {
+          seen.add(key)
+          if (palList.length < 256 * 3) {
+            palList.push(r, g, b)
+          }
+        }
+      }
+
+      const palBytes = Uint8Array.from(palList.length > 0 ? palList : [0, 0, 0])
+      const tileFit = profile.limits ? analyzeTileFit(n64.indices, width, height, profile.limits) : undefined
+
+      return {
+        width,
+        height,
+        indices: n64.indices,
+        palette: palBytes,
+        rgb: out,
+        used: seen.size,
+        geometry: g,
+        paper: [255, 255, 255],
+        tileFit
       }
     }
 
@@ -252,6 +454,17 @@ export class Deres {
       out[i * 3 + 1] = pal.display[k * 3 + 1]
       out[i * 3 + 2] = pal.display[k * 3 + 2]
     }
+
+    const tileFit = profile.limits ? analyzeTileFit(indices, width, height, profile.limits) : undefined
+    let emu: { format: 'scr' | 'koa' | 'chr'; data: Uint8Array; defaultName: string } | undefined
+    if (profile.limits?.emulatorFormats?.includes('chr')) {
+      emu = {
+        format: 'chr',
+        data: encodeGbChr(indices, width, height),
+        defaultName: `${profile.id}.chr`
+      }
+    }
+
     const l = pal.lightest * 3
     return {
       width,
@@ -261,7 +474,9 @@ export class Deres {
       rgb: out,
       used,
       geometry: g,
-      paper: [pal.display[l], pal.display[l + 1], pal.display[l + 2]]
+      paper: [pal.display[l], pal.display[l + 1], pal.display[l + 2]],
+      tileFit,
+      emulatorData: emu
     }
   }
 

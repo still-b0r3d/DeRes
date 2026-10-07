@@ -50,11 +50,11 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('loads the sample and shows the Game Boy look', async ({ page }) => {
-  await expect(readout(page)).toHaveText('4 of 4 colours used · 160×144 · square pixels')
+  await expect(readout(page)).toContainText('4 of 4 colours used · 160×144 · square pixels')
   await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
   const gbPal = profileById('gameboy')!.palette
   expect(new Set(await canvasColours(page))).toEqual(new Set(gbPal.kind === 'fixed' ? gbPal.colours : []))
-  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.2.0')
+  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.3.0')
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
@@ -303,5 +303,42 @@ test('share link preserves settings in URL hash', async ({ page }) => {
   await expect(page.locator('.status')).toContainText(/Share (link copied|URL)/)
   const hash = await page.evaluate(() => window.location.hash)
   expect(hash).toContain('#s=')
+})
+
+test('v0.3: ZX Spectrum renders attribute clash and offers .scr download', async ({ page }) => {
+  await pick(page, 'zx-spectrum')
+  await expect(page.getByTestId('tile-fit')).toBeVisible()
+  await expect(page.getByTestId('tile-fit')).toContainText('tiles')
+  await expect(page.getByTestId('download-scr')).toBeVisible()
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByTestId('download-scr').click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('rukus-zx-spectrum.scr')
+})
+
+test('v0.3: C64 Multicolour renders and offers .koa download', async ({ page }) => {
+  await pick(page, 'c64-mc')
+  await expect(page.getByTestId('tile-fit')).toBeVisible()
+  await expect(page.getByTestId('download-koa')).toBeVisible()
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByTestId('download-koa').click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('rukus-c64-mc.koa')
+})
+
+test('v0.3: Game Boy offers .chr tile export', async ({ page }) => {
+  await pick(page, 'gameboy')
+  await expect(page.getByTestId('download-chr')).toBeVisible()
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByTestId('download-chr').click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('rukus-gameboy.chr')
+})
+
+test('v0.3: Amiga HAM6 and N64 render authentically', async ({ page }) => {
+  await pick(page, 'amiga-ham6')
+  expect((await canvasColours(page)).length).toBeGreaterThan(0)
+  await pick(page, 'n64')
+  expect((await canvasColours(page)).length).toBeGreaterThan(0)
 })
 

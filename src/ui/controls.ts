@@ -4,6 +4,7 @@ import { FX_MIN_MULTIPLIER } from '../core/export'
 import type { Geometry } from '../core/geometry'
 import { exportSize, MAX_EXPORT_PIXELS, paletteBytes } from '../core/pipeline'
 import { PROFILES, profileById, representativePalette } from '../core/profiles'
+import type { HardwareFitReport } from '../core/tiles'
 import { h, segmented, show, slider } from './dom'
 import type { Settings } from './settings'
 
@@ -18,6 +19,7 @@ export interface ControlsContext {
   openFile(): void
   loadSample(): void
   download(): void
+  downloadEmulator?: (format: 'scr' | 'koa' | 'chr') => void
   loadPaletteFile(): void
   grabPalette(): void
   shareLink(): void
@@ -40,7 +42,12 @@ function section(title: string, open: boolean, ...body: (Node | null)[]): HTMLDe
 const pct = (v: number) => `${Math.round(v * 100)}%`
 const signedPct = (v: number) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}`
 
-export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: () => void; status: (t: string) => void } {
+export function buildControls(ctx: ControlsContext): {
+  el: HTMLElement
+  sync: () => void
+  status: (t: string) => void
+  setTileFit: (report?: HardwareFitReport) => void
+} {
   const set = ctx.set
 
   // Image
@@ -134,6 +141,7 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
     grid.append(card)
   }
   const about = h('p', { class: 'about', 'data-testid': 'profile-about' })
+  const tileFitEl = h('div', { class: 'tile-fit-badge', 'data-testid': 'tile-fit', hidden: true })
 
   const customCount = slider({
     id: 'custom-count',
@@ -148,7 +156,7 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
   const grabPaletteBtn = h('button', { type: 'button', class: 'small', onclick: () => ctx.grabPalette() }, 'Grab palette')
   const paletteTools = h('div', { class: 'palette-tools' }, customCount.el, h('div', { class: 'btn-row' }, loadPaletteBtn, grabPaletteBtn))
 
-  const hardwareSec = section('Hardware', true, grid, about, paletteTools)
+  const hardwareSec = section('Hardware', true, grid, about, tileFitEl, paletteTools)
 
   // Adjust
   const adj = {
@@ -289,6 +297,37 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
   fxBox.addEventListener('change', () => set({ exportFx: fxBox.checked }))
   const fxLabel = h('label', { class: 'check', for: 'export-fx' }, fxBox, ' With the screen effect')
   const downloadBtn = h('button', { type: 'button', class: 'download', onclick: () => ctx.download() }, 'Download PNG')
+  const emuScrBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'emu-btn',
+      'data-testid': 'download-scr',
+      onclick: () => ctx.downloadEmulator?.('scr')
+    },
+    'Download .scr (ZX Spectrum)'
+  )
+  const emuKoaBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'emu-btn',
+      'data-testid': 'download-koa',
+      onclick: () => ctx.downloadEmulator?.('koa')
+    },
+    'Download .koa (C64 Koala)'
+  )
+  const emuChrBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'emu-btn',
+      'data-testid': 'download-chr',
+      onclick: () => ctx.downloadEmulator?.('chr')
+    },
+    'Download .chr (Game Boy tiles)'
+  )
+  const emuActions = h('div', { class: 'emu-actions', hidden: true }, emuScrBtn, emuKoaBtn, emuChrBtn)
   const shareBtn = h('button', { type: 'button', class: 'share-link', onclick: () => ctx.shareLink() }, 'Copy share link')
   const statusLine = h('p', { class: 'status', role: 'status' })
   const exportSec = section(
@@ -298,7 +337,7 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
     h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Size'), mult.el),
     sizeLine,
     fxLabel,
-    h('div', { class: 'export-actions' }, downloadBtn, shareBtn),
+    h('div', { class: 'export-actions' }, downloadBtn, emuActions, shareBtn),
     statusLine
   )
 
@@ -394,6 +433,12 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
       let coloursLabel: string
       if (p.palette.kind === 'direct') {
         coloursLabel = '15-bit direct'
+      } else if (p.palette.kind === 'ham') {
+        coloursLabel = '12-bit HAM6'
+      } else if (p.palette.kind === 'n64') {
+        coloursLabel = '16-bit RGBA5551'
+      } else if (p.palette.kind === 'cell') {
+        coloursLabel = `cell clash (${p.palette.colours.length} colours)`
       } else if (p.palette.kind === 'fixed') {
         coloursLabel = `${p.palette.colours.length}-colour palette`
       } else if (p.palette.kind === 'range') {
@@ -408,11 +453,35 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
         ? `${w}×${hh} is too big. Pick a smaller size.`
         : `${w}×${hh} px · ${withFx ? 'full colour' : coloursLabel}`
       downloadBtn.disabled = !pic || tooBig
+
+      const fmts = p.limits?.emulatorFormats ?? []
+      show(emuScrBtn, fmts.includes('scr'))
+      show(emuKoaBtn, fmts.includes('koa'))
+      show(emuChrBtn, fmts.includes('chr'))
+      show(emuActions, fmts.length > 0)
+      emuScrBtn.disabled = !pic
+      emuKoaBtn.disabled = !pic
+      emuChrBtn.disabled = !pic
     } else {
       sizeLine.textContent = ''
       downloadBtn.disabled = true
+      show(emuActions, false)
     }
   }
 
-  return { el, sync, status: (t) => (statusLine.textContent = t) }
+  return {
+    el,
+    sync,
+    status: (t) => (statusLine.textContent = t),
+    setTileFit: (report?: HardwareFitReport) => {
+      if (!report) {
+        show(tileFitEl, false)
+        return
+      }
+      show(tileFitEl, true)
+      tileFitEl.textContent = report.summary
+      tileFitEl.classList.toggle('fit-ok', report.tilesFit)
+      tileFitEl.classList.toggle('fit-warn', !report.tilesFit)
+    }
+  }
 }

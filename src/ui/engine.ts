@@ -69,6 +69,15 @@ export class Engine {
     return new Promise((resolve, reject) => this.exports.set(id, { resolve, reject }))
   }
 
+  private emuExportId = 0
+  private readonly emuExports = new Map<number, { resolve: (v: EmulatorExportResult) => void; reject: (e: Error) => void }>()
+
+  exportEmulator(settings: DeresSettings, format: 'scr' | 'koa' | 'chr', base: string): Promise<EmulatorExportResult> {
+    const id = ++this.emuExportId
+    this.post({ type: 'export-emulator', id, gen: this.gen, settings, format, base })
+    return new Promise((resolve, reject) => this.emuExports.set(id, { resolve, reject }))
+  }
+
   private send(req: RenderRequest): void {
     this.busy = true
     this.onBusy(true)
@@ -90,9 +99,18 @@ export class Engine {
       case 'rendered':
       case 'error': {
         if ('id' in msg && msg.id !== undefined) {
-          this.exports.get(msg.id)?.reject(new Error(msg.message))
-          this.exports.delete(msg.id)
-          return
+          const exp = this.exports.get(msg.id)
+          if (exp) {
+            exp.reject(new Error(msg.message))
+            this.exports.delete(msg.id)
+            return
+          }
+          const emuExp = this.emuExports.get(msg.id)
+          if (emuExp) {
+            emuExp.reject(new Error(msg.message))
+            this.emuExports.delete(msg.id)
+            return
+          }
         }
         if (msg.gen !== this.gen) return
         this.busy = false
@@ -108,6 +126,14 @@ export class Engine {
         this.exports.get(msg.id)?.resolve(msg)
         this.exports.delete(msg.id)
         return
+      case 'exported-emulator': {
+        const item = this.emuExports.get(msg.id)
+        if (item) {
+          item.resolve({ data: new Uint8Array(msg.data), filename: msg.filename, mimeType: msg.mimeType })
+          this.emuExports.delete(msg.id)
+        }
+        return
+      }
     }
   }
 }
@@ -117,4 +143,10 @@ export interface ExportResult {
   filename: string
   width: number
   height: number
+}
+
+export interface EmulatorExportResult {
+  data: Uint8Array
+  filename: string
+  mimeType: string
 }
