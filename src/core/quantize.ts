@@ -1,4 +1,4 @@
-import { linearToByte } from './color'
+import { hexToRgb, linearToByte } from './color'
 
 // Fast, deterministic color quantization using weighted median cut.
 // It samples image pixels into histogram buckets, splits the highest-variance
@@ -218,4 +218,58 @@ export function quantizeRgb(
   }
 
   return Uint8Array.from(finalColors)
+}
+
+/**
+ * Selects up to `targetCount` colours from a fixed pool of hex colours that
+ * best represent the image's linear RGB pixels.
+ */
+export function quantizeFromPool(
+  rgb: Float32Array,
+  pool: readonly string[],
+  targetCount: number
+): Uint8Array {
+  const count = Math.max(1, Math.min(pool.length, targetCount))
+  const poolRgb = pool.map(hexToRgb)
+  const pixelCount = Math.floor(rgb.length / 3)
+  if (pixelCount === 0 || poolRgb.length === 0) return new Uint8Array(0)
+
+  // Step 1: Count nearest pool color for each pixel
+  const votes = new Float64Array(poolRgb.length)
+  const step = Math.max(1, Math.floor(pixelCount / 4096))
+  for (let i = 0; i < pixelCount; i += step) {
+    const r = linearToByte(rgb[i * 3])
+    const g = linearToByte(rgb[i * 3 + 1])
+    const b = linearToByte(rgb[i * 3 + 2])
+
+    let nearest = 0
+    let minD = Infinity
+    for (let c = 0; c < poolRgb.length; c++) {
+      const [pr, pg, pb] = poolRgb[c]
+      const dr = r - pr
+      const dg = g - pg
+      const db = b - pb
+      const d = dr * dr + dg * dg + db * db
+      if (d < minD) {
+        minD = d
+        nearest = c
+      }
+    }
+    votes[nearest] += 1
+  }
+
+  // Step 2: Sort pool indices by votes descending
+  const indices = Array.from({ length: poolRgb.length }, (_, i) => i)
+  indices.sort((a, b) => votes[b] - votes[a])
+
+  // Step 3: Take top `count` entries
+  const chosen = indices.slice(0, count)
+  const out = new Uint8Array(count * 3)
+  for (let i = 0; i < count; i++) {
+    const [pr, pg, pb] = poolRgb[chosen[i]]
+    out[i * 3] = pr
+    out[i * 3 + 1] = pg
+    out[i * 3 + 2] = pb
+  }
+  return out
 }

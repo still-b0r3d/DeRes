@@ -71,11 +71,24 @@ export class Engine {
 
   private emuExportId = 0
   private readonly emuExports = new Map<number, { resolve: (v: EmulatorExportResult) => void; reject: (e: Error) => void }>()
+  private wallpaperExportId = 0
+  private readonly wallpaperExports = new Map<number, { resolve: (v: ExportResult) => void; reject: (e: Error) => void }>()
 
   exportEmulator(settings: DeresSettings, format: 'scr' | 'koa' | 'chr', base: string): Promise<EmulatorExportResult> {
     const id = ++this.emuExportId
     this.post({ type: 'export-emulator', id, gen: this.gen, settings, format, base })
     return new Promise((resolve, reject) => this.emuExports.set(id, { resolve, reject }))
+  }
+
+  exportWallpaper(
+    settings: DeresSettings,
+    preset: 'phone' | 'win95' | 'desktop-1080p',
+    withFx: boolean,
+    base: string
+  ): Promise<ExportResult> {
+    const id = ++this.wallpaperExportId
+    this.post({ type: 'export-wallpaper', id, gen: this.gen, settings, preset, withFx, base })
+    return new Promise((resolve, reject) => this.wallpaperExports.set(id, { resolve, reject }))
   }
 
   private send(req: RenderRequest): void {
@@ -111,6 +124,12 @@ export class Engine {
             this.emuExports.delete(msg.id)
             return
           }
+          const wallExp = this.wallpaperExports.get(msg.id)
+          if (wallExp) {
+            wallExp.reject(new Error(msg.message))
+            this.wallpaperExports.delete(msg.id)
+            return
+          }
         }
         if (msg.gen !== this.gen) return
         this.busy = false
@@ -125,6 +144,10 @@ export class Engine {
       case 'exported':
         this.exports.get(msg.id)?.resolve(msg)
         this.exports.delete(msg.id)
+        return
+      case 'exported-wallpaper':
+        this.wallpaperExports.get(msg.id)?.resolve(msg)
+        this.wallpaperExports.delete(msg.id)
         return
       case 'exported-emulator': {
         const item = this.emuExports.get(msg.id)

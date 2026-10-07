@@ -13,11 +13,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.6.0, Analog, print & video aesthetics (VHS mode, early CCD noise, NTSC/composite bleed, newspaper halftone rosettes, two-ink risograph, streaky 1-bit fax, green/amber/white monochrome phosphor decay & bloom), is built. Not live yet.
+**Status:** v0.7.0, Extended hardware & handhelds (Nokia 3310, Game Boy Color per-tile mode, Virtual Boy, Atari ST, Amstrad CPC Modes 0 & 1, MSX Screen 2, CGA Composite artifact mode, Digipal LCD pet, integer wallpaper presets, and "Surprise me" randomizer), is built. Not live yet.
 
 ---
 
-## What it does (v0.3.0)
+## What it does (v0.7.0)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try the sample (Rukus). It's decoded once into a
@@ -100,11 +100,21 @@ images.
   - **Two-Ink Risograph (`risograph`):** Dual spot-color ink layering (Fluorescent Pink `#ff48b0` + Teal `#00838a`) with halftone screening and mechanical drum misregistration jitter.
   - **Streaky 1-Bit Fax (`fax`):** High-contrast 1-bit thermal print with dirty roller vertical streaks, scanline dropouts, and transmission header (`FROM: B0R3D FAX G3...`).
   - **Monochrome phosphor decay & bloom:** P1 Green (525nm peak), P3 Amber (600nm peak), and P4 White CRT phosphor spectral emission, beam scanlines, and decay bloom.
+- **Extended hardware & handhelds (v0.7.0):**
+  - **Nokia 3310:** 84×48 monochrome green backlight LCD (`#1c281a`, `#879b6f`) with square pixel grid.
+  - **Game Boy Color per-tile mode:** 160×144, 8 background palettes of 4 colors from 32,768 RGB555 gamut, 1 palette per 8×8 tile constraint, `.chr` tile export.
+  - **Virtual Boy:** 384×224, 4 shades of crimson on black (`#000000`, `#460000`, `#8c0000`, `#ff0000`) with CRT scanlines.
+  - **Atari ST:** 320×200, 16 colors picked from 512 (3 bits per RGB channel), 5:6 pixel aspect ratio.
+  - **Amstrad CPC (Modes 0 & 1):** Mode 0 (160×200, 16 from 27 colors, 2:1 aspect) and Mode 1 (320×200, 4 from 27 colors, 1:1 aspect) using the 27 hardware color gate array pool.
+  - **MSX Screen 2:** 256×192, max 2 colors per 8×1 horizontal pixel slice from 15 fixed TMS9918 colors.
+  - **CGA Composite artifact mode:** 320×200, 16 NTSC composite artifact colors produced by color burst subcarrier crosstalk.
+  - **Digipal LCD Pet:** 32×32 virtual pet reflective LCD matrix with rounded dot pixels and subtle ghosting.
+  - **Crisp wallpaper export presets:** 1-click centered integer exports for Phone Lockscreen (1080×2400), b0r3d 95 Desktop (1024×768), and Full HD Desktop (1920×1080).
+  - **"Surprise me" randomizer:** `🎲 Surprise me` button shuffling a random retro profile, dither, pre-filter recipe, and screen effect.
 - Settings are remembered on your device. The picture never is.
 
 ## Planned
 
-- **v0.7.0, Extended hardware & handhelds:** Nokia 3310, Game Boy Color, Virtual Boy, Atari ST, Amstrad CPC, MSX.
 - **v0.8.0, BBS heritage & Teletext:** PETSCII studio, Teletext/Ceefax mosaics, dial-up baud playback.
 - **v0.9.0, Motion, sound & polish:** Animated PNG/GIF export, tactile UI sounds, full test verification.
 - 1.0.0 is when all three tools are complete and ready for public launch.
@@ -176,6 +186,14 @@ their colours and every emulator's numbers differ a little.
 | Apple II hi-res | 6 NTSC artifact colours (Black, White, Green, Violet, Orange, Blue) |
 | Amiga HAM6 | 12-bit hardware colour (4096 colours) with 16 base palette colours |
 | Nintendo 64 | 15-bit color (RGBA5551) with RDP 3-point sample filter and VI blur |
+| Nokia 3310 | 2-level green backlight LCD matrix (#1c281a, #879b6f) |
+| Game Boy Color | 15-bit RGB555 gamut (32,768 colours), 8 palettes of 4 colours |
+| Virtual Boy | 4 intensity levels of crimson on black |
+| Atari ST | 512-colour range (3 bits per RGB channel), 16 on screen |
+| Amstrad CPC | 27-colour hardware gate array palette (16 for Mode 0, 4 for Mode 1) |
+| MSX Screen 2 | 15 TMS9918 fixed colours (2 per 8×1 horizontal pixel slice) |
+| CGA Composite | 16 NTSC composite artifact colours from color burst crosstalk |
+| Digipal LCD Pet | 2-level virtual pet reflective LCD matrix with ghosting |
 | Custom | User-defined palette file or quantized from picture |
 
 ## Credits
@@ -204,6 +222,7 @@ version and the build (the commit it was built from).
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.7.0 | 2026-10-07 | Extended hardware & handhelds: Nokia 3310, GBC per-tile mode & .chr export, Virtual Boy crimson, Atari ST, Amstrad CPC Modes 0 & 1, MSX Screen 2, CGA composite artifact mode, Digipal LCD pet, integer wallpaper presets (Phone, Win95, 1080p), and "Surprise me" randomizer. |
 | 0.6.0 | 2026-10-07 | Analog, print & video aesthetics: VHS mode (tracking jitter, head noise, chroma smear, PLAY ▶ OSD), early CCD (640×480, noise, date stamp), NTSC composite bleed, JPEG deep fry DCT crunch, newspaper halftone rosettes, two-ink risograph, streaky 1-bit fax, monochrome P1/P3/P4 phosphors. |
 | 0.5.0 | 2026-10-07 | EXIF Scrubber: byte-level stripping (JPEG, PNG, WebP), minimal orientation preservation, GPS coordinates inspector & copy, uncropped-thumbnail warning, trailing data removal, automated privacy self-check. |
 | 0.4.0 | 2026-10-07 | ASCII / ANSI studio: half-block color mode, character ramps, ANSI 16/phosphor/RGB profiles, .ans export with SAUCE record, clipboard copy (text/MD/ANSI/HTML), CP437 font-rendered PNG export. |

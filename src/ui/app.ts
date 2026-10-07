@@ -15,7 +15,8 @@ import { baseName } from '../core/filename'
 import { planGeometry, type Geometry } from '../core/geometry'
 import { exportPaletteHex, parsePalettePng, parsePaletteText } from '../core/palette-file'
 import type { DeresSettings } from '../core/pipeline'
-import { profileById } from '../core/profiles'
+import { PROFILES, profileById } from '../core/profiles'
+import type { DitherId } from '../core/dither'
 import { quantizeRgb } from '../core/quantize'
 import { decodeSettings, encodeSettings } from '../core/share'
 import { inspectMetadata, type ImageMetadata } from '../core/exif'
@@ -266,6 +267,8 @@ export function startApp(): void {
     loadSample,
     download,
     downloadEmulator,
+    downloadWallpaper,
+    surpriseMe,
     loadPaletteFile: () => paletteFileInput.click(),
     grabPalette,
     shareLink,
@@ -598,6 +601,57 @@ export function startApp(): void {
     } catch (err) {
       controls.status(`Couldn't export .${format}: ${(err as Error).message}`)
     }
+  }
+
+  async function downloadWallpaper(preset: 'phone' | 'win95' | 'desktop-1080p'): Promise<void> {
+    if (!picture) return
+    controls.status(`Generating ${preset} wallpaper…`)
+    try {
+      const fxOk = settings.exportFx && settings.fx.screen !== 'off'
+      const res = await engine.exportWallpaper(deres(settings), preset, fxOk, picture.base)
+      const blob = new Blob([res.png], { type: 'image/png' })
+      const url = URL.createObjectURL(blob)
+      const a = h('a', { href: url, download: res.filename, class: 'visually-hidden' })
+      document.body.append(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      controls.status(`Saved ${res.filename} (${res.width}×${res.height}).`)
+    } catch (err) {
+      controls.status(`Couldn't make wallpaper: ${(err as Error).message}`)
+    }
+  }
+
+  function surpriseMe(): void {
+    const eligible = PROFILES.filter((p) => p.id !== 'custom')
+    const randProfile = eligible[Math.floor(Math.random() * eligible.length)]
+    const dithers: DitherId[] = ['none', 'bayer2', 'bayer4', 'bayer8', 'floyd', 'atkinson', 'yliluoma']
+    if (randProfile.nativeDither) dithers.push(randProfile.nativeDither)
+    const randDither = dithers[Math.floor(Math.random() * dithers.length)]
+    const randBrightness = Math.round((Math.random() * 0.2 - 0.1) * 100) / 100
+    const randContrast = Math.round((0.9 + Math.random() * 0.3) * 100) / 100
+    const randSaturation = Math.round((0.85 + Math.random() * 0.4) * 100) / 100
+    const randScreen = Math.random() > 0.5 ? randProfile.screen : 'off'
+
+    settings = {
+      ...settings,
+      profileId: randProfile.id,
+      dither: randDither,
+      adjust: {
+        ...settings.adjust,
+        brightness: randBrightness,
+        contrast: randContrast,
+        saturation: randSaturation
+      },
+      fx: {
+        ...settings.fx,
+        screen: randScreen
+      }
+    }
+    saveSettings(settings)
+    controls.sync()
+    render()
+    controls.status(`🎲 Rolled: ${randProfile.name} · ${randDither} dither · ${randScreen} screen`)
   }
 
   // Paste (Ctrl+V / Cmd+V) and drag and drop, anywhere on the page.

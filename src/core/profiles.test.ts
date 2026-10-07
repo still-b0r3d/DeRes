@@ -48,10 +48,44 @@ describe('hardware profiles', () => {
     expect(size('pc98')).toEqual([640, 400, 16])
     expect(size('vga')).toEqual([320, 200, 256])
     expect(size('ps1')).toEqual([320, 240, 32])
+    expect(size('nokia-3310')).toEqual([84, 48, 2])
+    expect(size('gbc')).toEqual([160, 144, 32])
+    expect(size('virtualboy')).toEqual([384, 224, 4])
+    expect(size('atari-st')).toEqual([320, 200, 16])
+    expect(size('amstrad-cpc-0')).toEqual([160, 200, 32])
+    expect(size('amstrad-cpc-1')).toEqual([320, 200, 32])
+    expect(size('msx-screen2')).toEqual([256, 192, 32])
+    expect(size('cga-composite')).toEqual([320, 200, 16])
+    expect(size('digipal')).toEqual([32, 32, 2])
   })
 
   it('includes the b0r3d colours', () => {
     const p = profileById('b0r3d')!
     expect(p.palette.kind === 'fixed' && p.palette.colours).toEqual(['#131313', '#00ffff', '#ff00ff', '#00ff9d'])
+  })
+
+  it('configures v0.7.0 specific profile constraints', () => {
+    const nokia = profileById('nokia-3310')!
+    expect(nokia.screen).toBe('lcd')
+    expect(nokia.mono).toBe(true)
+
+    const vb = profileById('virtualboy')!
+    expect(vb.screen).toBe('crt')
+    expect(vb.palette.kind === 'fixed' && vb.palette.colours.length).toBe(4)
+
+    const ast = profileById('atari-st')!
+    expect(ast.par).toEqual([5, 6])
+    expect(ast.palette.kind).toBe('range')
+
+    const cpc0 = profileById('amstrad-cpc-0')!
+    expect(cpc0.par).toEqual([2, 1])
+    expect(cpc0.palette.kind).toBe('pool')
+
+    const msx = profileById('msx-screen2')!
+    expect(msx.palette.kind).toBe('cell')
+
+    const gbc = profileById('gbc')!
+    expect(gbc.palette.kind).toBe('cell')
+    expect(gbc.limits?.emulatorFormats).toContain('chr')
   })
 })

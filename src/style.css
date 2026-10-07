@@ -768,6 +768,56 @@ button:disabled {
   color: #ffffff;
 }
 
+/* Surprise me randomizer button */
+.surprise-btn {
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-family: var(--brand-font);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: var(--panel-2);
+  border: 1px dashed var(--pink);
+  color: var(--pink);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.surprise-btn:hover {
+  background: rgba(255, 77, 141, 0.12);
+  border-style: solid;
+}
+
+/* Wallpaper Presets */
+.wallpaper-row {
+  margin-top: 4px;
+}
+
+.wall-btns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.wall-btn {
+  padding: 8px 4px;
+  font-family: var(--brand-font);
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: center;
+}
+
+.wall-btn:hover:not(:disabled) {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
 /* Drag and drop */
 .drop-overlay {
   position: fixed;

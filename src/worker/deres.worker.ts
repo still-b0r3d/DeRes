@@ -1,4 +1,4 @@
-import { exportPng } from '../core/export'
+import { exportPng, exportWallpaper, wallpaperPresetById } from '../core/export'
 import { exportFilename } from '../core/filename'
 import { renderFxRgba } from '../core/fx'
 import { Deres, exportSize, type DeresSettings, type Rendered } from '../core/pipeline'
@@ -136,4 +136,31 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       post({ type: 'error', id: msg.id, gen, message: String((err as Error)?.message ?? err) })
     }
   }
+
+  if (msg.type === 'export-wallpaper') {
+    try {
+      const s = msg.settings
+      const r = renderFor(s)
+      const tv = s.pixelShape === 'tv'
+      const preset = wallpaperPresetById(msg.preset)
+      if (!preset) throw new Error(`Unknown wallpaper preset: ${msg.preset}`)
+      const out = await exportWallpaper(r, preset, { tv, fx: msg.withFx ? s.fx : null })
+      const prof = profileById(s.profileId)?.id ?? 'deres'
+      const filename = `${msg.base}-${prof}-${msg.preset}-wallpaper.png`
+      post(
+        {
+          type: 'exported-wallpaper',
+          id: msg.id,
+          png: out.png.buffer,
+          filename,
+          width: out.width,
+          height: out.height
+        },
+        [out.png.buffer]
+      )
+    } catch (err) {
+      post({ type: 'error', id: msg.id, gen, message: String((err as Error)?.message ?? err) })
+    }
+  }
 }
+

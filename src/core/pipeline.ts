@@ -1,5 +1,12 @@
 import { applyAdjust, edgeBoost, toGrey, type Adjust } from './adjust'
-import { processSpectrum, processC64Multicolour, processNesAttributes, processApple2Hires } from './cell'
+import {
+  processSpectrum,
+  processC64Multicolour,
+  processNesAttributes,
+  processApple2Hires,
+  processMsxScreen2,
+  processGbcTiles
+} from './cell'
 import { BYTE_TO_LINEAR, hexToRgb, linearToByte, luminance, toSrgb } from './color'
 import { dither, PS1_DITHER_TABLE, type DitherId } from './dither'
 import type { Fx } from './fx'
@@ -8,7 +15,7 @@ import { processAmigaHam6 } from './ham'
 import { PaletteMatcher } from './matcher'
 import { processN64 } from './n64'
 import { DEFAULT_PROFILE, profileById, representativePalette, type Profile } from './profiles'
-import { quantizeRgb, snapToBits } from './quantize'
+import { quantizeRgb, snapToBits, quantizeFromPool } from './quantize'
 import { resampleArea } from './resample'
 import { analyzeTileFit, encodeGbChr, type HardwareFitReport } from './tiles'
 import { YliluomaPlanner } from './yliluoma'
@@ -235,6 +242,8 @@ export class Deres {
       let emuData: Uint8Array | undefined
       let emuFormat: 'scr' | 'koa' | 'chr' | undefined
 
+      let cellPalBytes: Uint8Array | undefined
+
       if (mode === 'spectrum') {
         const spec = processSpectrum(rgb, width, height)
         cellIndices = spec.indices
@@ -254,6 +263,19 @@ export class Deres {
         const na = processNesAttributes(rgb, width, height)
         cellIndices = na.indices
         cellLinearRgb = na.rgb
+        if (profile.limits?.emulatorFormats?.includes('chr')) {
+          emuData = encodeGbChr(cellIndices, width, height)
+          emuFormat = 'chr'
+        }
+      } else if (mode === 'msx-screen2') {
+        const msx = processMsxScreen2(rgb, width, height)
+        cellIndices = msx.indices
+        cellLinearRgb = msx.rgb
+      } else if (mode === 'gbc-tile') {
+        const gbc = processGbcTiles(rgb, width, height)
+        cellIndices = gbc.indices
+        cellLinearRgb = gbc.rgb
+        cellPalBytes = gbc.palette
         if (profile.limits?.emulatorFormats?.includes('chr')) {
           emuData = encodeGbChr(cellIndices, width, height)
           emuFormat = 'chr'
@@ -283,7 +305,7 @@ export class Deres {
         out[i] = linearToByte(cellLinearRgb[i])
       }
 
-      const palBytes = paletteBytes(profile)
+      const palBytes = cellPalBytes ?? paletteBytes(profile)
       const seen = new Uint8Array(Math.max(256, palBytes.length / 3))
       let used = 0
       for (let i = 0; i < cellIndices.length; i++) {
@@ -474,6 +496,10 @@ export class Deres {
       let display: Uint8Array
       if (s.customPalette && s.customPalette.length > 0) {
         display = Uint8Array.from(s.customPalette.map(hexToRgb).flat())
+      } else if (profile.palette.kind === 'pool') {
+        const count = s.customCount ?? profile.palette.count
+        display = quantizeFromPool(rgb, profile.palette.pool, count)
+        if (display.length === 0) display = paletteBytes(profile)
       } else {
         const count = s.customCount ?? ('count' in profile.palette ? profile.palette.count : 16)
         const bits = profile.palette.kind === 'range' ? profile.palette.bitsPerChannel : 8

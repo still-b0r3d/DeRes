@@ -20,6 +20,8 @@ export interface ControlsContext {
   loadSample(): void
   download(): void
   downloadEmulator?: (format: 'scr' | 'koa' | 'chr') => void
+  downloadWallpaper?: (preset: 'phone' | 'win95' | 'desktop-1080p') => void
+  surpriseMe?: () => void
   loadPaletteFile(): void
   grabPalette(): void
   shareLink(): void
@@ -155,8 +157,19 @@ export function buildControls(ctx: ControlsContext): {
   const loadPaletteBtn = h('button', { type: 'button', class: 'small', onclick: () => ctx.loadPaletteFile() }, 'Load palette (.hex, .pal, .gpl, .png)')
   const grabPaletteBtn = h('button', { type: 'button', class: 'small', onclick: () => ctx.grabPalette() }, 'Grab palette')
   const paletteTools = h('div', { class: 'palette-tools' }, customCount.el, h('div', { class: 'btn-row' }, loadPaletteBtn, grabPaletteBtn))
+  const surpriseBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'surprise-btn',
+      'data-testid': 'surprise-btn',
+      title: 'Shuffle a random retro machine, dither, and pre-filter aesthetic',
+      onclick: () => ctx.surpriseMe?.()
+    },
+    '🎲 Surprise me'
+  )
 
-  const hardwareSec = section('Hardware', true, grid, about, tileFitEl, paletteTools)
+  const hardwareSec = section('Hardware', true, surpriseBtn, grid, about, tileFitEl, paletteTools)
 
   // Adjust
   const adj = {
@@ -350,6 +363,44 @@ export function buildControls(ctx: ControlsContext): {
   )
   const emuActions = h('div', { class: 'emu-actions', hidden: true }, emuScrBtn, emuKoaBtn, emuChrBtn)
   const shareBtn = h('button', { type: 'button', class: 'share-link', onclick: () => ctx.shareLink() }, 'Copy share link')
+
+  const wallPhoneBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'wall-btn',
+      'data-testid': 'export-wall-phone',
+      onclick: () => ctx.downloadWallpaper?.('phone')
+    },
+    '📱 Phone'
+  )
+  const wallWin95Btn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'wall-btn',
+      'data-testid': 'export-wall-win95',
+      onclick: () => ctx.downloadWallpaper?.('win95')
+    },
+    '🖥️ Win95 (1024×768)'
+  )
+  const wall1080pBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'wall-btn',
+      'data-testid': 'export-wall-1080p',
+      onclick: () => ctx.downloadWallpaper?.('desktop-1080p')
+    },
+    '🖥️ 1080p'
+  )
+  const wallRow = h(
+    'div',
+    { class: 'row wallpaper-row' },
+    h('span', { class: 'row-label' }, 'Wallpaper presets'),
+    h('div', { class: 'wall-btns' }, wallPhoneBtn, wallWin95Btn, wall1080pBtn)
+  )
+
   const statusLine = h('p', { class: 'status', role: 'status' })
   const exportSec = section(
     'Export',
@@ -359,6 +410,7 @@ export function buildControls(ctx: ControlsContext): {
     sizeLine,
     fxLabel,
     h('div', { class: 'export-actions' }, downloadBtn, emuActions, shareBtn),
+    wallRow,
     statusLine
   )
 
@@ -470,8 +522,12 @@ export function buildControls(ctx: ControlsContext): {
         coloursLabel = '12-bit HAM6'
       } else if (p.palette.kind === 'n64') {
         coloursLabel = '16-bit RGBA5551'
+      } else if (p.palette.kind === 'pool') {
+        coloursLabel = `${p.palette.count} from ${p.palette.pool.length} colours`
       } else if (p.palette.kind === 'cell') {
-        coloursLabel = `cell clash (${p.palette.colours.length} colours)`
+        if (p.palette.mode === 'gbc-tile') coloursLabel = '8 palettes of 4 colours (32 max)'
+        else if (p.palette.mode === 'msx-screen2') coloursLabel = '2 colours per 8×1 line (15 colours)'
+        else coloursLabel = `cell clash (${p.palette.colours.length} colours)`
       } else if (p.palette.kind === 'analog') {
         if (p.palette.mode === 'fax') coloursLabel = '1-bit fax'
         else if (p.palette.mode === 'risograph') coloursLabel = '2-ink risograph'
@@ -493,6 +549,10 @@ export function buildControls(ctx: ControlsContext): {
         : `${w}×${hh} px · ${withFx ? 'full colour' : coloursLabel}`
       downloadBtn.disabled = !pic || tooBig
 
+      wallPhoneBtn.disabled = !pic
+      wallWin95Btn.disabled = !pic
+      wall1080pBtn.disabled = !pic
+
       const fmts = p.limits?.emulatorFormats ?? []
       show(emuScrBtn, fmts.includes('scr'))
       show(emuKoaBtn, fmts.includes('koa'))
@@ -504,6 +564,9 @@ export function buildControls(ctx: ControlsContext): {
     } else {
       sizeLine.textContent = ''
       downloadBtn.disabled = true
+      wallPhoneBtn.disabled = true
+      wallWin95Btn.disabled = true
+      wall1080pBtn.disabled = true
       show(emuActions, false)
     }
   }

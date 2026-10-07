@@ -1,4 +1,11 @@
-import { SPECTRUM_PALETTE, C64_PALETTE, NES_PALETTE, APPLE2_HIRES_PALETTE } from './cell'
+import {
+  SPECTRUM_PALETTE,
+  C64_PALETTE,
+  NES_PALETTE,
+  APPLE2_HIRES_PALETTE,
+  TMS9918_PALETTE,
+  GBC_REPRESENTATIVE_PALETTE
+} from './cell'
 import { rgbToHex } from './color'
 import type { DitherId } from './dither'
 import { snapToBits } from './quantize'
@@ -11,6 +18,8 @@ import { snapToBits } from './quantize'
 // v0.2 adds palettes picked from a range, PS1 dither, and custom palettes.
 // v0.3 adds per-cell modes (Spectrum, C64 MC, NES attributes, Apple II hi-res),
 // Amiga HAM6, N64 3-point blur, and emulator export formats.
+// v0.6 adds analog, print & video aesthetics.
+// v0.7 adds extended hardware & handhelds (Nokia 3310, GBC, Virtual Boy, Atari ST, Amstrad CPC, MSX, CGA composite, Digipal).
 // Sources are listed in the README.
 
 export interface FixedPalette {
@@ -34,9 +43,15 @@ export interface CustomPalette {
   count: number
 }
 
+export interface PoolPalette {
+  kind: 'pool'
+  pool: readonly string[]
+  count: number
+}
+
 export interface CellPalette {
   kind: 'cell'
-  mode: 'spectrum' | 'c64-mc' | 'nes-attr' | 'apple2-hires'
+  mode: 'spectrum' | 'c64-mc' | 'nes-attr' | 'apple2-hires' | 'msx-screen2' | 'gbc-tile'
   colours: readonly string[]
 }
 
@@ -61,6 +76,7 @@ export type PaletteSpec =
   | RangePalette
   | DirectPalette
   | CustomPalette
+  | PoolPalette
   | CellPalette
   | HamPalette
   | N64Palette
@@ -234,12 +250,33 @@ export function representativePalette(spec: PaletteSpec): string[] {
     }
     return out
   }
+  if (spec.kind === 'pool') {
+    const step = spec.pool.length / spec.count
+    const out: string[] = []
+    for (let i = 0; i < spec.count; i++) {
+      out.push(spec.pool[Math.floor(i * step)])
+    }
+    return out
+  }
   // Custom
   return [
     '#000000', '#1d2b53', '#7e2553', '#008751', '#ab5236', '#5f574f', '#c2c3c7', '#fff1e8',
     '#ff004d', '#ffa300', '#ffec27', '#00e436', '#29adff', '#83769c', '#ff77a8', '#ffffff'
   ]
 }
+
+export const AMSTRAD_CPC_PALETTE: readonly string[] = [
+  '#000000', '#000080', '#0000ff', '#008000', '#008080', '#0080ff', '#00ff00', '#00ff80', '#00ffff',
+  '#800000', '#800080', '#8000ff', '#808000', '#808080', '#8080ff', '#80ff00', '#80ff80', '#80ffff',
+  '#ff0000', '#ff0080', '#ff00ff', '#ff8000', '#ff8080', '#ff80ff', '#ffff00', '#ffff80', '#ffffff'
+]
+
+export const CGA_COMPOSITE_PALETTE: readonly string[] = [
+  '#000000', '#1e3b60', '#2e581e', '#3e766e',
+  '#70281e', '#5e585e', '#7e761e', '#9e987e',
+  '#5e287e', '#4e58be', '#7e764e', '#6e98be',
+  '#be383e', '#be589e', '#ce983e', '#ffffff'
+]
 
 export const PROFILES: readonly Profile[] = [
   {
@@ -665,6 +702,123 @@ export const PROFILES: readonly Profile[] = [
     palette: { kind: 'analog', mode: 'fax' },
     dither: 'floyd',
     screen: 'off'
+  },
+  {
+    id: 'nokia-3310',
+    name: 'Nokia 3310',
+    origin: 'Nokia · 2000',
+    about: '84×48 monochrome graphics on a green reflective backlight LCD.',
+    width: 84,
+    height: 48,
+    par: [1, 1],
+    palette: fixed(['#1c281a', '#879b6f']),
+    mono: true,
+    dither: 'bayer4',
+    screen: 'lcd'
+  },
+  {
+    id: 'gbc',
+    name: 'Game Boy Color',
+    origin: 'Nintendo · 1998',
+    about: '160×144 with 8 background palettes of 4 colours (32 max) from 32,768.',
+    width: 160,
+    height: 144,
+    par: [1, 1],
+    palette: { kind: 'cell', mode: 'gbc-tile', colours: GBC_REPRESENTATIVE_PALETTE },
+    limits: { maxTiles: 360, maxColours: 32, emulatorFormats: ['chr'] },
+    dither: 'bayer4',
+    screen: 'lcd'
+  },
+  {
+    id: 'virtualboy',
+    name: 'Virtual Boy',
+    origin: 'Nintendo · 1995',
+    about: '384×224 red linear array LEDs reflected by oscillating scanning mirrors.',
+    width: 384,
+    height: 224,
+    par: [1, 1],
+    palette: fixed(['#000000', '#460000', '#8c0000', '#ff0000']),
+    mono: true,
+    dither: 'bayer4',
+    screen: 'crt'
+  },
+  {
+    id: 'atari-st',
+    name: 'Atari ST',
+    origin: 'Atari · 1985',
+    about: '16 colours picked from 512 (3 bits per channel) at 320×200.',
+    width: 320,
+    height: 200,
+    par: [5, 6],
+    palette: { kind: 'range', bitsPerChannel: 3, count: 16 },
+    limits: { maxColours: 16 },
+    dither: 'floyd',
+    screen: 'crt'
+  },
+  {
+    id: 'amstrad-cpc-0',
+    name: 'Amstrad CPC (Mode 0)',
+    origin: 'Amstrad · 1984',
+    about: '160×200 with 16 colours picked from 27, 2:1 wide pixels.',
+    width: 160,
+    height: 200,
+    par: [2, 1],
+    palette: { kind: 'pool', pool: AMSTRAD_CPC_PALETTE, count: 16 },
+    limits: { maxColours: 16 },
+    dither: 'floyd',
+    screen: 'crt'
+  },
+  {
+    id: 'amstrad-cpc-1',
+    name: 'Amstrad CPC (Mode 1)',
+    origin: 'Amstrad · 1984',
+    about: '320×200 with 4 colours picked from 27.',
+    width: 320,
+    height: 200,
+    par: [1, 1],
+    palette: { kind: 'pool', pool: AMSTRAD_CPC_PALETTE, count: 4 },
+    limits: { maxColours: 4 },
+    dither: 'floyd',
+    screen: 'crt'
+  },
+  {
+    id: 'msx-screen2',
+    name: 'MSX (Screen 2)',
+    origin: 'ASCII / Microsoft · 1983',
+    about: '256×192 with TMS9918: 2 colours per 8×1 horizontal pixel slice from 15.',
+    width: 256,
+    height: 192,
+    par: [8, 7],
+    palette: { kind: 'cell', mode: 'msx-screen2', colours: TMS9918_PALETTE },
+    limits: { maxColours: 15 },
+    dither: 'none',
+    screen: 'crt'
+  },
+  {
+    id: 'cga-composite',
+    name: 'CGA Composite',
+    origin: 'IBM · 1981',
+    about: '16 colours produced by NTSC composite color burst subcarrier crosstalk.',
+    width: 320,
+    height: 200,
+    par: [5, 6],
+    palette: fixed(CGA_COMPOSITE_PALETTE),
+    limits: { maxColours: 16 },
+    dither: 'floyd',
+    screen: 'crt'
+  },
+  {
+    id: 'digipal',
+    name: 'Digipal LCD Pet',
+    origin: 'Virtual Pet · 1996',
+    about: '32×32 virtual pet LCD with rounded dot matrix pixels and subtle ghosting.',
+    width: 32,
+    height: 32,
+    par: [1, 1],
+    palette: fixed(['#1b2216', '#b8c599']),
+    mono: true,
+    dither: 'bayer4',
+    screen: 'lcd'
   },
   {
     id: 'custom',

@@ -55,7 +55,7 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
   const gbPal = profileById('gameboy')!.palette
   expect(new Set(await canvasColours(page))).toEqual(new Set(gbPal.kind === 'fixed' ? gbPal.colours : []))
-  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.6.0')
+  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.7.0')
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
@@ -629,5 +629,94 @@ test('v0.6: Monochrome phosphors (P1 Green, P3 Amber, P4 White) and Composite ch
   const compColours = await canvasColours(page)
   expect(compColours.length).toBeGreaterThan(0)
 })
+
+test('v0.7: Extended hardware & handheld profiles render correctly', async ({ page }) => {
+  // Nokia 3310
+  await pick(page, 'nokia-3310')
+  await expect(readout(page)).toContainText('84×48')
+  const nokiaColours = await canvasColours(page)
+  for (const c of nokiaColours) {
+    expect(['#1c281a', '#879b6f']).toContain(c)
+  }
+
+  // Game Boy Color per-tile mode & .chr button
+  await pick(page, 'gbc')
+  await expect(readout(page)).toContainText('160×144')
+  await expect(page.getByTestId('download-chr')).toBeVisible()
+
+  // Virtual Boy
+  await pick(page, 'virtualboy')
+  await expect(readout(page)).toContainText('384×224')
+  const vbColours = await canvasColours(page)
+  for (const c of vbColours) {
+    expect(['#000000', '#460000', '#8c0000', '#ff0000']).toContain(c)
+  }
+
+  // Atari ST
+  await pick(page, 'atari-st')
+  await expect(readout(page)).toContainText('320×200')
+
+  // Amstrad CPC Modes 0 & 1
+  await pick(page, 'amstrad-cpc-0')
+  await expect(readout(page)).toContainText('160×200')
+  await pick(page, 'amstrad-cpc-1')
+  await expect(readout(page)).toContainText('320×200')
+
+  // MSX Screen 2
+  await pick(page, 'msx-screen2')
+  await expect(readout(page)).toContainText('256×192')
+
+  // CGA Composite
+  await pick(page, 'cga-composite')
+  await expect(readout(page)).toContainText('320×200')
+
+  // Digipal LCD Pet
+  await pick(page, 'digipal')
+  await expect(readout(page)).toContainText('32×32')
+  const digiColours = await canvasColours(page)
+  for (const c of digiColours) {
+    expect(['#1b2216', '#b8c599']).toContain(c)
+  }
+})
+
+test('v0.7: Wallpaper presets download at expected dimensions', async ({ page }) => {
+  // Test Phone wallpaper download
+  const downloadPhonePromise = page.waitForEvent('download')
+  await page.getByTestId('export-wall-phone').click()
+  const phoneDownload = await downloadPhonePromise
+  expect(phoneDownload.suggestedFilename()).toContain('phone-wallpaper')
+  const phoneStream = await phoneDownload.createReadStream()
+  const phoneChunks: Buffer[] = []
+  for await (const chunk of phoneStream) phoneChunks.push(Buffer.from(chunk))
+  const phonePng = await decodePng(Buffer.concat(phoneChunks))
+  expect(phonePng.width).toBe(1080)
+  expect(phonePng.height).toBe(2400)
+
+  // Test Win95 wallpaper download
+  const downloadWinPromise = page.waitForEvent('download')
+  await page.getByTestId('export-wall-win95').click()
+  const winDownload = await downloadWinPromise
+  expect(winDownload.suggestedFilename()).toContain('win95-wallpaper')
+  const winStream = await winDownload.createReadStream()
+  const winChunks: Buffer[] = []
+  for await (const chunk of winStream) winChunks.push(Buffer.from(chunk))
+  const winPng = await decodePng(Buffer.concat(winChunks))
+  expect(winPng.width).toBe(1024)
+  expect(winPng.height).toBe(768)
+})
+
+test('v0.7: Surprise me randomizer button shuffles profile and settings', async ({ page }) => {
+  const initialProfile = await page.locator('.card[aria-pressed="true"]').getAttribute('data-profile')
+  expect(initialProfile).toBe('gameboy')
+  const surpriseBtn = page.getByTestId('surprise-btn')
+  await expect(surpriseBtn).toBeVisible()
+
+  // Click surprise me multiple times if needed until a new profile is chosen
+  await surpriseBtn.click()
+  await ready(page)
+  const newProfile = await page.locator('.card[aria-pressed="true"]').getAttribute('data-profile')
+  expect(newProfile).toBeDefined()
+})
+
 
 

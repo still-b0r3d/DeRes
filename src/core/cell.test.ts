@@ -4,6 +4,8 @@ import {
   processC64Multicolour,
   processNesAttributes,
   processApple2Hires,
+  processMsxScreen2,
+  processGbcTiles,
   spectrumBitmapOffset
 } from './cell'
 
@@ -119,6 +121,68 @@ describe('cell mode processing', () => {
     for (let i = 0; i < w * h; i++) {
       expect(res.indices[i]).toBeGreaterThanOrEqual(0)
       expect(res.indices[i]).toBeLessThanOrEqual(7)
+    }
+  })
+
+  it('MSX Screen 2 enforces max 2 colours per 8×1 horizontal pixel row', () => {
+    const w = 16
+    const h = 8
+    const rgb = new Float32Array(w * h * 3)
+    // Put different colours across each row
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 3
+        rgb[i] = (x % 3 === 0) ? 1.0 : 0.0
+        rgb[i + 1] = (x % 3 === 1) ? 1.0 : 0.0
+        rgb[i + 2] = (x % 3 === 2) ? 1.0 : 0.0
+      }
+    }
+
+    const res = processMsxScreen2(rgb, w, h)
+    expect(res.indices.length).toBe(w * h)
+    expect(res.rgb.length).toBe(w * h * 3)
+
+    // Check each 8×1 row
+    for (let y = 0; y < h; y++) {
+      for (let bx = 0; bx < w; bx += 8) {
+        const rowColours = new Set<number>()
+        for (let x = 0; x < 8 && bx + x < w; x++) {
+          rowColours.add(res.indices[y * w + (bx + x)])
+        }
+        expect(rowColours.size).toBeLessThanOrEqual(2)
+      }
+    }
+  })
+
+  it('Game Boy Color per-tile mode clusters into 8 palettes of 4 colors', () => {
+    const w = 160
+    const h = 144
+    const rgb = new Float32Array(w * h * 3)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 3
+        rgb[i] = x / w
+        rgb[i + 1] = y / h
+        rgb[i + 2] = (x + y) / (w + h)
+      }
+    }
+
+    const res = processGbcTiles(rgb, w, h)
+    expect(res.indices.length).toBe(w * h)
+    expect(res.rgb.length).toBe(w * h * 3)
+    expect(res.palette.length).toBe(96) // 32 colors * 3 sRGB
+
+    // Check that each 8×8 tile uses at most 4 colors
+    for (let ty = 0; ty < 18; ty++) {
+      for (let tx = 0; tx < 20; tx++) {
+        const tileColours = new Set<number>()
+        for (let py = 0; py < 8; py++) {
+          for (let px = 0; px < 8; px++) {
+            tileColours.add(res.indices[(ty * 8 + py) * w + (tx * 8 + px)])
+          }
+        }
+        expect(tileColours.size).toBeLessThanOrEqual(4)
+      }
     }
   })
 })

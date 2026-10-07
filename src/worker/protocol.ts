@@ -41,6 +41,15 @@ export type ToWorker =
       format: 'scr' | 'koa' | 'chr'
       base: string
     }
+  | {
+      type: 'export-wallpaper'
+      id: number
+      gen: number
+      settings: DeresSettings
+      preset: 'phone' | 'win95' | 'desktop-1080p'
+      withFx: boolean
+      base: string
+    }
 
 export interface RenderedMessage {
   type: 'rendered'
@@ -66,4 +75,5 @@ export type FromWorker =
   | RenderedMessage
   | { type: 'exported'; id: number; png: ArrayBuffer; filename: string; width: number; height: number }
   | { type: 'exported-emulator'; id: number; data: ArrayBuffer; filename: string; mimeType: string }
+  | { type: 'exported-wallpaper'; id: number; png: ArrayBuffer; filename: string; width: number; height: number }
   | { type: 'error'; job?: number; id?: number; gen: number; message: string }

@@ -1,4 +1,5 @@
 import { hexToRgb, srgbToLinear, linearToByte } from './color'
+import { snapToBits } from './quantize'
 
 // Per-cell graphics constraints for authentic vintage hardware:
 // 1. ZX Spectrum: 8×8 cells, 1 ink + 1 paper color per cell, both normal or both bright.
@@ -574,4 +575,312 @@ export function processApple2Hires(
   }
 
   return { indices, rgb: outRgb }
+}
+
+// --- MSX Screen 2 ---
+
+export const TMS9918_PALETTE: readonly string[] = [
+  '#000000', // 1 Black
+  '#21c842', // 2 Medium Green
+  '#5edc78', // 3 Light Green
+  '#5455ed', // 4 Dark Blue
+  '#7d76fc', // 5 Light Blue
+  '#d4524d', // 6 Dark Red
+  '#42ebf5', // 7 Cyan
+  '#fc5554', // 8 Medium Red
+  '#ff7978', // 9 Light Red
+  '#d4c154', // 10 Dark Yellow
+  '#e6ce80', // 11 Light Yellow
+  '#21b03b', // 12 Dark Green
+  '#c95bba', // 13 Magenta
+  '#cccccc', // 14 Gray
+  '#ffffff'  // 15 White
+]
+
+const TMS9918_RGB = TMS9918_PALETTE.map(hexToRgb)
+
+export interface MsxScreen2Result {
+  indices: Uint8Array
+  rgb: Float32Array
+}
+
+/**
+ * Applies MSX Screen 2 (TMS9918 VDP) graphics constraints:
+ * 256×192 pixels. Each 8×1 horizontal pixel slice can only use 2 colours
+ * from the 15 fixed TMS9918 colours.
+ */
+export function processMsxScreen2(
+  linearRgb: Float32Array,
+  width: number,
+  height: number
+): MsxScreen2Result {
+  const indices = new Uint8Array(width * height)
+  const outRgb = new Float32Array(width * height * 3)
+
+  const srgbBytes = new Uint8Array(width * height * 3)
+  for (let i = 0; i < width * height; i++) {
+    srgbBytes[i * 3] = linearToByte(linearRgb[i * 3])
+    srgbBytes[i * 3 + 1] = linearToByte(linearRgb[i * 3 + 1])
+    srgbBytes[i * 3 + 2] = linearToByte(linearRgb[i * 3 + 2])
+  }
+
+  const slicesX = Math.floor(width / 8)
+
+  for (let y = 0; y < height; y++) {
+    for (let sx = 0; sx < slicesX; sx++) {
+      const startX = sx * 8
+
+      let bestC1 = 0
+      let bestC2 = 14
+      let minErr = Infinity
+
+      for (let c1 = 0; c1 < 15; c1++) {
+        const [r1, g1, b1] = TMS9918_RGB[c1]
+        for (let c2 = c1; c2 < 15; c2++) {
+          const [r2, g2, b2] = TMS9918_RGB[c2]
+          let err = 0
+          for (let px = 0; px < 8; px++) {
+            const i = (y * width + startX + px) * 3
+            const r = srgbBytes[i]
+            const g = srgbBytes[i + 1]
+            const b = srgbBytes[i + 2]
+
+            const d1 = colorDistSq(r, g, b, r1, g1, b1)
+            const d2 = colorDistSq(r, g, b, r2, g2, b2)
+            err += Math.min(d1, d2)
+          }
+          if (err < minErr) {
+            minErr = err
+            bestC1 = c1
+            bestC2 = c2
+          }
+        }
+      }
+
+      const [r1, g1, b1] = TMS9918_RGB[bestC1]
+      const [r2, g2, b2] = TMS9918_RGB[bestC2]
+
+      for (let px = 0; px < 8; px++) {
+        const x = startX + px
+        const pIdx = y * width + x
+        const i = pIdx * 3
+
+        const r = srgbBytes[i]
+        const g = srgbBytes[i + 1]
+        const b = srgbBytes[i + 2]
+
+        const d1 = colorDistSq(r, g, b, r1, g1, b1)
+        const d2 = colorDistSq(r, g, b, r2, g2, b2)
+
+        const chosen = d1 <= d2 ? bestC1 : bestC2
+        const [cr, cg, cb] = d1 <= d2 ? [r1, g1, b1] : [r2, g2, b2]
+
+        indices[pIdx] = chosen
+        outRgb[i] = srgbToLinear(cr)
+        outRgb[i + 1] = srgbToLinear(cg)
+        outRgb[i + 2] = srgbToLinear(cb)
+      }
+    }
+  }
+
+  return { indices, rgb: outRgb }
+}
+
+// --- Game Boy Color Per-Tile Mode ---
+
+export const GBC_REPRESENTATIVE_PALETTE: readonly string[] = [
+  '#000000', '#002080', '#e03020', '#ffffff',
+  '#083810', '#387820', '#78b838', '#f8f8b8',
+  '#001048', '#1848a0', '#4898e0', '#b8e8f8',
+  '#301808', '#784820', '#c89048', '#f8d898',
+  '#380800', '#981810', '#f06818', '#f8e038',
+  '#181818', '#484850', '#888890', '#d8d8e0',
+  '#280838', '#681888', '#b848c8', '#f8a8e8',
+  '#281810', '#603828', '#a87850', '#f0e8d8'
+]
+
+export interface GbcTilesResult {
+  indices: Uint8Array
+  rgb: Float32Array
+  palette: Uint8Array // 32 colours * 3 = 96 bytes sRGB
+}
+
+/**
+ * Applies Game Boy Color per-tile background constraints:
+ * 160×144 pixels partitioned into 360 8×8 tiles.
+ * 8 background palettes, each holding 4 colours from 15-bit RGB555 (32,768 gamut).
+ * Each 8×8 tile assigns exactly one of the 8 palettes.
+ */
+export function processGbcTiles(
+  linearRgb: Float32Array,
+  width: number,
+  height: number
+): GbcTilesResult {
+  const indices = new Uint8Array(width * height)
+  const outRgb = new Float32Array(width * height * 3)
+
+  const srgbBytes = new Uint8Array(width * height * 3)
+  for (let i = 0; i < width * height; i++) {
+    srgbBytes[i * 3] = snapToBits(linearToByte(linearRgb[i * 3]), 5)
+    srgbBytes[i * 3 + 1] = snapToBits(linearToByte(linearRgb[i * 3 + 1]), 5)
+    srgbBytes[i * 3 + 2] = snapToBits(linearToByte(linearRgb[i * 3 + 2]), 5)
+  }
+
+  const tilesX = Math.floor(width / 8)
+  const tilesY = Math.floor(height / 8)
+  const totalTiles = tilesX * tilesY
+
+  // 1. For each 8×8 tile, compute candidate 4-colour palette
+  const tileCandidates: number[][] = []
+
+  for (let ty = 0; ty < tilesY; ty++) {
+    for (let tx = 0; tx < tilesX; tx++) {
+      const tilePixels: [number, number, number][] = []
+      for (let py = 0; py < 8; py++) {
+        for (let px = 0; px < 8; px++) {
+          const i = ((ty * 8 + py) * width + (tx * 8 + px)) * 3
+          tilePixels.push([srgbBytes[i], srgbBytes[i + 1], srgbBytes[i + 2]])
+        }
+      }
+      tilePixels.sort((a, b) => {
+        const la = 0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2]
+        const lb = 0.299 * b[0] + 0.587 * b[1] + 0.114 * b[2]
+        return la - lb
+      })
+      const c0 = tilePixels[4]
+      const c1 = tilePixels[20]
+      const c2 = tilePixels[40]
+      const c3 = tilePixels[59]
+      tileCandidates.push([...c0, ...c1, ...c2, ...c3])
+    }
+  }
+
+  // 2. Cluster the candidate palettes into 8 global 4-colour palettes (k-means)
+  const K = 8
+  const centroids: number[][] = []
+  const step = Math.max(1, Math.floor(totalTiles / K))
+  for (let k = 0; k < K; k++) {
+    centroids.push([...tileCandidates[Math.min(tileCandidates.length - 1, k * step)]])
+  }
+
+  const assignments = new Int32Array(totalTiles)
+  for (let iter = 0; iter < 4; iter++) {
+    for (let t = 0; t < totalTiles; t++) {
+      const cand = tileCandidates[t]
+      let bestK = 0
+      let minD = Infinity
+      for (let k = 0; k < K; k++) {
+        const cent = centroids[k]
+        let d = 0
+        for (let j = 0; j < 12; j++) {
+          const diff = cand[j] - cent[j]
+          d += diff * diff
+        }
+        if (d < minD) {
+          minD = d
+          bestK = k
+        }
+      }
+      assignments[t] = bestK
+    }
+
+    const counts = new Float64Array(K)
+    const sums = Array.from({ length: K }, () => new Float64Array(12))
+    for (let t = 0; t < totalTiles; t++) {
+      const k = assignments[t]
+      counts[k]++
+      for (let j = 0; j < 12; j++) sums[k][j] += tileCandidates[t][j]
+    }
+    for (let k = 0; k < K; k++) {
+      if (counts[k] > 0) {
+        for (let j = 0; j < 12; j++) {
+          centroids[k][j] = snapToBits(Math.round(sums[k][j] / counts[k]), 5)
+        }
+      }
+    }
+  }
+
+  const globalPalettes: [number, number, number][][] = []
+  const paletteBytes = new Uint8Array(K * 4 * 3)
+
+  for (let k = 0; k < K; k++) {
+    const pal: [number, number, number][] = []
+    for (let c = 0; c < 4; c++) {
+      const r = snapToBits(centroids[k][c * 3], 5)
+      const g = snapToBits(centroids[k][c * 3 + 1], 5)
+      const b = snapToBits(centroids[k][c * 3 + 2], 5)
+      pal.push([r, g, b])
+      const pIdx = (k * 4 + c) * 3
+      paletteBytes[pIdx] = r
+      paletteBytes[pIdx + 1] = g
+      paletteBytes[pIdx + 2] = b
+    }
+    globalPalettes.push(pal)
+  }
+
+  // 3. For each 8×8 tile, assign the best palette and map pixels
+  for (let ty = 0; ty < tilesY; ty++) {
+    for (let tx = 0; tx < tilesX; tx++) {
+      let bestK = 0
+      let minTileErr = Infinity
+
+      for (let k = 0; k < K; k++) {
+        const pal = globalPalettes[k]
+        let err = 0
+        for (let py = 0; py < 8; py++) {
+          for (let px = 0; px < 8; px++) {
+            const i = ((ty * 8 + py) * width + (tx * 8 + px)) * 3
+            const r = srgbBytes[i]
+            const g = srgbBytes[i + 1]
+            const b = srgbBytes[i + 2]
+            let minD = Infinity
+            for (let c = 0; c < 4; c++) {
+              const [pr, pg, pb] = pal[c]
+              const d = colorDistSq(r, g, b, pr, pg, pb)
+              if (d < minD) minD = d
+            }
+            err += minD
+          }
+        }
+        if (err < minTileErr) {
+          minTileErr = err
+          bestK = k
+        }
+      }
+
+      const activePal = globalPalettes[bestK]
+
+      for (let py = 0; py < 8; py++) {
+        const y = ty * 8 + py
+        for (let px = 0; px < 8; px++) {
+          const x = tx * 8 + px
+          const pIdx = y * width + x
+          const i = pIdx * 3
+
+          const r = srgbBytes[i]
+          const g = srgbBytes[i + 1]
+          const b = srgbBytes[i + 2]
+
+          let bestC = 0
+          let minD = Infinity
+          for (let c = 0; c < 4; c++) {
+            const [pr, pg, pb] = activePal[c]
+            const d = colorDistSq(r, g, b, pr, pg, pb)
+            if (d < minD) {
+              minD = d
+              bestC = c
+            }
+          }
+
+          indices[pIdx] = bestK * 4 + bestC
+          const [cr, cg, cb] = activePal[bestC]
+          outRgb[i] = srgbToLinear(cr)
+          outRgb[i + 1] = srgbToLinear(cg)
+          outRgb[i + 2] = srgbToLinear(cb)
+        }
+      }
+    }
+  }
+
+  return { indices, rgb: outRgb, palette: paletteBytes }
 }

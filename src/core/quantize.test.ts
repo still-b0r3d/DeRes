@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BYTE_TO_LINEAR } from './color'
+import { BYTE_TO_LINEAR, rgbToHex } from './color'
 import { quantizeRgb, snapToBits } from './quantize'
 
 describe('snapToBits', () => {
@@ -82,5 +82,33 @@ describe('quantizeRgb', () => {
     const pal1 = quantizeRgb(rgb, 8, 3)
     const pal2 = quantizeRgb(rgb, 8, 3)
     expect(Array.from(pal1)).toEqual(Array.from(pal2))
+  })
+})
+
+describe('quantizeFromPool', () => {
+  it('selects at most targetCount colors strictly from the provided pool', async () => {
+    const { quantizeFromPool } = await import('./quantize')
+    const pool = ['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffffff']
+    const rgb = new Float32Array(100 * 3)
+    for (let i = 0; i < 100; i++) {
+      rgb[i * 3] = i / 100 // reds
+    }
+    const selected = quantizeFromPool(rgb, pool, 3)
+    const colorCount = selected.length / 3
+    expect(colorCount).toBeLessThanOrEqual(3)
+    for (let i = 0; i < colorCount; i++) {
+      const hex = rgbToHex(selected[i * 3], selected[i * 3 + 1], selected[i * 3 + 2])
+      expect(pool).toContain(hex)
+    }
+  })
+
+  it('returns all pool colors if pool size is less than or equal to targetCount', async () => {
+    const { quantizeFromPool } = await import('./quantize')
+    const pool = ['#111111', '#222222']
+    const rgb = new Float32Array(10 * 3)
+    const selected = quantizeFromPool(rgb, pool, 4)
+    expect(selected.length / 3).toBe(2)
+    expect(rgbToHex(selected[0], selected[1], selected[2])).toBe('#111111')
+    expect(rgbToHex(selected[3], selected[4], selected[5])).toBe('#222222')
   })
 })

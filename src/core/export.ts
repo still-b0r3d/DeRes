@@ -54,3 +54,117 @@ export async function exportPng(
   })
   return { png, width, height, fx: false }
 }
+
+export type WallpaperPresetId = 'phone' | 'win95' | 'desktop-1080p'
+
+export interface WallpaperPreset {
+  id: WallpaperPresetId
+  name: string
+  width: number
+  height: number
+}
+
+export const WALLPAPER_PRESETS: readonly WallpaperPreset[] = [
+  { id: 'phone', name: 'Phone (1080×2400)', width: 1080, height: 2400 },
+  { id: 'win95', name: 'b0r3d 95 (1024×768)', width: 1024, height: 768 },
+  { id: 'desktop-1080p', name: 'Desktop (1080p)', width: 1920, height: 1080 }
+]
+
+export function wallpaperPresetById(id: string): WallpaperPreset | undefined {
+  return WALLPAPER_PRESETS.find((p) => p.id === id)
+}
+
+export async function exportWallpaper(
+  r: Rendered,
+  preset: WallpaperPreset,
+  o: { tv: boolean; fx: Fx | null }
+): Promise<{ png: Uint8Array<ArrayBuffer>; width: number; height: number }> {
+  const targetW = preset.width
+  const targetH = preset.height
+
+  let bestM = 1
+  for (let m = 1; m <= 32; m++) {
+    const [sw, sh] = exportSize(r.width, r.height, r.geometry.par, m, o.tv)
+    if (sw <= targetW && sh <= targetH) {
+      bestM = m
+    } else {
+      break
+    }
+  }
+
+  const [scaledW, scaledH] = exportSize(r.width, r.height, r.geometry.par, bestM, o.tv)
+  const offsetX = Math.floor((targetW - scaledW) / 2)
+  const offsetY = Math.floor((targetH - scaledH) / 2)
+
+  let bgR = 0, bgG = 0, bgB = 0
+  if (r.palette.length >= 3) {
+    bgR = r.palette[0]
+    bgG = r.palette[1]
+    bgB = r.palette[2]
+  }
+
+  if (o.fx && o.fx.screen !== 'off' && bestM >= FX_MIN_MULTIPLIER) {
+    const fxRows: Uint8Array[] = []
+    const fxGen = fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, scaledW, scaledH, o.fx)
+    for (let sy = 0; sy < scaledH; sy++) {
+      const row = new Uint8Array(scaledW * 3)
+      fxGen(sy, row)
+      fxRows.push(row)
+    }
+
+    const png = await encodeRgbPng(targetW, targetH, (y, out) => {
+      if (y < offsetY || y >= offsetY + scaledH) {
+        for (let x = 0; x < targetW; x++) {
+          out[x * 3] = bgR
+          out[x * 3 + 1] = bgG
+          out[x * 3 + 2] = bgB
+        }
+      } else {
+        const sy = y - offsetY
+        const fxRow = fxRows[sy]
+        for (let x = 0; x < targetW; x++) {
+          if (x < offsetX || x >= offsetX + scaledW) {
+            out[x * 3] = bgR
+            out[x * 3 + 1] = bgG
+            out[x * 3 + 2] = bgB
+          } else {
+            const sx = x - offsetX
+            out[x * 3] = fxRow[sx * 3]
+            out[x * 3 + 1] = fxRow[sx * 3 + 1]
+            out[x * 3 + 2] = fxRow[sx * 3 + 2]
+          }
+        }
+      }
+    })
+    return { png, width: targetW, height: targetH }
+  }
+
+  const column = new Int32Array(scaledW)
+  for (let x = 0; x < scaledW; x++) column[x] = Math.min(r.width - 1, Math.floor((x * r.width) / scaledW))
+
+  const png = await encodeRgbPng(targetW, targetH, (y, out) => {
+    if (y < offsetY || y >= offsetY + scaledH) {
+      for (let x = 0; x < targetW; x++) {
+        out[x * 3] = bgR
+        out[x * 3 + 1] = bgG
+        out[x * 3 + 2] = bgB
+      }
+    } else {
+      const sy = Math.floor((y - offsetY) / bestM) * r.width
+      for (let x = 0; x < targetW; x++) {
+        if (x < offsetX || x >= offsetX + scaledW) {
+          out[x * 3] = bgR
+          out[x * 3 + 1] = bgG
+          out[x * 3 + 2] = bgB
+        } else {
+          const sx = x - offsetX
+          const srcIdx = (sy + column[sx]) * 3
+          out[x * 3] = r.rgb[srcIdx]
+          out[x * 3 + 1] = r.rgb[srcIdx + 1]
+          out[x * 3 + 2] = r.rgb[srcIdx + 2]
+        }
+      }
+    }
+  })
+  return { png, width: targetW, height: targetH }
+}
