@@ -18,11 +18,15 @@ import type { DeresSettings } from '../core/pipeline'
 import { profileById } from '../core/profiles'
 import { quantizeRgb } from '../core/quantize'
 import { decodeSettings, encodeSettings } from '../core/share'
+import { inspectMetadata, type ImageMetadata } from '../core/exif'
+import { scrubImage, type ScrubOptions } from '../core/scrub'
 import rukusUrl from '../../b0r3d-brand/rukus.png'
 import type { RenderedMessage } from '../worker/protocol'
 import { buildAsciiControls } from './ascii-controls'
 import { AsciiStage } from './ascii-stage'
 import { buildControls } from './controls'
+import { buildScrubControls } from './scrub-controls'
+import { ScrubStage } from './scrub-stage'
 import { h, show } from './dom'
 import { Engine } from './engine'
 import { decodeToWorkingCopy, DecodeError, DECODE_MESSAGES, imageFromTransfer, type WorkingCopy } from './loader'
@@ -30,7 +34,7 @@ import { loadSettings, saveSettings, type Settings } from './settings'
 import { Stage } from './stage'
 
 // Wires the page together: one loaded picture, the image worker, the preview
-// and the controls across DeRes and ASCII / ANSI Studio.
+// and the controls across DeRes, ASCII / ANSI Studio, and EXIF Scrubber.
 
 interface Picture {
   copy: WorkingCopy
@@ -60,16 +64,22 @@ function saveAsciiSettings(settings: AsciiSettings): void {
 }
 
 export function startApp(): void {
-  let activeTool: 'deres' | 'ascii' = 'deres'
+  let activeTool: 'deres' | 'ascii' | 'scrub' = 'deres'
   let settings: Settings = loadSettings()
   let asciiSettings: AsciiSettings = loadAsciiSettings()
+  let scrubOptions: ScrubOptions = { mode: 'all', preserveOrientation: true }
   let picture: Picture | null = null
   let currentAsciiResult: AsciiResult | null = null
+  let rawImageBytes: Uint8Array | null = null
+  let rawImageMeta: ImageMetadata | null = null
+  let rawImageUrl: string | null = null
+  let rawImageSize = 0
   let opening = 0
 
   const engine = new Engine()
   const stage = new Stage()
   const asciiStage = new AsciiStage()
+  const scrubStage = new ScrubStage()
 
   const readout = h('p', { class: 'readout', 'data-testid': 'readout' })
   const busy = h('span', { class: 'busy', hidden: true }, 'working…')
@@ -82,7 +92,8 @@ export function startApp(): void {
 
   const deresStageSlot = h('div', { class: 'deres-stage-slot' }, stage.el, h('div', { class: 'readout-row' }, readout, busy), holdHint)
   const asciiStageSlot = h('div', { class: 'ascii-stage-slot', hidden: true }, asciiStage.el)
-  document.getElementById('stage-slot')!.append(deresStageSlot, asciiStageSlot)
+  const scrubStageSlot = h('div', { class: 'scrub-stage-slot', hidden: true }, scrubStage.el)
+  document.getElementById('stage-slot')!.append(deresStageSlot, asciiStageSlot, scrubStageSlot)
 
   const fileInput = h('input', { id: 'file-input', type: 'file', accept: 'image/*', class: 'visually-hidden', tabindex: -1 })
   document.body.append(fileInput)
@@ -369,16 +380,52 @@ export function startApp(): void {
       }
   })
 
+  const scrubControls = buildScrubControls({
+    openFile: () => fileInput.click(),
+    loadSample: () => loadSample(),
+    getOptions: () => scrubOptions,
+    setOptions: (patch) => {
+      scrubOptions = { ...scrubOptions, ...patch }
+      scrubControls.sync()
+    },
+    scrubAndDownload: () => {
+      if (!rawImageBytes || !picture) return
+      try {
+        scrubControls.status('Scrubbing metadata…')
+        const result = scrubImage(rawImageBytes, scrubOptions)
+        scrubStage.showSelfCheck(result.report)
+        const ext = result.format === 'jpeg' ? 'jpg' : result.format
+        const mimeType =
+          result.format === 'jpeg' ? 'image/jpeg' : result.format === 'png' ? 'image/png' : 'image/webp'
+        const filename = `${picture.base}-clean.${ext}`
+        const blob = new Blob([result.data.buffer as ArrayBuffer], { type: mimeType })
+        const url = URL.createObjectURL(blob)
+        const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
+        document.body.append(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        scrubControls.status(`Cleaned and saved ${filename}.`)
+      } catch (err) {
+        scrubControls.status(`Failed to scrub: ${(err as Error).message}`)
+      }
+    },
+    picture: () => (picture ? { name: picture.name, size: rawImageSize } : null)
+  })
+
   const deresControlsSlot = controls.el
   const asciiControlsSlot = asciiControls.el
+  const scrubControlsSlot = scrubControls.el
   asciiControlsSlot.hidden = true
-  document.getElementById('controls')!.append(deresControlsSlot, asciiControlsSlot)
+  scrubControlsSlot.hidden = true
+  document.getElementById('controls')!.append(deresControlsSlot, asciiControlsSlot, scrubControlsSlot)
 
   // Tabs
   const tabDeres = document.getElementById('tab-deres') as HTMLButtonElement | null
   const tabAscii = document.getElementById('tab-ascii') as HTMLButtonElement | null
+  const tabScrub = document.getElementById('tab-scrub') as HTMLButtonElement | null
 
-  function switchTool(tool: 'deres' | 'ascii'): void {
+  function switchTool(tool: 'deres' | 'ascii' | 'scrub'): void {
     activeTool = tool
     if (tabDeres) {
       tabDeres.classList.toggle('active', tool === 'deres')
@@ -388,15 +435,26 @@ export function startApp(): void {
       tabAscii.classList.toggle('active', tool === 'ascii')
       tabAscii.setAttribute('aria-selected', String(tool === 'ascii'))
     }
+    if (tabScrub) {
+      tabScrub.classList.toggle('active', tool === 'scrub')
+      tabScrub.setAttribute('aria-selected', String(tool === 'scrub'))
+    }
 
     show(deresStageSlot, tool === 'deres')
     show(deresControlsSlot, tool === 'deres')
     show(asciiStageSlot, tool === 'ascii')
     show(asciiControlsSlot, tool === 'ascii')
+    show(scrubStageSlot, tool === 'scrub')
+    show(scrubControlsSlot, tool === 'scrub')
 
     if (tool === 'ascii') {
       asciiControls.sync()
       renderAscii()
+    } else if (tool === 'scrub') {
+      scrubControls.sync()
+      if (rawImageMeta && rawImageUrl) {
+        scrubStage.showMetadata(rawImageMeta, rawImageUrl)
+      }
     } else {
       controls.sync()
       render()
@@ -405,9 +463,11 @@ export function startApp(): void {
 
   tabDeres?.addEventListener('click', () => switchTool('deres'))
   tabAscii?.addEventListener('click', () => switchTool('ascii'))
+  tabScrub?.addEventListener('click', () => switchTool('scrub'))
 
   controls.sync()
   asciiControls.sync()
+  scrubControls.sync()
 
   engine.onRendered = (m: RenderedMessage) => {
     const tv = settings.pixelShape === 'tv'
@@ -437,9 +497,22 @@ export function startApp(): void {
     if (!picture) {
       stage.message('Opening…')
       asciiStage.message('Opening…')
+      scrubStage.message('Opening…')
     } else {
       readout.textContent = 'Opening…'
     }
+
+    try {
+      const arrayBuf = await blob.arrayBuffer()
+      rawImageBytes = new Uint8Array(arrayBuf)
+      rawImageSize = blob.size
+      rawImageMeta = inspectMetadata(rawImageBytes)
+      if (rawImageUrl) URL.revokeObjectURL(rawImageUrl)
+      rawImageUrl = URL.createObjectURL(blob)
+    } catch {
+      // ignore
+    }
+
     let copy: WorkingCopy
     try {
       copy = await decodeToWorkingCopy(blob)
@@ -449,11 +522,14 @@ export function startApp(): void {
       if (!picture) {
         stage.message('Choose a photo to start.')
         asciiStage.message('Choose a photo to start.')
+        scrubStage.message('Choose a photo to start.')
       }
       stage.problem(text)
       asciiStage.problem(text)
+      scrubStage.problem(text)
       controls.sync()
       asciiControls.sync()
+      scrubControls.sync()
       return
     }
     if (ticket !== opening) return
@@ -463,8 +539,14 @@ export function startApp(): void {
     stage.setSource(copy.canvas)
     controls.sync()
     asciiControls.sync()
+    scrubControls.sync()
+    if (rawImageMeta && rawImageUrl) {
+      scrubStage.showMetadata(rawImageMeta, rawImageUrl)
+    }
     if (activeTool === 'ascii') {
       renderAscii()
+    } else if (activeTool === 'scrub') {
+      // Scrubber view already updated
     } else {
       render()
     }
@@ -477,6 +559,7 @@ export function startApp(): void {
     } catch {
       stage.problem("The sample picture didn't load. Choose a photo of your own instead.")
       asciiStage.problem("The sample picture didn't load. Choose a photo of your own instead.")
+      scrubStage.problem("The sample picture didn't load. Choose a photo of your own instead.")
     }
   }
 
@@ -573,6 +656,7 @@ export function startApp(): void {
   footer()
   stage.message('Loading the sample…')
   asciiStage.message('Loading the sample…')
+  scrubStage.message('Loading the sample…')
   loadSample()
 }
 

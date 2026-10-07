@@ -6,14 +6,14 @@ your browser.
 b0r3d DeRes turns a photo into what old hardware could show: real palettes,
 real resolutions, the pixel shapes and dithering of the machines, and the
 screens they were seen on. It also includes an authentic BBS-style ASCII/ANSI art
-studio and will soon add an EXIF scrubber.
+studio and a privacy-preserving byte-level EXIF metadata scrubber.
 
 The app runs entirely in your browser: images are processed and exported on
 your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.4.0, ASCII / ANSI studio with half-block color mode, character ramps, SAUCE .ans exports, clipboard actions, and bundled CP437 font, is built. Not live yet.
+**Status:** v0.5.0, EXIF Scrubber with byte-level stripping (JPEG, PNG, WebP), minimal orientation preservation, uncropped-thumbnail detection, and automated privacy self-check, is built. Not live yet.
 
 ---
 
@@ -81,12 +81,20 @@ images.
   - **Clipboard copy:** one-click copy as raw text, GitHub Markdown, terminal ANSI escape codes, or formatted HTML `<pre>`.
   - **BBS `.ans` export:** native CP437 bytes with DOS ANSI escape sequences and 128-byte SAUCE metadata record (title, author `still_b0r3d`, group `b0r3d.org`, date, dimensions).
   - **Rendered PNG export:** crisp 1×, 2×, 4× image export rendered with the bundled CP437 font.
+- **EXIF Scrubber (v0.5.0):**
+  - **Byte-level stripping (no canvas re-encoding):** pixel streams remain bit-identical with zero generational quality loss, preserving Display P3 and sRGB ICC profiles.
+  - **JPEG stripping:** strips APP1 (Exif, XMP), APP13 (Photoshop IRB / IPTC), COM, and APP2 MPF while preserving JFIF, Adobe APP14, and decoding tables.
+  - **Trailing data removal:** truncates data following JPEG `FF D9` (EOI) and PNG `IEND` to eliminate Google Pixel Motion Photo MP4 videos, Samsung camera trailers, and gain maps.
+  - **Orientation preservation:** writes back a clean, minimal 36-byte APP1 segment holding only the orientation tag (if orientation > 1), preventing vertical phone photos from rendering rotated in viewers.
+  - **PNG & WebP stripping:** drops PNG `eXIf`, `tEXt`, `zTXt`, `iTXt`, `tIME`; strips WebP `EXIF` and `XMP ` chunks, clears VP8X flags, and updates RIFF lengths.
+  - **Metadata inspector & narrative:** displays camera make/model, lens, timestamps, shutter speed, aperture, ISO, and a plain-English narrative summary.
+  - **GPS coordinate callout:** displays coordinates as DMS and decimal with 1-click copy; loads zero external maps or tile APIs (zero phone-home rule).
+  - **Uncropped-thumbnail warning:** detects embedded IFD1 thumbnails, renders a preview, and warns users when thumbnails contain uncropped original photos.
+  - **Automated privacy self-check:** re-parses the scrubbed output buffer with the metadata inspector to verify zero GPS coordinates, zero camera tags, and confirms preserved color profiles and orientation.
 - Settings are remembered on your device. The picture never is.
 
 ## Planned
 
-- **v0.5.0, EXIF scrubber:** see what a photo gives away (location, camera,
-  dates) and remove it at the byte level, without re-encoding the picture.
 - **v0.6.0, Analog, print & video aesthetics:** VHS mode, early CCD noise, NTSC/composite bleed, newspaper halftone rosettes, two-ink risograph, phosphor decay.
 - **v0.7.0, Extended hardware & handhelds:** Nokia 3310, Game Boy Color, Virtual Boy, Atari ST, Amstrad CPC, MSX.
 - **v0.8.0, BBS heritage & Teletext:** PETSCII studio, Teletext/Ceefax mosaics, dial-up baud playback.
@@ -188,6 +196,7 @@ version and the build (the commit it was built from).
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.5.0 | 2026-10-07 | EXIF Scrubber: byte-level stripping (JPEG, PNG, WebP), minimal orientation preservation, GPS coordinates inspector & copy, uncropped-thumbnail warning, trailing data removal, automated privacy self-check. |
 | 0.4.0 | 2026-10-07 | ASCII / ANSI studio: half-block color mode, character ramps, ANSI 16/phosphor/RGB profiles, .ans export with SAUCE record, clipboard copy (text/MD/ANSI/HTML), CP437 font-rendered PNG export. |
 | 0.3.0 | 2026-10-07 | Per-cell modes (Spectrum clash, C64 MC, NES attributes, Apple II hi-res), Amiga HAM6, N64 blur, tile meter and emulator export (.scr, .koa, .chr). |
 | 0.2.0 | 2026-10-07 | Range profiles (SNES, Genesis, Master System, PC-98, VGA 256, custom), PS1 hardware dither, palette files (.hex, .pal, .gpl, PNG), palette grabber, settings share link. |

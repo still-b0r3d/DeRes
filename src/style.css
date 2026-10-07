@@ -1114,3 +1114,337 @@ button:disabled {
   color: #000;
   box-shadow: 0 0 10px rgba(0, 255, 157, 0.4);
 }
+
+/* EXIF Scrubber Stage & Layout */
+.scrub-stage-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.scrub-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.scrub-preview-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 12px;
+  max-height: 400px;
+  overflow: hidden;
+}
+
+.scrub-preview-img {
+  max-width: 100%;
+  max-height: 380px;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
+.scrub-narrative {
+  padding: 12px 14px;
+  background: var(--panel);
+  border-left: 3px solid var(--cyan);
+  border-radius: 0 4px 4px 0;
+  font-family: var(--brand-font);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.scrub-alert {
+  padding: 14px;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scrub-gps-alert {
+  background: rgba(255, 80, 80, 0.08);
+  border: 1px solid rgba(255, 80, 80, 0.4);
+}
+
+.scrub-gps-alert .scrub-alert-title {
+  color: #ff6b6b;
+  font-weight: 700;
+  font-family: var(--brand-font);
+  font-size: 1rem;
+}
+
+.scrub-gps-coords {
+  font-family: 'IBM VGA 8x16', monospace;
+  font-size: 0.9rem;
+  color: #fff;
+}
+
+.scrub-alert-note {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.scrub-alert-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.copy-gps-btn {
+  background: rgba(255, 80, 80, 0.15);
+  border-color: rgba(255, 80, 80, 0.5);
+  color: #ff8888;
+}
+
+.copy-gps-btn:hover {
+  background: rgba(255, 80, 80, 0.3);
+  border-color: #ff8888;
+  color: #fff;
+}
+
+.scrub-thumb-alert {
+  background: rgba(255, 170, 0, 0.08);
+  border: 1px solid rgba(255, 170, 0, 0.4);
+}
+
+.scrub-thumb-alert .scrub-alert-title {
+  color: #ffbb33;
+  font-weight: 700;
+  font-family: var(--brand-font);
+  font-size: 1rem;
+}
+
+.scrub-thumb-container {
+  margin-top: 8px;
+  padding: 6px;
+  background: #000;
+  border: 1px solid var(--line);
+  display: inline-block;
+  border-radius: 4px;
+  max-width: 180px;
+}
+
+.scrub-thumb-img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.scrub-trailer-alert {
+  background: rgba(0, 200, 255, 0.08);
+  border: 1px solid rgba(0, 200, 255, 0.4);
+}
+
+.scrub-trailer-alert .scrub-alert-title {
+  color: var(--cyan);
+  font-weight: 700;
+  font-family: var(--brand-font);
+  font-size: 1rem;
+}
+
+.scrub-self-check {
+  padding: 14px;
+  background: rgba(0, 255, 157, 0.08);
+  border: 1px solid var(--mint);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scrub-check-badge {
+  font-family: var(--brand-font);
+  font-weight: 700;
+  color: var(--mint);
+  font-size: 0.95rem;
+}
+
+.scrub-check-summary {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.scrub-check-stats {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-family: 'IBM VGA 8x16', monospace;
+}
+
+/* Metadata Inspector Table */
+.scrub-table-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.scrub-sec-title {
+  font-family: var(--brand-font);
+  font-size: 0.95rem;
+  color: var(--cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scrub-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.scrub-table th,
+.scrub-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.scrub-table th {
+  background: var(--panel-2);
+  color: var(--muted);
+  font-family: var(--brand-font);
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.scrub-table tr:last-child td {
+  border-bottom: none;
+}
+
+.scrub-table .field-name {
+  color: var(--muted);
+  width: 35%;
+  font-family: var(--brand-font);
+}
+
+.scrub-table .val-highlight {
+  color: var(--text);
+  font-family: 'IBM VGA 8x16', monospace;
+}
+
+.scrub-table .val-muted {
+  color: #666;
+}
+
+/* Scrub Controls */
+.scrub-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.radio-option:hover {
+  border-color: var(--muted);
+}
+
+.radio-option:has(input:checked) {
+  border-color: var(--cyan);
+  background: #142226;
+}
+
+.radio-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.radio-text strong {
+  font-family: var(--brand-font);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.radio-desc {
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.scrub-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.checkbox-option:hover {
+  border-color: var(--muted);
+}
+
+.checkbox-option:has(input:checked) {
+  border-color: var(--mint);
+}
+
+.checkbox-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.checkbox-text strong {
+  font-family: var(--brand-font);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.scrub-download {
+  width: 100%;
+  padding: 12px;
+  background: #1d2b1d;
+  border: 1px solid var(--mint);
+  color: var(--mint);
+  border-radius: 4px;
+  font-family: var(--brand-font);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.scrub-download:hover:not(:disabled) {
+  background: var(--mint);
+  color: #000;
+  box-shadow: 0 0 12px rgba(0, 255, 157, 0.4);
+}
+
+.scrub-download:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

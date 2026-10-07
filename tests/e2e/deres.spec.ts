@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { decodePng, encodeRgbPng } from '../../src/core/png'
+import { crc32, decodePng, encodeRgbPng } from '../../src/core/png'
 import { paletteBytes } from '../../src/core/pipeline'
 import { PROFILES, profileById } from '../../src/core/profiles'
 import { parseSauce } from '../../src/core/sauce'
@@ -55,7 +55,7 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
   const gbPal = profileById('gameboy')!.palette
   expect(new Set(await canvasColours(page))).toEqual(new Set(gbPal.kind === 'fixed' ? gbPal.colours : []))
-  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.4.0')
+  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.5.0')
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
@@ -420,5 +420,112 @@ test('v0.4: ASCII studio clipboard buttons trigger status update', async ({ page
 
   await page.getByRole('button', { name: 'Copy HTML' }).click()
   await expect(status).toContainText(/(Copied HTML|clipboard)/)
+})
+
+test('v0.5: switches to EXIF Scrubber tab and displays inspector and narrative', async ({ page }) => {
+  await page.getByTestId('tab-scrub').click()
+  await expect(page.getByTestId('tab-scrub')).toHaveClass(/active/)
+  await expect(page.getByTestId('tab-scrub')).toHaveAttribute('aria-selected', 'true')
+
+  // Inspector and preview
+  await expect(page.getByTestId('scrub-preview-img')).toBeVisible()
+  await expect(page.getByTestId('scrub-narrative')).toBeVisible()
+  await expect(page.getByTestId('scrub-table')).toBeVisible()
+  await expect(page.getByTestId('scrub-table')).toContainText('PNG')
+  await expect(page.getByTestId('scrub-download-btn')).toBeEnabled()
+})
+
+test('v0.5: scrubs photo and downloads clean output with self-check verification', async ({ page }) => {
+  await page.getByTestId('tab-scrub').click()
+
+  // Verify options
+  const radioAll = page.locator('#scrub-mode-all')
+  await expect(radioAll).toBeChecked()
+
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByTestId('scrub-download-btn').click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('rukus-clean.png')
+
+  // Self-check verification badge
+  const check = page.getByTestId('scrub-self-check')
+  await expect(check).toBeVisible()
+  await expect(check).toContainText('✓ Verified Clean')
+  await expect(check).toContainText('Checked: 0 GPS coordinates')
+
+  const status = page.getByTestId('scrub-status')
+  await expect(status).toContainText('Cleaned and saved')
+})
+
+test('v0.5: opens photo with GPS and displays coordinates with 1-click copy', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-write', 'clipboard-read']).catch(() => {})
+
+  const basePng = await gradientPng(20, 20)
+  // Build TIFF with GPS:
+  const tiff = new Uint8Array(180)
+  tiff[0] = 0x49; tiff[1] = 0x49; tiff[2] = 0x2a; tiff[3] = 0x00
+  tiff[4] = 0x08; tiff[5] = 0x00; tiff[6] = 0x00; tiff[7] = 0x00
+  // IFD0: 2 entries
+  tiff[8] = 0x02; tiff[9] = 0x00
+  // Entry 1: Make 0x010f, ASCII, count 5, offset 38
+  tiff[10] = 0x0f; tiff[11] = 0x01; tiff[12] = 0x02; tiff[13] = 0x00
+  tiff[14] = 0x05; tiff[15] = 0x00; tiff[16] = 0x00; tiff[17] = 0x00
+  tiff[18] = 38; tiff[19] = 0x00; tiff[20] = 0x00; tiff[21] = 0x00
+  // Entry 2: GPSInfo 0x8825, LONG, count 1, offset 44
+  tiff[22] = 0x25; tiff[23] = 0x88; tiff[24] = 0x04; tiff[25] = 0x00
+  tiff[26] = 0x01; tiff[27] = 0x00; tiff[28] = 0x00; tiff[29] = 0x00
+  tiff[30] = 44; tiff[31] = 0x00; tiff[32] = 0x00; tiff[33] = 0x00
+  // "Acme\0" at offset 38
+  tiff[38] = 0x41; tiff[39] = 0x63; tiff[40] = 0x6d; tiff[41] = 0x65; tiff[42] = 0x00
+  // GPS IFD at offset 44
+  tiff[44] = 0x04; tiff[45] = 0x00 // 4 tags
+  // G1: 0x0001 (LatRef), ASCII, count 2, value "N\0"
+  tiff[46] = 0x01; tiff[47] = 0x00; tiff[48] = 0x02; tiff[49] = 0x00
+  tiff[50] = 0x02; tiff[51] = 0x00; tiff[52] = 0x00; tiff[53] = 0x00
+  tiff[54] = 0x4e; tiff[55] = 0x00; tiff[56] = 0x00; tiff[57] = 0x00
+  // G2: 0x0002 (Lat), RATIONAL, count 3, offset 98
+  tiff[58] = 0x02; tiff[59] = 0x00; tiff[60] = 0x05; tiff[61] = 0x00
+  tiff[62] = 0x03; tiff[63] = 0x00; tiff[64] = 0x00; tiff[65] = 0x00
+  tiff[66] = 98; tiff[67] = 0x00; tiff[68] = 0x00; tiff[69] = 0x00
+  // G3: 0x0003 (LonRef), ASCII, count 2, value "W\0"
+  tiff[70] = 0x03; tiff[71] = 0x00; tiff[72] = 0x02; tiff[73] = 0x00
+  tiff[74] = 0x02; tiff[75] = 0x00; tiff[76] = 0x00; tiff[77] = 0x00
+  tiff[78] = 0x57; tiff[79] = 0x00; tiff[80] = 0x00; tiff[81] = 0x00
+  // G4: 0x0004 (Lon), RATIONAL, count 3, offset 122
+  tiff[82] = 0x04; tiff[83] = 0x00; tiff[84] = 0x05; tiff[85] = 0x00
+  tiff[86] = 0x03; tiff[87] = 0x00; tiff[88] = 0x00; tiff[89] = 0x00
+  tiff[90] = 122; tiff[91] = 0x00; tiff[92] = 0x00; tiff[93] = 0x00
+  // Latitude values at 98..121 (3 rationals: 37/1, 46/1, 29/1)
+  const view = new DataView(tiff.buffer)
+  view.setUint32(98, 37, true); view.setUint32(102, 1, true)
+  view.setUint32(106, 46, true); view.setUint32(110, 1, true)
+  view.setUint32(114, 29, true); view.setUint32(118, 1, true)
+  // Longitude values at 122..145 (3 rationals: 122/1, 25/1, 9/1)
+  view.setUint32(122, 122, true); view.setUint32(126, 1, true)
+  view.setUint32(130, 25, true); view.setUint32(134, 1, true)
+  view.setUint32(138, 9, true); view.setUint32(142, 1, true)
+
+  const tiffSlice = tiff.subarray(0, 146)
+  // PNG eXIf chunk: 4 len + 4 'eXIf' + payload + 4 crc
+  const chunk = new Uint8Array(4 + 4 + tiffSlice.length + 4)
+  const cView = new DataView(chunk.buffer)
+  cView.setUint32(0, tiffSlice.length, false)
+  chunk[4] = 0x65; chunk[5] = 0x58; chunk[6] = 0x49; chunk[7] = 0x66
+  chunk.set(tiffSlice, 8)
+  const crc = crc32(chunk.subarray(4, 8 + tiffSlice.length))
+  cView.setUint32(8 + tiffSlice.length, crc, false)
+
+  const pngWithGps = Buffer.concat([basePng.subarray(0, 33), chunk, basePng.subarray(33)])
+
+  await page.locator('#file-input').setInputFiles({ name: 'photo-with-gps.png', mimeType: 'image/png', buffer: pngWithGps })
+  await page.getByTestId('tab-scrub').click()
+
+  // GPS alert visible
+  const gpsAlert = page.getByTestId('scrub-gps-alert')
+  await expect(gpsAlert).toBeVisible()
+  const copyBtn = page.getByTestId('copy-gps-btn')
+  await expect(copyBtn).toBeVisible()
+  await copyBtn.click()
+  await expect(copyBtn).toHaveText(/Copied!/)
 })
 
