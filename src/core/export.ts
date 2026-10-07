@@ -34,6 +34,20 @@ export async function exportPng(
   // Which picture column each output column shows.
   const column = new Int32Array(width)
   for (let x = 0; x < width; x++) column[x] = Math.min(r.width - 1, Math.floor((x * r.width) / width))
+
+  if (r.palette.length / 3 > 256 || r.palette.length === 0) {
+    const png = await encodeRgbPng(width, height, (y, out) => {
+      const sy = Math.floor(y / m) * r.width
+      for (let x = 0; x < width; x++) {
+        const srcIdx = (sy + column[x]) * 3
+        out[x * 3] = r.rgb[srcIdx]
+        out[x * 3 + 1] = r.rgb[srcIdx + 1]
+        out[x * 3 + 2] = r.rgb[srcIdx + 2]
+      }
+    })
+    return { png, width, height, fx: false }
+  }
+
   const png = await encodeIndexedPng(width, height, r.palette, (y, out) => {
     const sy = Math.floor(y / m) * r.width
     for (let x = 0; x < width; x++) out[x] = r.indices[sy + column[x]]

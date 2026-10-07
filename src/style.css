@@ -679,6 +679,46 @@ button:disabled {
   background: rgba(0, 255, 255, 0.16);
 }
 
+.export-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-link {
+  width: 100%;
+  padding: 10px;
+  font-family: var(--brand-font);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.share-link:hover:not(:disabled) {
+  border-color: var(--pink);
+  color: var(--pink);
+}
+
+.palette-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn-row button {
+  flex: 1 1 auto;
+}
+
 /* Drag and drop */
 .drop-overlay {
   position: fixed;

@@ -152,22 +152,32 @@ async function run(base, remote) {
     check('image worker loads from this site', workerReqs.length > 0 && workerReqs.every((u) => u.startsWith(origin)), workerReqs[0] || 'no worker request')
 
     // Every machine, colours checked against its palette.
-    const cards = await page.$$eval('.card', (cs) => cs.map((c) => ({ id: c.dataset.profile, palette: c.dataset.palette.split(',') })))
+    const cards = await page.$$eval('.card', (cs) =>
+      cs.map((c) => ({ id: c.dataset.profile, kind: c.dataset.kind, palette: c.dataset.palette.split(',') }))
+    )
     let wrong = []
-    for (const { id, palette } of cards) {
+    for (const { id, kind, palette } of cards) {
       await page.click(`.card[data-profile="${id}"]`)
       const ok = await page
         .waitForFunction(
-          (allowed) => {
+          ({ allowed, kind }) => {
             const c = document.querySelector('canvas.result')
             const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-            for (let i = 0; i < d.length; i += 4) {
-              const hex = '#' + [d[i], d[i + 1], d[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('')
-              if (!allowed.includes(hex)) return false
+            if (kind === 'fixed') {
+              for (let i = 0; i < d.length; i += 4) {
+                const hex = '#' + [d[i], d[i + 1], d[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('')
+                if (!allowed.includes(hex)) return false
+              }
+            } else {
+              let nonZero = 0
+              for (let i = 0; i < d.length; i += 4) {
+                if (d[i] > 0 || d[i + 1] > 0 || d[i + 2] > 0) nonZero++
+              }
+              if (nonZero === 0) return false
             }
             return true
           },
-          palette,
+          { allowed: palette, kind },
           { timeout: 10000 }
         )
         .then(() => true)
@@ -192,7 +202,7 @@ async function run(base, remote) {
     check('export is an indexed PNG', raw[25] === 3, `colour type ${raw[25]}`)
 
     // A picture of its own.
-    await page.locator('input[type=file]').setInputFiles({ name: 'gradient.png', mimeType: 'image/png', buffer: gradientPng(640, 360) })
+    await page.locator('#file-input').setInputFiles({ name: 'gradient.png', mimeType: 'image/png', buffer: gradientPng(640, 360) })
     await page.waitForFunction(() => document.querySelector('[data-testid=picture-info]')?.textContent === 'gradient.png · 640×360', null, { timeout: 10000 }).catch(() => {})
     await settle('colours used')
     check('opens a picture from a file', (await page.getByTestId('picture-info').textContent()) === 'gradient.png · 640×360')

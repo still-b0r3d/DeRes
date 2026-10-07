@@ -52,19 +52,26 @@ test.beforeEach(async ({ page }) => {
 test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(readout(page)).toHaveText('4 of 4 colours used · 160×144 · square pixels')
   await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
-  expect(new Set(await canvasColours(page))).toEqual(new Set(profileById('gameboy')!.palette.colours))
-  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.1.0')
+  const gbPal = profileById('gameboy')!.palette
+  expect(new Set(await canvasColours(page))).toEqual(new Set(gbPal.kind === 'fixed' ? gbPal.colours : []))
+  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.2.0')
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
 test('every machine renders at its size using only its colours', async ({ page }) => {
   for (const p of PROFILES) {
     await pick(page, p.id)
-    const allowed = new Set(p.palette.colours)
-    // Some machines share a size, so wait for the colours themselves.
-    await expect
-      .poll(async () => (await canvasColours(page)).filter((c) => !allowed.has(c)), { message: p.id })
-      .toEqual([])
+    if (p.palette.kind === 'fixed') {
+      const allowed = new Set(p.palette.colours)
+      // Some machines share a size, so wait for the colours themselves.
+      await expect
+        .poll(async () => (await canvasColours(page)).filter((c) => !allowed.has(c)), { message: p.id })
+        .toEqual([])
+    } else {
+      await expect
+        .poll(async () => (await canvasColours(page)).length, { message: p.id })
+        .toBeGreaterThan(0)
+    }
     await expect(page.locator(`.card[data-profile="${p.id}"]`)).toHaveAttribute('aria-pressed', 'true')
   }
 })
@@ -89,7 +96,7 @@ test('every dither renders, and the camera dither is only offered on the camera'
 
 test('opens a picture from the file button, by paste and by drag and drop', async ({ page }) => {
   const png = await gradientPng(300, 200)
-  await page.locator('input[type=file]').setInputFiles({ name: 'Test Card.png', mimeType: 'image/png', buffer: png })
+  await page.locator('#file-input').setInputFiles({ name: 'Test Card.png', mimeType: 'image/png', buffer: png })
   await expect(page.getByTestId('picture-info')).toHaveText('Test Card.png · 300×200')
   await ready(page)
 
@@ -114,7 +121,7 @@ test('opens a picture from the file button, by paste and by drag and drop', asyn
 })
 
 test("says so when a file isn't a picture", async ({ page }) => {
-  await page.locator('input[type=file]').setInputFiles({
+  await page.locator('#file-input').setInputFiles({
     name: 'not-a-picture.png',
     mimeType: 'image/png',
     buffer: Buffer.from('definitely not a png')
@@ -206,7 +213,7 @@ test('custom block size, framing and the transparent background', async ({ page 
   await expect.poll(corner).not.toEqual(light)
 
   // "Fit, with bars" puts the darkest colour above and below a wide photo.
-  await page.locator('input[type=file]').setInputFiles({ name: 'wide.png', mimeType: 'image/png', buffer: await gradientPng(400, 100) })
+  await page.locator('#file-input').setInputFiles({ name: 'wide.png', mimeType: 'image/png', buffer: await gradientPng(400, 100) })
   await expect(page.getByTestId('picture-info')).toHaveText('wide.png · 400×100')
   await page.locator('.seg[aria-label="Framing"] button[data-value="fit"]').click()
   await expect.poll(corner).toEqual([8, 24, 32, 255])
@@ -241,7 +248,7 @@ test('compare: divider and hold to see the original', async ({ page }) => {
 })
 
 test('remembers settings, never the picture', async ({ page }) => {
-  await page.locator('input[type=file]').setInputFiles({ name: 'mine.png', mimeType: 'image/png', buffer: await gradientPng(200, 150) })
+  await page.locator('#file-input').setInputFiles({ name: 'mine.png', mimeType: 'image/png', buffer: await gradientPng(200, 150) })
   await expect(page.getByTestId('picture-info')).toHaveText('mine.png · 200×150')
   await pick(page, 'pico8')
   await page.locator('.dither[data-dither="atkinson"]').click()
@@ -278,7 +285,23 @@ test('loads nothing from any other site', async ({ page }) => {
   await page.reload()
   await ready(page)
   await pick(page, 'nes')
-  await page.locator('input[type=file]').setInputFiles({ name: 'x.png', mimeType: 'image/png', buffer: await gradientPng(64, 64) })
+  await page.locator('#file-input').setInputFiles({ name: 'x.png', mimeType: 'image/png', buffer: await gradientPng(64, 64) })
   await ready(page)
   expect(outside).toEqual([])
 })
+
+test('PS1 renders with hardware dither', async ({ page }) => {
+  await pick(page, 'ps1')
+  await expect(page.locator('.dither[data-dither="ps1"]')).toBeVisible()
+  await expect(page.locator('.dither[data-dither="ps1"]')).toHaveAttribute('aria-pressed', 'true')
+  expect((await canvasColours(page)).length).toBeGreaterThan(0)
+})
+
+test('share link preserves settings in URL hash', async ({ page }) => {
+  await pick(page, 'snes')
+  await page.getByRole('button', { name: 'Copy share link' }).click()
+  await expect(page.locator('.status')).toContainText(/Share (link copied|URL)/)
+  const hash = await page.evaluate(() => window.location.hash)
+  expect(hash).toContain('#s=')
+})
+

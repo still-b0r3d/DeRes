@@ -1,10 +1,11 @@
 import { applyAdjust, edgeBoost, toGrey, type Adjust } from './adjust'
-import { BYTE_TO_LINEAR, hexToRgb, luminance } from './color'
-import { dither, type DitherId } from './dither'
+import { BYTE_TO_LINEAR, hexToRgb, luminance, toSrgb } from './color'
+import { dither, PS1_DITHER_TABLE, type DitherId } from './dither'
 import type { Fx } from './fx'
 import { planGeometry, type Fit, type Geometry } from './geometry'
 import { PaletteMatcher } from './matcher'
-import { DEFAULT_PROFILE, profileById, type Profile } from './profiles'
+import { DEFAULT_PROFILE, profileById, representativePalette, type Profile } from './profiles'
+import { quantizeRgb, snapToBits } from './quantize'
 import { resampleArea } from './resample'
 import { YliluomaPlanner } from './yliluoma'
 
@@ -25,6 +26,10 @@ export interface DeresSettings {
   fx: Fx
   /** Raw square pixels, or the machine's pixel shape (as on a TV). */
   pixelShape: 'raw' | 'tv'
+  /** For custom N colours or range custom count */
+  customCount?: number
+  /** For loaded custom palette files */
+  customPalette?: readonly string[]
 }
 
 export interface Rendered {
@@ -63,8 +68,12 @@ interface PaletteState {
   lightest: number
 }
 
-export function paletteBytes(profile: Profile): Uint8Array {
-  const colours = profile.palette.colours.map(hexToRgb)
+export function paletteBytes(profile: Profile, customPalette?: readonly string[]): Uint8Array {
+  const hexes =
+    profile.palette.kind === 'custom' && customPalette && customPalette.length > 0
+      ? customPalette
+      : representativePalette(profile.palette)
+  const colours = hexes.map(hexToRgb)
   if (profile.mono) {
     colours.sort((a, b) => lum(a) - lum(b))
   }
@@ -115,7 +124,6 @@ export class Deres {
       block: s.block,
       fit: s.fit
     })
-    const pal = this.palette(profile)
     const { width, height, dst } = g
 
     // Resize (cached until the framing changes), then lay it on the frame.
@@ -132,8 +140,82 @@ export class Deres {
       if (profile.edgeBoost) edgeBoost(rgb, width, height, profile.edgeBoost)
     }
 
+    // Direct PlayStation 15-bit hardware dither
+    if (profile.palette.kind === 'direct' && (s.dither === 'ps1' || profile.dither === 'ps1')) {
+      const out = new Uint8Array(width * height * 3)
+      const indices = new Uint8Array(width * height)
+      const seen = new Map<number, number>()
+      const palList: number[] = []
+      let used = 0
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = y * width + x
+          let r = 0, g = 0, b = 0
+          if (bars && (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w)) {
+            r = 0; g = 0; b = 0
+          } else {
+            const d = s.dither === 'ps1' ? PS1_DITHER_TABLE[(y & 3) * 4 + (x & 3)] : 0
+            const r8 = Math.min(255, Math.max(0, Math.round(toSrgb(rgb[i * 3]) * 255 + d)))
+            const g8 = Math.min(255, Math.max(0, Math.round(toSrgb(rgb[i * 3 + 1]) * 255 + d)))
+            const b8 = Math.min(255, Math.max(0, Math.round(toSrgb(rgb[i * 3 + 2]) * 255 + d)))
+            r = snapToBits(r8, 5)
+            g = snapToBits(g8, 5)
+            b = snapToBits(b8, 5)
+          }
+          out[i * 3] = r
+          out[i * 3 + 1] = g
+          out[i * 3 + 2] = b
+
+          const key = (r << 16) | (g << 8) | b
+          let idx = seen.get(key)
+          if (idx === undefined) {
+            idx = seen.size
+            seen.set(key, idx)
+            used++
+            if (palList.length < 256 * 3) {
+              palList.push(r, g, b)
+            }
+          }
+          indices[i] = idx < 256 ? idx : 0
+        }
+      }
+      const palBytes = Uint8Array.from(palList.length > 0 ? palList : [0, 0, 0])
+      return {
+        width,
+        height,
+        indices,
+        palette: palBytes,
+        rgb: out,
+        used,
+        geometry: g,
+        paper: [255, 255, 255]
+      }
+    }
+
+    let pal: PaletteState
+    if (profile.palette.kind === 'fixed') {
+      pal = this.palette(profile)
+    } else {
+      let display: Uint8Array
+      if (s.customPalette && s.customPalette.length > 0) {
+        display = Uint8Array.from(s.customPalette.map(hexToRgb).flat())
+      } else {
+        const count = s.customCount ?? ('count' in profile.palette ? profile.palette.count : 16)
+        const bits = profile.palette.kind === 'range' ? profile.palette.bitsPerChannel : 8
+        display = quantizeRgb(rgb, count, bits)
+        if (display.length === 0) display = paletteBytes(profile)
+      }
+      pal = this.createPaletteState(display, !!profile.mono)
+    }
+
     // A machine's own dither only applies to that machine.
-    const ditherId = s.dither === 'gbcam' && profile.nativeDither !== 'gbcam' ? profile.dither : s.dither
+    const ditherId =
+      (s.dither === 'gbcam' && profile.nativeDither !== 'gbcam') ||
+      (s.dither === 'ps1' && profile.nativeDither !== 'ps1')
+        ? profile.dither
+        : s.dither
+
     const indices = new Uint8Array(width * height)
     dither(
       ditherId,
@@ -200,13 +282,10 @@ export class Deres {
     return rgb
   }
 
-  private palette(profile: Profile): PaletteState {
-    const hit = this.palettes.get(profile.id)
-    if (hit) return hit
-    const display = paletteBytes(profile)
+  private createPaletteState(display: Uint8Array, mono: boolean): PaletteState {
     const n = display.length / 3
     let match = display
-    if (profile.mono) {
+    if (mono) {
       // Even grey steps: the machine's levels 0 … n-1, whatever their tint.
       match = new Uint8Array(n * 3)
       for (let i = 0; i < n; i++) match.fill(n === 1 ? 255 : Math.round((255 * i) / (n - 1)), i * 3, i * 3 + 3)
@@ -219,7 +298,14 @@ export class Deres {
       if (y < lum([display[darkest * 3], display[darkest * 3 + 1], display[darkest * 3 + 2]])) darkest = i
       if (y > lum([display[lightest * 3], display[lightest * 3 + 1], display[lightest * 3 + 2]])) lightest = i
     }
-    const state: PaletteState = { display, matcher, planner: null, darkest, lightest }
+    return { display, matcher, planner: null, darkest, lightest }
+  }
+
+  private palette(profile: Profile): PaletteState {
+    const hit = this.palettes.get(profile.id)
+    if (hit) return hit
+    const display = paletteBytes(profile)
+    const state = this.createPaletteState(display, !!profile.mono)
     this.palettes.set(profile.id, state)
     return state
   }

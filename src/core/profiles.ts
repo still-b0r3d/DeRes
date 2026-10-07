@@ -1,21 +1,38 @@
+import { rgbToHex } from './color'
 import type { DitherId } from './dither'
+import { snapToBits } from './quantize'
 
 // Hardware profiles. A profile is a machine's whole look, not just its
 // colours: its native resolution, the shape of its pixels on a TV, its
 // palette, and the dither and screen it suits.
 //
-// v0.1 has the fixed-palette machines. Later stages add palettes picked from
-// a range (a quantizer snapping to the machine's bits per channel) and
-// per-cell colour limits (ZX Spectrum, C64 multicolour, NES attributes).
-// No palette below is official: these machines put out analogue video, so
-// every emulator's numbers differ. Sources are listed in the README.
+// v0.1 has the fixed-palette machines.
+// v0.2 adds palettes picked from a range (a quantizer snapping to the machine's
+// bits per channel), direct 15-bit PlayStation dither, and custom palettes.
+// Sources are listed in the README.
 
 export interface FixedPalette {
   kind: 'fixed'
   colours: readonly string[]
 }
 
-export type PaletteSpec = FixedPalette
+export interface RangePalette {
+  kind: 'range'
+  bitsPerChannel: number
+  count: number
+}
+
+export interface DirectPalette {
+  kind: 'direct'
+  bitsPerChannel: number
+}
+
+export interface CustomPalette {
+  kind: 'custom'
+  count: number
+}
+
+export type PaletteSpec = FixedPalette | RangePalette | DirectPalette | CustomPalette
 
 export interface Profile {
   id: string
@@ -105,6 +122,51 @@ function webSafe(): string[] {
 }
 
 const fixed = (colours: readonly string[]): FixedPalette => ({ kind: 'fixed', colours })
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  const c = (1 - Math.abs(2 * l - 1)) * s
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const m = l - c / 2
+  let r = 0, g = 0, b = 0
+  if (0 <= h && h < 60) [r, g, b] = [c, x, 0]
+  else if (60 <= h && h < 120) [r, g, b] = [x, c, 0]
+  else if (120 <= h && h < 180) [r, g, b] = [0, c, x]
+  else if (180 <= h && h < 240) [r, g, b] = [0, x, c]
+  else if (240 <= h && h < 300) [r, g, b] = [x, 0, c]
+  else if (300 <= h && h < 360) [r, g, b] = [c, 0, x]
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)]
+}
+
+export function representativePalette(spec: PaletteSpec): string[] {
+  if (spec.kind === 'fixed') return [...spec.colours]
+  if (spec.kind === 'range') {
+    const bits = spec.bitsPerChannel
+    const count = Math.min(256, Math.max(1, spec.count))
+    const out: string[] = []
+    const step = 360 / count
+    for (let i = 0; i < count; i++) {
+      const hue = i * step
+      const sat = 0.85
+      const light = 0.2 + (0.6 * ((i % 8) + 1)) / 8
+      const [r8, g8, b8] = hslToRgb(hue, sat, light)
+      out.push(rgbToHex(snapToBits(r8, bits), snapToBits(g8, bits), snapToBits(b8, bits)))
+    }
+    return out
+  }
+  if (spec.kind === 'direct') {
+    const out: string[] = []
+    for (let i = 0; i < 32; i++) {
+      const [r8, g8, b8] = hslToRgb(i * (360 / 32), 0.8, 0.5)
+      out.push(rgbToHex(snapToBits(r8, spec.bitsPerChannel), snapToBits(g8, spec.bitsPerChannel), snapToBits(b8, spec.bitsPerChannel)))
+    }
+    return out
+  }
+  // Custom
+  return [
+    '#000000', '#1d2b53', '#7e2553', '#008751', '#ab5236', '#5f574f', '#c2c3c7', '#fff1e8',
+    '#ff004d', '#ffa300', '#ffec27', '#00e436', '#29adff', '#83769c', '#ff77a8', '#ffffff'
+  ]
+}
 
 export const PROFILES: readonly Profile[] = [
   {
@@ -292,6 +354,91 @@ export const PROFILES: readonly Profile[] = [
     par: [1, 1],
     palette: fixed(['#131313', '#00ffff', '#ff00ff', '#00ff9d']),
     dither: 'bayer4',
+    screen: 'crt'
+  },
+  {
+    id: 'snes',
+    name: 'Super Nintendo',
+    origin: 'Nintendo · 1990',
+    about: '32,768-colour range (5 bits per channel), 256 on screen at 256×224.',
+    width: 256,
+    height: 224,
+    par: [8, 7],
+    palette: { kind: 'range', bitsPerChannel: 5, count: 256 },
+    dither: 'floyd',
+    screen: 'crt'
+  },
+  {
+    id: 'genesis',
+    name: 'Sega Genesis',
+    origin: 'Sega · 1988',
+    about: '512-colour range (3 bits per channel), 61 on screen at 320×224.',
+    width: 320,
+    height: 224,
+    par: [10, 11],
+    palette: { kind: 'range', bitsPerChannel: 3, count: 61 },
+    dither: 'floyd',
+    screen: 'crt'
+  },
+  {
+    id: 'mastersystem',
+    name: 'Master System',
+    origin: 'Sega · 1985',
+    about: '64-colour range (2 bits per channel), 32 on screen at 256×192.',
+    width: 256,
+    height: 192,
+    par: [8, 7],
+    palette: { kind: 'range', bitsPerChannel: 2, count: 32 },
+    dither: 'floyd',
+    screen: 'crt'
+  },
+  {
+    id: 'pc98',
+    name: 'PC-9801',
+    origin: 'NEC · 1982',
+    about: '16 colours picked from 4,096 (4 bits per channel) at 640×400.',
+    width: 640,
+    height: 400,
+    par: [1, 1],
+    palette: { kind: 'range', bitsPerChannel: 4, count: 16 },
+    dither: 'bayer4',
+    screen: 'crt'
+  },
+  {
+    id: 'vga',
+    name: 'VGA 256',
+    origin: 'IBM · 1987',
+    about: '256 colours from 262,144 (6 bits per channel) at 320×200.',
+    width: 320,
+    height: 200,
+    par: [5, 6],
+    palette: { kind: 'range', bitsPerChannel: 6, count: 256 },
+    dither: 'none',
+    screen: 'crt'
+  },
+  {
+    id: 'ps1',
+    name: 'PlayStation',
+    origin: 'Sony · 1994',
+    about: '15-bit colour with the GPU’s hardware dither table at 320×240.',
+    width: 320,
+    height: 240,
+    par: [1, 1],
+    palette: { kind: 'direct', bitsPerChannel: 5 },
+    dither: 'ps1',
+    nativeDither: 'ps1',
+    screen: 'crt'
+  },
+  {
+    id: 'custom',
+    name: 'Custom palette',
+    origin: 'User custom',
+    about: 'Quantized to N colours or loaded from a palette file.',
+    width: 320,
+    height: 240,
+    par: [1, 1],
+    palette: { kind: 'custom', count: 16 },
+    dither: 'floyd',
     screen: 'crt'
   }
 ]

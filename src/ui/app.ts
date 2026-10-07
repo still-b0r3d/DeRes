@@ -1,7 +1,11 @@
+import { BYTE_TO_LINEAR, rgbToHex } from '../core/color'
 import { baseName } from '../core/filename'
 import { planGeometry, type Geometry } from '../core/geometry'
+import { exportPaletteHex, parsePalettePng, parsePaletteText } from '../core/palette-file'
 import type { DeresSettings } from '../core/pipeline'
 import { profileById } from '../core/profiles'
+import { quantizeRgb } from '../core/quantize'
+import { decodeSettings, encodeSettings } from '../core/share'
 import rukusUrl from '../../b0r3d-brand/rukus.png'
 import type { RenderedMessage } from '../worker/protocol'
 import { buildControls } from './controls'
@@ -38,13 +42,106 @@ export function startApp(): void {
   )
   document.getElementById('stage-slot')!.append(stage.el, h('div', { class: 'readout-row' }, readout, busy), holdHint)
 
-  const fileInput = h('input', { type: 'file', accept: 'image/*', class: 'visually-hidden', tabindex: -1 })
+  const fileInput = h('input', { id: 'file-input', type: 'file', accept: 'image/*', class: 'visually-hidden', tabindex: -1 })
   document.body.append(fileInput)
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0]
     if (file) open(file, file.name)
     fileInput.value = ''
   })
+
+  const paletteFileInput = h('input', {
+    id: 'palette-file-input',
+    type: 'file',
+    accept: '.hex,.pal,.gpl,image/png',
+    class: 'visually-hidden',
+    tabindex: -1
+  })
+  document.body.append(paletteFileInput)
+  paletteFileInput.addEventListener('change', async () => {
+    const file = paletteFileInput.files?.[0]
+    if (!file) return
+    paletteFileInput.value = ''
+    try {
+      let colours: string[] = []
+      if (file.name.toLowerCase().endsWith('.png')) {
+        const buf = await file.arrayBuffer()
+        colours = await parsePalettePng(new Uint8Array(buf))
+      } else {
+        const text = await file.text()
+        colours = parsePaletteText(text)
+      }
+      if (colours.length === 0) {
+        controls.status(`No valid colours found in ${file.name}.`)
+        return
+      }
+      settings = {
+        ...settings,
+        profileId: 'custom',
+        customPalette: colours,
+        customCount: colours.length
+      }
+      saveSettings(settings)
+      controls.sync()
+      render()
+      controls.status(`Loaded palette "${file.name}" (${colours.length} colours).`)
+    } catch (err) {
+      controls.status(`Couldn't load palette: ${(err as Error).message}`)
+    }
+  })
+
+  async function grabPalette(): Promise<void> {
+    if (!picture) {
+      controls.status('Open a picture first to grab its palette.')
+      return
+    }
+    try {
+      const imgData = picture.copy.rgba
+      const imgW = picture.copy.width
+      const imgH = picture.copy.height
+      const count = settings.customCount ?? 16
+      const rgb = new Float32Array(imgW * imgH * 3)
+      for (let i = 0; i < imgW * imgH; i++) {
+        rgb[i * 3] = BYTE_TO_LINEAR[imgData[i * 4]]
+        rgb[i * 3 + 1] = BYTE_TO_LINEAR[imgData[i * 4 + 1]]
+        rgb[i * 3 + 2] = BYTE_TO_LINEAR[imgData[i * 4 + 2]]
+      }
+      const raw = quantizeRgb(rgb, count, 8)
+      const colours: string[] = []
+      for (let i = 0; i < raw.length / 3; i++) {
+        colours.push(rgbToHex(raw[i * 3], raw[i * 3 + 1], raw[i * 3 + 2]))
+      }
+      if (colours.length === 0) return
+
+      settings = { ...settings, profileId: 'custom', customPalette: colours, customCount: colours.length }
+      saveSettings(settings)
+      controls.sync()
+      render()
+
+      const hexText = exportPaletteHex(colours)
+      const blob = new Blob([hexText], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const link = h('a', { href: url, download: `${picture.base}-palette.hex`, class: 'visually-hidden' })
+      document.body.append(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+
+      controls.status(`Grabbed ${colours.length} colours and downloaded ${picture.base}-palette.hex.`)
+    } catch (err) {
+      controls.status(`Couldn't grab palette: ${(err as Error).message}`)
+    }
+  }
+
+  function shareLink(): void {
+    const hash = encodeSettings(settings)
+    window.location.hash = hash
+    const url = window.location.href
+    navigator.clipboard.writeText(url).then(
+      () => controls.status('Share link copied to clipboard.'),
+      () => controls.status(`Share URL: ${url}`)
+    )
+  }
 
   const geometry = (): Geometry | null => {
     if (!picture) return null
@@ -69,7 +166,9 @@ export function startApp(): void {
     adjust: s.adjust,
     dither: s.dither,
     fx: s.fx,
-    pixelShape: s.pixelShape
+    pixelShape: s.pixelShape,
+    customCount: s.customCount,
+    customPalette: s.customPalette
   })
 
   const render = () => {
@@ -98,6 +197,9 @@ export function startApp(): void {
     openFile: () => fileInput.click(),
     loadSample,
     download,
+    loadPaletteFile: () => paletteFileInput.click(),
+    grabPalette,
+    shareLink,
     picture: () =>
       picture && {
         name: picture.name,
@@ -222,6 +324,15 @@ export function startApp(): void {
   })
   window.addEventListener('keyup', (e) => {
     if (e.code === 'Space') stage.hold(false)
+  })
+
+  window.addEventListener('hashchange', () => {
+    const fromHash = decodeSettings(window.location.hash)
+    if (fromHash) {
+      settings = { ...settings, ...fromHash }
+      controls.sync()
+      render()
+    }
   })
 
   footer()

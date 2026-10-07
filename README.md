@@ -13,11 +13,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.1.0, the DeRes core, is built. Not live yet.
+**Status:** v0.2.0, range profiles, custom palettes and share links, is built. Not live yet.
 
 ---
 
-## What it does (v0.1.0)
+## What it does (v0.2.0)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try the sample (Rukus). It's decoded once into a
@@ -26,19 +26,32 @@ images.
 - **Hardware profiles**, not just palettes: each machine has its native
   resolution, the shape of its pixels on a TV, its colours, and the dither and
   screen that suit it. Picked from a grid of cards with swatch strips:
-  Game Boy, Game Boy Pocket, Game Boy Camera (with its edge boost and its own
-  dither), CGA palettes 0 and 1, EGA, C64 hi-res, NES, PICO-8, Atari 2600,
-  Apple II lo-res, Mac 1-bit, Web-safe 216, a thermal receipt printer and the
-  b0r3d palette.
+  - **Fixed palettes:** Game Boy, Game Boy Pocket, Game Boy Camera (with its edge boost and its own
+    dither), CGA palettes 0 and 1, EGA, C64 hi-res, NES, PICO-8, Atari 2600,
+    Apple II lo-res, Mac 1-bit, Web-safe 216, a thermal receipt printer and the
+    b0r3d palette.
+  - **Picked from a range (bit-grid snapped):** Master System (2 bits per channel, 32 colours),
+    Genesis (3 bits per channel, 64 colours), SNES (5 bits per channel, 256 colours),
+    PC-9801 (4 bits per channel, 16 colours), VGA 256 (6 bits per channel, 256 colours),
+    and Custom N colours.
+  - **Direct color:** PlayStation (15-bit direct color with the GPU's hardware dither table).
+- **Quantization & bit grids:** range and custom profiles use deterministic
+  weighted median-cut quantization snapped to the machine's exact hardware bit depth.
+- **Custom palette files:** import palettes from `.hex`, JASC `.pal`, GIMP `.gpl`,
+  and palette PNG files, or download grabbed palettes as `.hex`.
+- **Palette grabber:** pull the dominant N colours out of the current picture, apply them
+  instantly to the session, and download the `.hex` file.
+- **Share links:** encode all current settings into the URL hash (`#s=...`) and copy
+  to clipboard with one click.
 - **Resolution:** the machine's native size (crop to fill, fit with bars, or
   stretch), or a custom block size. Shrinking is an area average in linear
   light, so nothing aliases.
 - **Adjust:** brightness, contrast, saturation and gamma before the colours are
   cut down.
 - **Dither:** none, Bayer 2×2 / 4×4 / 8×8, Floyd–Steinberg (serpentine),
-  Atkinson, Yliluoma (ordered dithering for uneven palettes) and the Game Boy
-  Camera's own. Error is carried in linear light; colours are matched in
-  OKLab.
+  Atkinson, Yliluoma (ordered dithering for uneven palettes), the PlayStation GPU's
+  hardware dither table, and the Game Boy Camera's own. Error is carried in linear light;
+  colours are matched in OKLab.
 - **Screen effects** (preview, and optionally the export from 3× up): CRT with
   shadow mask or aperture grille, scanlines, curve and bloom; Game Boy LCD grid
   with ghosting. Nothing flickers.
@@ -47,16 +60,12 @@ images.
 - **Export:** a PNG enlarged by a whole number (1× to 16×, sizes past about 16
   megapixels are greyed out) so every pixel stays a sharp block. Raw pixels or
   stretched to the machine's pixel shape ("as on a TV"). Without screen effects
-  it's an indexed PNG holding the machine's exact palette. Named like
-  `photo-nes-256x240-4x.png`. Nothing but the picture is written into it.
+  it's an indexed PNG holding the machine's exact palette (or RGB for > 256 colors).
+  Named like `photo-nes-256x240-4x.png`. Nothing but the picture is written into it.
 - Settings are remembered on your device. The picture never is.
 
 ## Planned
 
-- **v0.2.0:** machines whose colours are picked from a bigger range (Master
-  System, Genesis, SNES, PC-98, VGA 256, custom N colours), the PS1's dither
-  table, palette files (.hex, JASC .pal, .gpl, palette PNG), a palette grabber,
-  a share link that holds the settings.
 - **v0.3.0:** per-cell colour limits (ZX Spectrum, C64 multicolour, NES
   attributes, Apple II hi-res), N64, Amiga HAM6, a "would it fit?" meter, files
   that load in emulators (Spectrum .scr, C64 Koala, Game Boy tiles).
@@ -123,6 +132,13 @@ their colours and every emulator's numbers differ a little.
 | Web-safe 216 | The 6×6×6 cube of 00, 33, 66, 99, CC, FF |
 | Receipt printer | Ink and paper |
 | b0r3d | The site's near-black, cyan, magenta and mint |
+| Master System | 64-colour range (2 bits per channel), 32 on screen |
+| Genesis | 512-colour range (3 bits per channel), 64 on screen |
+| SNES | 32,768-colour range (5 bits per channel), 256 on screen |
+| PC-9801 | 4,096-colour range (4 bits per channel), 16 on screen |
+| VGA 256 | 262,144-colour range (6 bits per channel), 256 on screen |
+| PlayStation | 15-bit direct colour (5 bits per channel) with GPU dither table |
+| Custom | User-defined palette file or quantized from picture |
 
 ## Credits
 
@@ -133,6 +149,7 @@ elsewhere. The methods come from:
 - Ordered dithering for arbitrary palettes, by Joel Yliluoma ("algorithm 2").
 - Floyd–Steinberg (1976), Bill Atkinson's dither from the original Macintosh,
   and Bayer's ordered dithering (1973).
+- PlayStation GPU hardware dither matrix.
 
 ---
 
@@ -146,6 +163,8 @@ version and the build (the commit it was built from).
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.2.0 | 2026-10-07 | Range profiles (SNES, Genesis, Master System, PC-98, VGA 256, custom), PS1 hardware dither, palette files (.hex, .pal, .gpl, PNG), palette grabber, settings share link. |
+| 0.1.0 | 2026-10-07 | DeRes core: 15 fixed-palette profiles, worker pipeline, 8 dithers, pre-filters, screen effects, compare divider, integer export. |
 
 ---
 

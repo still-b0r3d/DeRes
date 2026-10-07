@@ -8,6 +8,8 @@ import { DEFAULT_PROFILE, profileById } from '../core/profiles'
 // Never the picture. Storage can be missing or full (private windows, some
 // embedded browsers), so every read and write is allowed to fail quietly.
 
+import { decodeSettings } from '../core/share'
+
 export interface Settings extends DeresSettings {
   multiplier: number
   exportFx: boolean
@@ -28,7 +30,9 @@ export function defaultSettings(): Settings {
     fx: { ...DEFAULT_FX },
     pixelShape: 'raw',
     multiplier: 4,
-    exportFx: false
+    exportFx: false,
+    customCount: 16,
+    customPalette: undefined
   }
 }
 
@@ -46,9 +50,9 @@ export function loadSettings(): Settings {
   } catch {
     raw = null
   }
-  if (!raw || typeof raw !== 'object') return d
-  const a = (raw.adjust ?? {}) as Record<string, unknown>
-  const f = (raw.fx ?? {}) as Record<string, unknown>
+  const loaded = raw && typeof raw === 'object' ? raw : {}
+  const a = (loaded.adjust ?? {}) as Record<string, unknown>
+  const f = (loaded.fx ?? {}) as Record<string, unknown>
   const fx: Fx = {
     screen: oneOf(f.screen, ['off', 'crt', 'lcd'] as const, d.fx.screen),
     mask: oneOf(f.mask, ['none', 'shadow', 'grille'] as const, d.fx.mask),
@@ -58,25 +62,42 @@ export function loadSettings(): Settings {
     grid: num(f.grid, 0, 1, d.fx.grid),
     ghost: num(f.ghost, 0, 1, d.fx.ghost)
   }
-  const profileId = profileById(String(raw.profileId)) ? String(raw.profileId) : d.profileId
-  return {
+  const profileId = profileById(String(loaded.profileId)) ? String(loaded.profileId) : d.profileId
+  const customCount = typeof loaded.customCount === 'number' ? Math.round(num(loaded.customCount, 2, 256, 16)) : d.customCount
+  const customPalette = Array.isArray(loaded.customPalette)
+    ? (loaded.customPalette.filter((c) => typeof c === 'string') as string[])
+    : undefined
+
+  const base: Settings = {
     profileId,
-    fit: oneOf(raw.fit, ['fill', 'fit', 'stretch'] as const, d.fit),
-    resolution: oneOf(raw.resolution, ['native', 'custom'] as const, d.resolution),
-    block: Math.round(num(raw.block, 2, 32, d.block)),
-    background: oneOf(raw.background, ['white', 'black'] as const, d.background),
+    fit: oneOf(loaded.fit, ['fill', 'fit', 'stretch'] as const, d.fit),
+    resolution: oneOf(loaded.resolution, ['native', 'custom'] as const, d.resolution),
+    block: Math.round(num(loaded.block, 2, 32, d.block)),
+    background: oneOf(loaded.background, ['white', 'black'] as const, d.background),
     adjust: {
       brightness: num(a.brightness, -0.5, 0.5, 0),
       contrast: num(a.contrast, 0, 2, 1),
       saturation: num(a.saturation, 0, 2, 1),
       gamma: num(a.gamma, 0.4, 2.5, 1)
     },
-    dither: oneOf(raw.dither, DITHERS.map((x) => x.id) as DitherId[], profileById(profileId)!.dither),
+    dither: oneOf(loaded.dither, DITHERS.map((x) => x.id) as DitherId[], profileById(profileId)!.dither),
     fx,
-    pixelShape: oneOf(raw.pixelShape, ['raw', 'tv'] as const, d.pixelShape),
-    multiplier: Math.round(num(raw.multiplier, 1, 16, d.multiplier)),
-    exportFx: raw.exportFx === true
+    pixelShape: oneOf(loaded.pixelShape, ['raw', 'tv'] as const, d.pixelShape),
+    multiplier: Math.round(num(loaded.multiplier, 1, 16, d.multiplier)),
+    exportFx: loaded.exportFx === true,
+    customCount,
+    customPalette
   }
+
+  // If a share link with hash settings was opened, it takes precedence
+  if (typeof window !== 'undefined' && window.location.hash) {
+    const fromHash = decodeSettings(window.location.hash)
+    if (fromHash) {
+      return { ...base, ...fromHash }
+    }
+  }
+
+  return base
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined

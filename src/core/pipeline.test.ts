@@ -61,13 +61,17 @@ describe('the DeRes pipeline', () => {
     const p = profileById(id)!
     expect(r.width).toBe(p.width)
     if (p.height !== 'auto') expect(r.height).toBe(p.height)
-    const allowed = new Set(p.palette.colours)
-    for (let i = 0; i < r.width * r.height; i += 97) {
-      const hex = '#' + [...r.rgb.subarray(i * 3, i * 3 + 3)].map((v) => v.toString(16).padStart(2, '0')).join('')
-      expect(allowed.has(hex)).toBe(true)
+    if (p.palette.kind === 'fixed') {
+      const allowed = new Set(p.palette.colours)
+      for (let i = 0; i < r.width * r.height; i += 97) {
+        const hex = '#' + [...r.rgb.subarray(i * 3, i * 3 + 3)].map((v) => v.toString(16).padStart(2, '0')).join('')
+        expect(allowed.has(hex)).toBe(true)
+      }
+      expect(r.used).toBeGreaterThan(1)
+      expect(r.used).toBeLessThanOrEqual(p.palette.colours.length)
+    } else {
+      expect(r.used).toBeGreaterThan(1)
     }
-    expect(r.used).toBeGreaterThan(1)
-    expect(r.used).toBeLessThanOrEqual(p.palette.colours.length)
   })
 
   it('fills "fit" bars with the darkest colour', () => {
@@ -155,4 +159,40 @@ describe('export', () => {
     const m = Math.ceil(Math.sqrt(MAX_EXPORT_PIXELS / (320 * 200))) + 1
     await expect(exportPng(r, { multiplier: m, tv: false, fx: null })).rejects.toThrow('too big')
   })
+
+  it('quantizes range profiles according to their bit grid and count', () => {
+    const d = loaded()
+    const sms = d.render(settings({ profileId: 'mastersystem', dither: 'floyd' }))
+    expect(sms.palette.length / 3).toBeLessThanOrEqual(32)
+    // Master System is 2-bit channel grid (values in 0, 85, 170, 255)
+    const allowed2Bit = new Set([0, 85, 170, 255])
+    for (let i = 0; i < sms.palette.length; i++) {
+      expect(allowed2Bit.has(sms.palette[i])).toBe(true)
+    }
+
+    const snes = d.render(settings({ profileId: 'snes', dither: 'floyd' }))
+    expect(snes.palette.length / 3).toBeLessThanOrEqual(256)
+  })
+
+  it('renders PlayStation profile with 15-bit direct hardware dither and exports cleanly', async () => {
+    const d = loaded()
+    const ps = d.render(settings({ profileId: 'ps1', dither: 'ps1' }))
+    expect(ps.width).toBe(320)
+    expect(ps.height).toBe(240)
+    expect(ps.used).toBeGreaterThan(1)
+    const out = await exportPng(ps, { multiplier: 2, tv: false, fx: null })
+    expect(out.width).toBe(640)
+    expect(out.height).toBe(480)
+    const decoded = await decodePng(out.png)
+    expect(decoded.width).toBe(640)
+  })
+
+  it('respects custom loaded palette', () => {
+    const d = loaded()
+    const custom = ['#112233', '#445566', '#778899']
+    const r = d.render(settings({ profileId: 'custom', customPalette: custom, dither: 'none' }))
+    expect(r.palette.length / 3).toBe(3)
+    expect(r.used).toBeLessThanOrEqual(3)
+  })
 })
+

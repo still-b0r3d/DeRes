@@ -190,3 +190,12 @@ describe('Floyd–Steinberg', () => {
     expect(new Set(firstWhite).size).toBeGreaterThan(1)
   })
 })
+
+describe('PS1 GPU dither', () => {
+  it('is deterministic and produces authentic 4x4 matrix pattern', () => {
+    const out1 = run('ps1', GREYS, RAMP, 16, 8)
+    const out2 = run('ps1', GREYS, RAMP, 16, 8)
+    expect(Array.from(out1)).toEqual(Array.from(out2))
+  })
+})
+

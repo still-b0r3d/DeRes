@@ -3,7 +3,7 @@ import { DITHERS } from '../core/dither'
 import { FX_MIN_MULTIPLIER } from '../core/export'
 import type { Geometry } from '../core/geometry'
 import { exportSize, MAX_EXPORT_PIXELS, paletteBytes } from '../core/pipeline'
-import { PROFILES, profileById } from '../core/profiles'
+import { PROFILES, profileById, representativePalette } from '../core/profiles'
 import { h, segmented, show, slider } from './dom'
 import type { Settings } from './settings'
 
@@ -18,6 +18,9 @@ export interface ControlsContext {
   openFile(): void
   loadSample(): void
   download(): void
+  loadPaletteFile(): void
+  grabPalette(): void
+  shareLink(): void
   /** What's loaded, or null. */
   picture(): { name: string; origW: number; origH: number; hasAlpha: boolean } | null
   geometry(): Geometry | null
@@ -118,7 +121,8 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
         type: 'button',
         class: 'card',
         'data-profile': p.id,
-        'data-palette': p.palette.colours.join(','),
+        'data-kind': p.palette.kind,
+        'data-palette': representativePalette(p.palette).join(','),
         onclick: () => ctx.pickProfile(p.id)
       },
       h('span', { class: 'card-name' }, p.name),
@@ -130,7 +134,21 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
     grid.append(card)
   }
   const about = h('p', { class: 'about', 'data-testid': 'profile-about' })
-  const hardwareSec = section('Hardware', true, grid, about)
+
+  const customCount = slider({
+    id: 'custom-count',
+    label: 'Colours',
+    min: 2,
+    max: 256,
+    step: 1,
+    format: (v) => `${v} colours`,
+    onInput: (v) => set({ customCount: v })
+  })
+  const loadPaletteBtn = h('button', { type: 'button', class: 'small', onclick: () => ctx.loadPaletteFile() }, 'Load palette (.hex, .pal, .gpl, .png)')
+  const grabPaletteBtn = h('button', { type: 'button', class: 'small', onclick: () => ctx.grabPalette() }, 'Grab palette')
+  const paletteTools = h('div', { class: 'palette-tools' }, customCount.el, h('div', { class: 'btn-row' }, loadPaletteBtn, grabPaletteBtn))
+
+  const hardwareSec = section('Hardware', true, grid, about, paletteTools)
 
   // Adjust
   const adj = {
@@ -271,6 +289,7 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
   fxBox.addEventListener('change', () => set({ exportFx: fxBox.checked }))
   const fxLabel = h('label', { class: 'check', for: 'export-fx' }, fxBox, ' With the screen effect')
   const downloadBtn = h('button', { type: 'button', class: 'download', onclick: () => ctx.download() }, 'Download PNG')
+  const shareBtn = h('button', { type: 'button', class: 'share-link', onclick: () => ctx.shareLink() }, 'Copy share link')
   const statusLine = h('p', { class: 'status', role: 'status' })
   const exportSec = section(
     'Export',
@@ -279,7 +298,7 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
     h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Size'), mult.el),
     sizeLine,
     fxLabel,
-    downloadBtn,
+    h('div', { class: 'export-actions' }, downloadBtn, shareBtn),
     statusLine
   )
 
@@ -305,6 +324,32 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
 
     for (const [id, card] of cards) card.setAttribute('aria-pressed', String(id === s.profileId))
     about.textContent = `${p.origin}. ${p.about}`
+
+    const hasRangeOrCustom = p.palette.kind === 'range' || p.palette.kind === 'custom'
+    show(paletteTools, hasRangeOrCustom)
+    if (hasRangeOrCustom) {
+      const curCount = s.customPalette
+        ? s.customPalette.length
+        : (s.customCount ?? (p.palette.kind === 'range' ? p.palette.count : 16))
+      customCount.set(curCount)
+      show(customCount.el, !s.customPalette)
+    }
+
+    if (cards.has('custom')) {
+      const customCard = cards.get('custom')!
+      const strip = customCard.querySelector('canvas.swatch') as HTMLCanvasElement
+      if (strip && s.customPalette && s.customPalette.length > 0) {
+        const bytes = paletteBytes(profileById('custom')!, s.customPalette)
+        const n = bytes.length / 3
+        strip.width = n
+        const sctx = strip.getContext('2d')
+        if (sctx) {
+          const img = sctx.createImageData(n, 1)
+          for (let i = 0; i < n; i++) img.data.set([bytes[i * 3], bytes[i * 3 + 1], bytes[i * 3 + 2], 255], i * 4)
+          sctx.putImageData(img, 0, 0)
+        }
+      }
+    }
 
     adj.brightness.set(s.adjust.brightness)
     adj.contrast.set(s.adjust.contrast)
@@ -346,11 +391,22 @@ export function buildControls(ctx: ControlsContext): { el: HTMLElement; sync: ()
     if (g) {
       const [w, hh] = exportSize(g.width, g.height, par, s.multiplier, tv)
       const withFx = s.exportFx && !fxBox.disabled
-      const colours = paletteBytes(p).length / 3
+      let coloursLabel: string
+      if (p.palette.kind === 'direct') {
+        coloursLabel = '15-bit direct'
+      } else if (p.palette.kind === 'fixed') {
+        coloursLabel = `${p.palette.colours.length}-colour palette`
+      } else if (p.palette.kind === 'range') {
+        const count = s.customPalette?.length ?? s.customCount ?? p.palette.count
+        coloursLabel = `${count}-colour palette`
+      } else {
+        const count = s.customPalette?.length ?? s.customCount ?? 16
+        coloursLabel = `${count}-colour palette`
+      }
       const tooBig = w * hh > MAX_EXPORT_PIXELS
       sizeLine.textContent = tooBig
         ? `${w}×${hh} is too big. Pick a smaller size.`
-        : `${w}×${hh} px · ${withFx ? 'full colour' : `${colours}-colour palette`}`
+        : `${w}×${hh} px · ${withFx ? 'full colour' : coloursLabel}`
       downloadBtn.disabled = !pic || tooBig
     } else {
       sizeLine.textContent = ''

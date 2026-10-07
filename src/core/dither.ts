@@ -15,6 +15,7 @@ export type DitherId =
   | 'atkinson'
   | 'yliluoma'
   | 'gbcam'
+  | 'ps1'
 
 export interface DitherInfo {
   id: DitherId
@@ -32,7 +33,8 @@ export const DITHERS: readonly DitherInfo[] = [
   { id: 'floyd', name: 'Floyd–Steinberg', hint: 'Smooth, grainy' },
   { id: 'atkinson', name: 'Atkinson', hint: 'Crisp, Mac-style' },
   { id: 'yliluoma', name: 'Yliluoma', hint: 'Patterned, for uneven palettes' },
-  { id: 'gbcam', name: 'Camera', hint: "The Game Boy Camera's own", native: true }
+  { id: 'gbcam', name: 'Camera', hint: "The Game Boy Camera's own", native: true },
+  { id: 'ps1', name: 'PS1 GPU', hint: "The PlayStation GPU's 4×4 dither", native: true }
 ]
 
 export interface DitherInput {
@@ -69,6 +71,8 @@ export function dither(id: DitherId, input: DitherInput, out: Uint8Array): void 
       return yliluoma(input, out)
     case 'gbcam':
       return gameBoyCamera(input, out)
+    case 'ps1':
+      return ps1Dither(input, out)
   }
 }
 
@@ -229,3 +233,30 @@ function gameBoyCamera(input: DitherInput, out: Uint8Array): void {
   if (!input.mono) return ordered(input, 4, out)
   orderedLevels(input, 4, true, out)
 }
+
+// The PlayStation GPU's 4×4 hardware dither table (from psx-spx).
+export const PS1_DITHER_TABLE = [
+  -4,  0, -3,  1,
+   2, -2,  3, -1,
+  -3,  1, -4,  0,
+   3, -1,  2, -2
+] as const
+
+function ps1Dither(input: DitherInput, out: Uint8Array): void {
+  const { rgb, width, height, matcher } = input
+  const spread = matcher.spread * 255
+  const byte = (v: number) => (v <= 0 ? 0 : v >= 255 ? 255 : (v + 0.5) | 0)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x
+      const d = PS1_DITHER_TABLE[(y & 3) * 4 + (x & 3)]
+      const offset = (d / 8) * spread
+      out[i] = matcher.nearestByte(
+        byte(toSrgb(rgb[i * 3]) * 255 + offset),
+        byte(toSrgb(rgb[i * 3 + 1]) * 255 + offset),
+        byte(toSrgb(rgb[i * 3 + 2]) * 255 + offset)
+      )
+    }
+  }
+}
+
