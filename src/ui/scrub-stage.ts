@@ -1,11 +1,14 @@
 import { formatGpsDecimal, formatGpsDms, getMetadataNarrative, type ImageMetadata } from '../core/exif'
-import type { SelfCheckReport } from '../core/scrub'
+import type { ScrubBatchItem, SelfCheckReport } from '../core/scrub'
 import { h, show } from './dom'
 
 export class ScrubStage {
   readonly el: HTMLElement
   private readonly statusMsg: HTMLElement
   private readonly contentContainer: HTMLElement
+  private readonly batchPanelEl: HTMLElement
+  private readonly batchSummaryEl: HTMLElement
+  private readonly batchTableEl: HTMLTableElement
   private readonly previewImg: HTMLImageElement
   private readonly narrativeEl: HTMLElement
   private readonly gpsAlertEl: HTMLElement
@@ -23,6 +26,16 @@ export class ScrubStage {
 
   constructor() {
     this.statusMsg = h('p', { class: 'stage-msg' }, 'Choose a photo to inspect and scrub its metadata.')
+
+    // Batch Queue Panel
+    this.batchSummaryEl = h('div', { class: 'scrub-batch-summary' })
+    this.batchTableEl = h('table', { class: 'scrub-batch-table', 'data-testid': 'scrub-batch-table' })
+    this.batchPanelEl = h(
+      'div',
+      { class: 'scrub-batch-panel', 'data-testid': 'scrub-batch-panel', hidden: true },
+      h('div', { class: 'scrub-batch-header' }, h('h3', { class: 'scrub-sec-title' }, 'Batch Scrubber Queue'), this.batchSummaryEl),
+      h('div', { class: 'scrub-batch-table-wrap' }, this.batchTableEl)
+    )
 
     // Photo preview
     this.previewImg = h('img', {
@@ -109,6 +122,7 @@ export class ScrubStage {
     this.contentContainer = h(
       'div',
       { class: 'scrub-content', hidden: true },
+      this.batchPanelEl,
       h('div', { class: 'scrub-preview-wrap' }, this.previewImg),
       this.checkBannerEl,
       this.narrativeEl,
@@ -135,6 +149,61 @@ export class ScrubStage {
   problem(text: string): void {
     this.statusMsg.textContent = text
     show(this.statusMsg, true)
+  }
+
+  showBatch(items: ScrubBatchItem[], activeIndex: number, onSelect: (index: number) => void): void {
+    if (items.length <= 1) {
+      show(this.batchPanelEl, false)
+      return
+    }
+
+    show(this.batchPanelEl, true)
+    const gpsCount = items.filter((it) => it.hasGps).length
+    const trailerCount = items.filter((it) => it.trailerBytes > 0).length
+    this.batchSummaryEl.textContent = `${items.length} files queued · ${gpsCount} with GPS · ${trailerCount} with trailers. Click any row to inspect.`
+
+    const rows = items.map((it, idx) => {
+      const isSelected = idx === activeIndex
+      const statusBadge =
+        it.status === 'scrubbed'
+          ? h('span', { class: 'badge clean' }, '✓ Cleaned')
+          : it.status === 'error'
+            ? h('span', { class: 'badge err' }, 'Error')
+            : h('span', { class: 'badge pend' }, 'Queued')
+
+      const row = h(
+        'tr',
+        {
+          class: `batch-row ${isSelected ? 'selected-row' : ''}`,
+          onclick: () => onSelect(idx)
+        },
+        h('td', { class: 'col-name' }, it.name),
+        h('td', { class: 'col-fmt' }, it.format.toUpperCase()),
+        h('td', { class: 'col-size' }, `${(it.size / 1024).toFixed(1)} KB`),
+        h('td', { class: it.hasGps ? 'col-alert' : 'col-muted' }, it.hasGps ? '📍 Yes' : 'No'),
+        h('td', { class: it.trailerBytes > 0 ? 'col-alert' : 'col-muted' }, it.trailerBytes > 0 ? `${(it.trailerBytes / 1024).toFixed(0)} KB` : 'No'),
+        h('td', { class: 'col-status' }, statusBadge)
+      )
+      return row
+    })
+
+    this.batchTableEl.replaceChildren(
+      h(
+        'thead',
+        null,
+        h(
+          'tr',
+          null,
+          h('th', null, 'File'),
+          h('th', null, 'Format'),
+          h('th', null, 'Size'),
+          h('th', null, 'GPS'),
+          h('th', null, 'Trailer'),
+          h('th', null, 'Status')
+        )
+      ),
+      h('tbody', null, ...rows)
+    )
   }
 
   showMetadata(meta: ImageMetadata, imageUrl: string): void {

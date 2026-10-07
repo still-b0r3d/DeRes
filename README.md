@@ -13,11 +13,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.7.0, Extended hardware & handhelds (Nokia 3310, Game Boy Color per-tile mode, Virtual Boy, Atari ST, Amstrad CPC Modes 0 & 1, MSX Screen 2, CGA Composite artifact mode, Digipal LCD pet, integer wallpaper presets, and "Surprise me" randomizer), is built. Not live yet.
+**Status:** v0.8.0, BBS Heritage, Teletext & Batch Tools (Commodore 64 PETSCII studio with .seq & .prg exports, Teletext/Ceefax 2×3 mosaic graphics with broadcast header & separated mosaics, dial-up baud playback simulation, and multi-photo batch EXIF scrubber with client-side ZIP bundling), is built. Not live yet.
 
 ---
 
-## What it does (v0.7.0)
+## What it does (v0.8.0)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try the sample (Rukus). It's decoded once into a
@@ -111,11 +111,15 @@ images.
   - **Digipal LCD Pet:** 32×32 virtual pet reflective LCD matrix with rounded dot pixels and subtle ghosting.
   - **Crisp wallpaper export presets:** 1-click centered integer exports for Phone Lockscreen (1080×2400), b0r3d 95 Desktop (1024×768), and Full HD Desktop (1920×1080).
   - **"Surprise me" randomizer:** `🎲 Surprise me` button shuffling a random retro profile, dither, pre-filter recipe, and screen effect.
+- **BBS Heritage, Teletext & Batch Tools (v0.8.0):**
+  - **PETSCII Studio (Commodore 64):** Full C64 character glyph set, 16-color VIC-II palette matching, and direct export to `.seq` byte streams (with color control codes) and `.prg` standard C64 binary dumps (2002 bytes: `$0400` load address + 1000 screen RAM + 1000 color RAM).
+  - **Teletext / Ceefax 2×3 Mosaics:** Sub-pixel mosaic character generator with 64 contiguous/separated block patterns, 8 broadcast colors, optional Ceefax broadcast header row (`P100 CEEFAX 100...`), and `.ttx` page export.
+  - **Dial-Up Baud Rate Playback Simulation:** Vintage modem streaming playback simulation at 300, 1200, 2400, 9600, 14.4k, 28.8k baud, or Instant, featuring Play, Pause, Replay controls, streaming byte progress counter, and blinking teletype cursor `█`.
+  - **Batch EXIF Scrubber & In-Browser ZIP Bundling:** Multi-photo drag-and-drop and file picking, interactive batch queue inspector with GPS and trailer detection badges, and 1-click "Download Clean ZIP" bundling all cleaned photos into standard `.zip` files entirely in browser memory with zero network requests.
 - Settings are remembered on your device. The picture never is.
 
 ## Planned
 
-- **v0.8.0, BBS heritage & Teletext:** PETSCII studio, Teletext/Ceefax mosaics, dial-up baud playback.
 - **v0.9.0, Motion, sound & polish:** Animated PNG/GIF export, tactile UI sounds, full test verification.
 - 1.0.0 is when all three tools are complete and ready for public launch.
 

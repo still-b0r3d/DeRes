@@ -5,6 +5,9 @@ import {
   toHtml,
   toMarkdown,
   toPlainText,
+  exportPetsciiPrg,
+  exportPetsciiSeq,
+  exportTeletextPage,
   DEFAULT_ASCII_SETTINGS,
   type AsciiResult,
   type AsciiSettings
@@ -20,7 +23,14 @@ import type { DitherId } from '../core/dither'
 import { quantizeRgb } from '../core/quantize'
 import { decodeSettings, encodeSettings } from '../core/share'
 import { inspectMetadata, type ImageMetadata } from '../core/exif'
-import { scrubImage, type ScrubOptions } from '../core/scrub'
+import {
+  createScrubBatchItem,
+  scrubBatch,
+  scrubImage,
+  type ScrubBatchItem,
+  type ScrubOptions
+} from '../core/scrub'
+import { createZip } from '../core/zip'
 import rukusUrl from '../../b0r3d-brand/rukus.png'
 import type { RenderedMessage } from '../worker/protocol'
 import { buildAsciiControls } from './ascii-controls'
@@ -75,7 +85,53 @@ export function startApp(): void {
   let rawImageMeta: ImageMetadata | null = null
   let rawImageUrl: string | null = null
   let rawImageSize = 0
+  let batchItems: ScrubBatchItem[] = []
+  let activeBatchIndex = 0
   let opening = 0
+
+  function selectBatchIndex(idx: number): void {
+    if (idx < 0 || idx >= batchItems.length) return
+    activeBatchIndex = idx
+    const item = batchItems[idx]
+    rawImageBytes = item.rawBytes
+    rawImageSize = item.size
+    rawImageMeta = item.meta
+    if (rawImageUrl) URL.revokeObjectURL(rawImageUrl)
+    const mime =
+      item.meta.format === 'jpeg' ? 'image/jpeg' : item.meta.format === 'png' ? 'image/png' : 'image/webp'
+    const blob = new Blob([item.rawBytes.buffer as ArrayBuffer], { type: mime })
+    rawImageUrl = URL.createObjectURL(blob)
+
+    scrubStage.showBatch(batchItems, activeBatchIndex, selectBatchIndex)
+    if (rawImageMeta && rawImageUrl) {
+      scrubStage.showMetadata(rawImageMeta, rawImageUrl)
+    }
+    scrubControls.sync()
+  }
+
+  async function handleFiles(files: FileList | File[]): Promise<void> {
+    const list = Array.from(files)
+    if (list.length === 0) return
+
+    if (list.length > 1) {
+      for (const file of list) {
+        try {
+          const buf = await file.arrayBuffer()
+          const bytes = new Uint8Array(buf)
+          const item = createScrubBatchItem(bytes, file.name)
+          batchItems.push(item)
+        } catch {
+          // ignore unreadable
+        }
+      }
+      activeBatchIndex = Math.max(0, batchItems.length - list.length)
+      selectBatchIndex(activeBatchIndex)
+      await open(list[0], list[0].name)
+      scrubControls.sync()
+    } else {
+      await open(list[0], list[0].name)
+    }
+  }
 
   const engine = new Engine()
   const stage = new Stage()
@@ -96,11 +152,19 @@ export function startApp(): void {
   const scrubStageSlot = h('div', { class: 'scrub-stage-slot', hidden: true }, scrubStage.el)
   document.getElementById('stage-slot')!.append(deresStageSlot, asciiStageSlot, scrubStageSlot)
 
-  const fileInput = h('input', { id: 'file-input', type: 'file', accept: 'image/*', class: 'visually-hidden', tabindex: -1 })
+  const fileInput = h('input', {
+    id: 'file-input',
+    type: 'file',
+    accept: 'image/*',
+    multiple: true,
+    class: 'visually-hidden',
+    tabindex: -1
+  }) as HTMLInputElement
   document.body.append(fileInput)
   fileInput.addEventListener('change', () => {
-    const file = fileInput.files?.[0]
-    if (file) open(file, file.name)
+    if (fileInput.files && fileInput.files.length > 0) {
+      handleFiles(fileInput.files)
+    }
     fileInput.value = ''
   })
 
@@ -340,6 +404,54 @@ export function startApp(): void {
         asciiControls.status(`Couldn't export .ans: ${(err as Error).message}`)
       }
     },
+    downloadPetsciiSeq: () => {
+      if (!currentAsciiResult || !picture) return
+      try {
+        const bytes = exportPetsciiSeq(currentAsciiResult)
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' })
+        const url = URL.createObjectURL(blob)
+        const a = h('a', { href: url, download: `${picture.base}.seq`, class: 'visually-hidden' })
+        document.body.append(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        asciiControls.status(`Saved ${picture.base}.seq (${bytes.length.toLocaleString()} bytes PETSCII stream).`)
+      } catch (err) {
+        asciiControls.status(`Couldn't export .seq: ${(err as Error).message}`)
+      }
+    },
+    downloadPetsciiPrg: () => {
+      if (!currentAsciiResult || !picture) return
+      try {
+        const bytes = exportPetsciiPrg(currentAsciiResult)
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' })
+        const url = URL.createObjectURL(blob)
+        const a = h('a', { href: url, download: `${picture.base}.prg`, class: 'visually-hidden' })
+        document.body.append(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        asciiControls.status(`Saved ${picture.base}.prg (2,002 bytes Commodore 64 binary).`)
+      } catch (err) {
+        asciiControls.status(`Couldn't export .prg: ${(err as Error).message}`)
+      }
+    },
+    downloadTeletext: () => {
+      if (!currentAsciiResult || !picture) return
+      try {
+        const text = exportTeletextPage(currentAsciiResult)
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = h('a', { href: url, download: `${picture.base}.ttx`, class: 'visually-hidden' })
+        document.body.append(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        asciiControls.status(`Saved ${picture.base}.ttx (Teletext broadcast page).`)
+      } catch (err) {
+        asciiControls.status(`Couldn't export .ttx: ${(err as Error).message}`)
+      }
+    },
     downloadPng: async (multiplier: number) => {
       if (!currentAsciiResult || !picture) return
       asciiControls.status(`Making ASCII PNG (${multiplier}×)…`)
@@ -392,6 +504,13 @@ export function startApp(): void {
       scrubOptions = { ...scrubOptions, ...patch }
       scrubControls.sync()
     },
+    batchItems: () => batchItems,
+    clearBatch: () => {
+      batchItems = []
+      activeBatchIndex = 0
+      scrubControls.sync()
+      scrubStage.showBatch(batchItems, -1, selectBatchIndex)
+    },
     scrubAndDownload: () => {
       if (!rawImageBytes || !picture) return
       try {
@@ -412,6 +531,32 @@ export function startApp(): void {
         scrubControls.status(`Cleaned and saved ${filename}.`)
       } catch (err) {
         scrubControls.status(`Failed to scrub: ${(err as Error).message}`)
+      }
+    },
+    downloadBatchZip: () => {
+      if (batchItems.length === 0) return
+      scrubControls.status('Scrubbing batch & packaging ZIP…')
+      try {
+        const { zipEntries } = scrubBatch(batchItems, scrubOptions)
+        if (zipEntries.length === 0) {
+          scrubControls.status('No files could be scrubbed.')
+          return
+        }
+        const zipData = createZip(zipEntries)
+        const blob = new Blob([zipData.buffer as ArrayBuffer], { type: 'application/zip' })
+        const url = URL.createObjectURL(blob)
+        const filename = 'b0r3d-clean-photos.zip'
+        const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
+        document.body.append(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        scrubStage.showBatch(batchItems, activeBatchIndex, selectBatchIndex)
+        scrubControls.status(
+          `Bundled & saved ${filename} (${zipEntries.length} clean photos, ${(zipData.length / 1024).toFixed(1)} KB).`
+        )
+      } catch (err) {
+        scrubControls.status(`ZIP failed: ${(err as Error).message}`)
       }
     },
     picture: () => (picture ? { name: picture.name, size: rawImageSize } : null)
@@ -456,6 +601,7 @@ export function startApp(): void {
       renderAscii()
     } else if (tool === 'scrub') {
       scrubControls.sync()
+      scrubStage.showBatch(batchItems, activeBatchIndex, selectBatchIndex)
       if (rawImageMeta && rawImageUrl) {
         scrubStage.showMetadata(rawImageMeta, rawImageUrl)
       }
@@ -513,6 +659,11 @@ export function startApp(): void {
       rawImageMeta = inspectMetadata(rawImageBytes)
       if (rawImageUrl) URL.revokeObjectURL(rawImageUrl)
       rawImageUrl = URL.createObjectURL(blob)
+
+      if (batchItems.length <= 1) {
+        batchItems = [createScrubBatchItem(rawImageBytes, name)]
+        activeBatchIndex = 0
+      }
     } catch {
       // ignore
     }
@@ -545,6 +696,7 @@ export function startApp(): void {
     asciiControls.sync()
     scrubControls.sync()
     if (rawImageMeta && rawImageUrl) {
+      scrubStage.showBatch(batchItems, activeBatchIndex, selectBatchIndex)
       scrubStage.showMetadata(rawImageMeta, rawImageUrl)
     }
     if (activeTool === 'ascii') {
@@ -682,9 +834,13 @@ export function startApp(): void {
     show(dropOverlay, false)
     if (!hasFiles(e)) return
     e.preventDefault()
-    const file = imageFromTransfer(e.dataTransfer)
-    if (file) open(file, file.name)
-    else stage.problem("That doesn't look like a picture.")
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files)
+    } else {
+      const file = imageFromTransfer(e.dataTransfer)
+      if (file) open(file, file.name)
+      else stage.problem("That doesn't look like a picture.")
+    }
   })
 
   // Hold Space to see the original (unless typing or on a control).

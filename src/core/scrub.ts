@@ -687,3 +687,59 @@ export function scrubImage(data: Uint8Array, options?: ScrubOptions): ScrubResul
     report
   }
 }
+
+export interface ScrubBatchItem {
+  id: string
+  name: string
+  size: number
+  format: 'jpeg' | 'png' | 'webp' | 'heic' | 'unknown'
+  hasGps: boolean
+  trailerBytes: number
+  rawBytes: Uint8Array
+  meta: ImageMetadata
+  cleanBytes?: Uint8Array
+  cleanFilename?: string
+  status: 'pending' | 'scrubbed' | 'error'
+  errorMessage?: string
+}
+
+export function createScrubBatchItem(fileBytes: Uint8Array, filename: string): ScrubBatchItem {
+  const meta = inspectMetadata(fileBytes)
+  return {
+    id: `${filename}-${Math.random().toString(36).slice(2, 9)}`,
+    name: filename,
+    size: fileBytes.length,
+    format: meta.format,
+    hasGps: !!meta.gps,
+    trailerBytes: meta.trailerBytes,
+    rawBytes: fileBytes,
+    meta,
+    status: 'pending'
+  }
+}
+
+export function scrubBatch(
+  items: ScrubBatchItem[],
+  options?: ScrubOptions
+): { items: ScrubBatchItem[]; zipEntries: { name: string; data: Uint8Array }[] } {
+  const zipEntries: { name: string; data: Uint8Array }[] = []
+  for (const item of items) {
+    try {
+      const res = scrubImage(item.rawBytes, options)
+      item.cleanBytes = res.data
+      const ext = res.format === 'jpeg' ? 'jpg' : res.format
+      const base = item.name.replace(/\.[^/.]+$/, '')
+      item.cleanFilename = `${base}-clean.${ext}`
+      item.status = 'scrubbed'
+      zipEntries.push({
+        name: item.cleanFilename,
+        data: item.cleanBytes
+      })
+    } catch (err) {
+      item.status = 'error'
+      item.errorMessage = (err as Error).message
+    }
+  }
+  return { items, zipEntries }
+}
+

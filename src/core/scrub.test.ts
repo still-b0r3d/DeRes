@@ -3,6 +3,8 @@ import {
   buildMinimalOrientationApp1,
   buildMinimalOrientationPngChunk,
   buildMinimalOrientationTiff,
+  createScrubBatchItem,
+  scrubBatch,
   scrubImage,
   scrubJpeg,
   scrubPng,
@@ -308,4 +310,42 @@ describe('exif & metadata scrubber', () => {
 
     expect(() => scrubImage(heic)).toThrow(/HEIC files cannot be safely scrubbed/)
   })
+
+  it('manages batch queue items and scrubs multiple files in batch', () => {
+    // 2 small synthetic JPEGs
+    const jpeg1 = new Uint8Array([
+      0xff, 0xd8,
+      ...Array.from(buildMinimalOrientationApp1(6)),
+      0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+      0x11, 0x22,
+      0xff, 0xd9
+    ])
+    const jpeg2 = new Uint8Array([
+      0xff, 0xd8,
+      0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+      0x33, 0x44,
+      0xff, 0xd9
+    ])
+
+    const item1 = createScrubBatchItem(jpeg1, 'photo1.jpg')
+    const item2 = createScrubBatchItem(jpeg2, 'photo2.jpg')
+
+    expect(item1.name).toBe('photo1.jpg')
+    expect(item1.format).toBe('jpeg')
+    expect(item1.status).toBe('pending')
+
+    const { items, zipEntries } = scrubBatch([item1, item2], { mode: 'all' })
+
+    expect(items.length).toBe(2)
+    expect(items[0].status).toBe('scrubbed')
+    expect(items[1].status).toBe('scrubbed')
+    expect(items[0].cleanFilename).toBe('photo1-clean.jpg')
+    expect(items[1].cleanFilename).toBe('photo2-clean.jpg')
+
+    expect(zipEntries.length).toBe(2)
+    expect(zipEntries[0].name).toBe('photo1-clean.jpg')
+    expect(zipEntries[0].data.byteLength).toBeGreaterThan(0)
+    expect(zipEntries[1].name).toBe('photo2-clean.jpg')
+  })
 })
+

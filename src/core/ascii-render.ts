@@ -8,7 +8,7 @@ export const ASCII_CELL_WIDTH = 8
 export const ASCII_CELL_HEIGHT = 16
 
 /**
- * Renders half-block ANSI art directly to PNG using pixel drawing (exact 8x8 squares per half-block).
+ * Renders half-block or Teletext mosaic art directly to PNG using pixel drawing.
  */
 export async function renderHalfBlockPng(
   result: AsciiResult,
@@ -24,10 +24,43 @@ export async function renderHalfBlockPng(
 
   const png = await encodeRgbPng(outW, outH, (y, out) => {
     const rowIdx = Math.floor(y / cellH)
-    const isTop = (y % cellH) < halfH
     const row = result.cells[rowIdx]
     if (!row) return
 
+    if (result.settings.mode === 'teletext') {
+      const inCellY = y % cellH
+      const subY = Math.min(2, Math.floor((inCellY * 3) / cellH))
+      const sep = result.settings.teletextSeparated && m >= 2
+
+      for (let x = 0; x < outW; x++) {
+        const colIdx = Math.floor(x / cellW)
+        const cell = row[colIdx]
+        if (!cell) continue
+
+        const inCellX = x % cellW
+        const subX = Math.min(1, Math.floor((inCellX * 2) / cellW))
+        const bit = subY * 2 + subX
+        const mask = cell.teletextMask ?? 0
+
+        // If separated mosaics, create 1px gap between sub-blocks
+        const isSepBorder =
+          sep &&
+          (inCellX === 0 ||
+            inCellX === Math.floor(cellW / 2) ||
+            inCellY === 0 ||
+            inCellY === Math.floor(cellH / 3) ||
+            inCellY === Math.floor((cellH * 2) / 3))
+
+        const lit = !isSepBorder && (mask & (1 << bit)) !== 0
+        const rgb = lit ? cell.fg : cell.bg
+        out[x * 3] = rgb[0]
+        out[x * 3 + 1] = rgb[1]
+        out[x * 3 + 2] = rgb[2]
+      }
+      return
+    }
+
+    const isTop = (y % cellH) < halfH
     for (let x = 0; x < outW; x++) {
       const colIdx = Math.floor(x / cellW)
       const cell = row[colIdx]
@@ -44,7 +77,7 @@ export async function renderHalfBlockPng(
 }
 
 /**
- * Renders ASCII text art to a DOM canvas using the bundled CP437 font.
+ * Renders ASCII, PETSCII or Teletext art to a DOM canvas using bundled fonts or geometric mosaics.
  */
 export function renderAsciiToCanvas(
   result: AsciiResult,
@@ -70,6 +103,41 @@ export function renderAsciiToCanvas(
   ctx.fillStyle = '#000000'
   ctx.fillRect(0, 0, width, height)
 
+  if (result.settings.mode === 'teletext') {
+    const subW = cellW / 2
+    const subH = cellH / 3
+    const sep = result.settings.teletextSeparated && m >= 2 ? 1 : 0
+
+    for (let r = 0; r < result.height; r++) {
+      const y = r * cellH
+      const row = result.cells[r]
+      for (let c = 0; c < result.width; c++) {
+        const x = c * cellW
+        const cell = row[c]
+        const mask = cell.teletextMask ?? 0
+
+        ctx.fillStyle = `rgb(${cell.bg[0]},${cell.bg[1]},${cell.bg[2]})`
+        ctx.fillRect(x, y, cellW, cellH)
+
+        ctx.fillStyle = `rgb(${cell.fg[0]},${cell.fg[1]},${cell.fg[2]})`
+        for (let sy = 0; sy < 3; sy++) {
+          for (let sx = 0; sx < 2; sx++) {
+            const bit = sy * 2 + sx
+            if (mask & (1 << bit)) {
+              ctx.fillRect(
+                x + sx * subW + sep,
+                y + sy * subH + sep,
+                subW - sep * 2,
+                subH - sep * 2
+              )
+            }
+          }
+        }
+      }
+    }
+    return canvas
+  }
+
   if (result.settings.mode === 'half-block') {
     // Pure pixel rectangles for half-blocks
     for (let r = 0; r < result.height; r++) {
@@ -91,7 +159,7 @@ export function renderAsciiToCanvas(
     return canvas
   }
 
-  // Character ramp mode: render with font
+  // Character ramp & PETSCII mode: render with font
   ctx.font = `${cellH}px 'IBM VGA 8x16', 'WebPlus_IBM_VGA_8x16', 'Courier New', monospace`
   ctx.textBaseline = 'top'
   ctx.textAlign = 'left'

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  exportPetsciiPrg,
+  exportPetsciiSeq,
+  exportTeletextPage,
   generateAscii,
   luminance,
   matchAnsi16,
@@ -219,4 +222,55 @@ describe('ASCII & ANSI engine', () => {
     expect(sauce?.tInfo1).toBe(4)
     expect(sauce?.fontName).toBe('IBM VGA')
   })
+
+  it('generates PETSCII Commodore 64 art and exports to .seq and .prg', () => {
+    const w = 8
+    const h = 8
+    const rgba = new Uint8ClampedArray(w * h * 4).fill(255) // Solid white
+    const res = generateAscii(rgba, w, h, {
+      mode: 'petscii',
+      columns: 4,
+      colorMode: 'c64'
+    })
+
+    expect(res.width).toBe(4)
+    expect(res.settings.mode).toBe('petscii')
+    expect(res.cells.length).toBeGreaterThan(0)
+
+    // Export .seq
+    const seq = exportPetsciiSeq(res)
+    expect(seq.length).toBeGreaterThan(0)
+    // Check PETSCII carriage return (0x0D)
+    expect(seq).toContain(0x0d)
+
+    // Export .prg (2 + 1000 + 1000 = 2002 bytes)
+    const prg = exportPetsciiPrg(res)
+    expect(prg.length).toBe(2002)
+    // C64 screen RAM load address $0400 (0x00, 0x04)
+    expect(prg[0]).toBe(0x00)
+    expect(prg[1]).toBe(0x04)
+  })
+
+  it('generates Ceefax Teletext 2x3 mosaic art and exports page', () => {
+    const w = 6
+    const h = 9
+    const rgba = new Uint8ClampedArray(w * h * 4).fill(255) // White
+    const res = generateAscii(rgba, w, h, {
+      mode: 'teletext',
+      columns: 3,
+      colorMode: 'teletext',
+      teletextHeader: true
+    })
+
+    expect(res.width).toBe(3)
+    // With header enabled, row 0 contains Teletext broadcast title
+    expect(res.cells.length).toBeGreaterThan(1)
+    const headerLine = res.cells[0].map((c) => c.char).join('')
+    expect(headerLine).toBe('P10')
+
+    const page = exportTeletextPage(res)
+    expect(page.includes('\n')).toBe(true)
+    expect(page.length).toBeGreaterThan(0)
+  })
 })
+

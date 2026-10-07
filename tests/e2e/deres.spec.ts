@@ -55,7 +55,7 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
   const gbPal = profileById('gameboy')!.palette
   expect(new Set(await canvasColours(page))).toEqual(new Set(gbPal.kind === 'fixed' ? gbPal.colours : []))
-  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.7.0')
+  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.8.0')
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
@@ -717,6 +717,104 @@ test('v0.7: Surprise me randomizer button shuffles profile and settings', async 
   const newProfile = await page.locator('.card[aria-pressed="true"]').getAttribute('data-profile')
   expect(newProfile).toBeDefined()
 })
+
+test('v0.8: PETSCII mode generates Commodore 64 art and downloads .seq and .prg', async ({ page }) => {
+  await page.getByTestId('tab-ascii').click()
+  await page.getByRole('button', { name: 'PETSCII (C64)' }).click()
+  await expect(page.getByTestId('ascii-readout')).toContainText('petscii')
+  await expect(page.getByTestId('ascii-download-seq')).toBeVisible()
+  await expect(page.getByTestId('ascii-download-prg')).toBeVisible()
+
+  // Test downloading .prg
+  const downloadPrgPromise = page.waitForEvent('download')
+  await page.getByTestId('ascii-download-prg').click()
+  const prgDownload = await downloadPrgPromise
+  expect(prgDownload.suggestedFilename()).toBe('rukus.prg')
+  const prgPath = await prgDownload.path()
+  if (prgPath) {
+    const prgBytes = new Uint8Array(readFileSync(prgPath))
+    expect(prgBytes.length).toBe(2002) // $0400 load addr + 1000 screen + 1000 color
+    expect(prgBytes[0]).toBe(0x00)
+    expect(prgBytes[1]).toBe(0x04)
+  }
+})
+
+test('v0.8: Teletext mode generates broadcast Ceefax art and downloads .ttx page', async ({ page }) => {
+  await page.getByTestId('tab-ascii').click()
+  await page.getByRole('button', { name: 'Teletext (Ceefax)' }).click()
+  await expect(page.getByTestId('ascii-readout')).toContainText('teletext')
+  await expect(page.getByTestId('ascii-download-ttx')).toBeVisible()
+
+  // Test downloading .ttx
+  const downloadTtxPromise = page.waitForEvent('download')
+  await page.getByTestId('ascii-download-ttx').click()
+  const ttxDownload = await downloadTtxPromise
+  expect(ttxDownload.suggestedFilename()).toBe('rukus.ttx')
+  const ttxPath = await ttxDownload.path()
+  if (ttxPath) {
+    const text = readFileSync(ttxPath, 'utf8')
+    expect(text.length).toBeGreaterThan(0)
+  }
+})
+
+test('v0.8: Dial-up baud rate playback simulation streams terminal art', async ({ page }) => {
+  await page.getByTestId('tab-ascii').click()
+  await expect(page.getByTestId('ascii-baud-controls')).toBeVisible()
+
+  const baudSelect = page.getByTestId('ascii-baud-select')
+  const playBtn = page.getByTestId('ascii-play-btn')
+  const replayBtn = page.getByTestId('ascii-replay-btn')
+  const progress = page.getByTestId('ascii-baud-progress')
+
+  await expect(progress).toContainText('100%')
+  await baudSelect.selectOption('9600')
+  await expect(progress).toBeVisible()
+
+  // Replay
+  await replayBtn.click()
+  await expect(playBtn).toHaveText('Pause')
+
+  // Pause
+  await playBtn.click()
+  await expect(playBtn).toHaveText('Play')
+})
+
+test('v0.8: Batch EXIF scrubber displays file queue and downloads clean ZIP', async ({ page }) => {
+  const png1 = await gradientPng(20, 20)
+  const png2 = await gradientPng(30, 30)
+
+  // Upload 2 files
+  await page.locator('#file-input').setInputFiles([
+    { name: 'batch1.png', mimeType: 'image/png', buffer: png1 },
+    { name: 'batch2.png', mimeType: 'image/png', buffer: png2 }
+  ])
+
+  await page.getByTestId('tab-scrub').click()
+
+  // Batch queue table visible
+  const batchPanel = page.getByTestId('scrub-batch-panel')
+  await expect(batchPanel).toBeVisible()
+  await expect(page.getByTestId('scrub-batch-table')).toBeVisible()
+  await expect(page.getByTestId('scrub-batch-table')).toContainText('batch1.png')
+  await expect(page.getByTestId('scrub-batch-table')).toContainText('batch2.png')
+
+  // Download Clean ZIP
+  const downloadZipPromise = page.waitForEvent('download')
+  await page.getByTestId('scrub-download-zip-btn').click()
+  const zipDownload = await downloadZipPromise
+  expect(zipDownload.suggestedFilename()).toBe('b0r3d-clean-photos.zip')
+
+  const zipPath = await zipDownload.path()
+  if (zipPath) {
+    const zipBytes = new Uint8Array(readFileSync(zipPath))
+    // Standard ZIP magic number PK\x03\x04
+    expect(zipBytes[0]).toBe(0x50)
+    expect(zipBytes[1]).toBe(0x4b)
+    expect(zipBytes[2]).toBe(0x03)
+    expect(zipBytes[3]).toBe(0x04)
+  }
+})
+
 
 
 

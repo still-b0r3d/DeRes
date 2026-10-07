@@ -1,4 +1,4 @@
-import type { ScrubOptions } from '../core/scrub'
+import type { ScrubBatchItem, ScrubOptions } from '../core/scrub'
 import { h, show } from './dom'
 
 export interface ScrubControlsContext {
@@ -7,6 +7,9 @@ export interface ScrubControlsContext {
   getOptions(): ScrubOptions
   setOptions(opts: Partial<ScrubOptions>): void
   scrubAndDownload(): void
+  downloadBatchZip(): void
+  batchItems(): ScrubBatchItem[]
+  clearBatch(): void
   picture(): { name: string; size: number } | null
 }
 
@@ -24,17 +27,31 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
   sync: () => void
   status: (t: string) => void
 } {
-  // 1. Image section
+  // 1. Image & Batch section
   const pictureInfo = h('p', { class: 'picture-info', 'data-testid': 'scrub-picture-info' })
+  const chooseBtn = h('button', { type: 'button', class: 'choose', onclick: () => ctx.openFile() }, 'Choose photo(s)')
+  const clearBatchBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'linkish danger-link',
+      'data-testid': 'scrub-clear-batch-btn',
+      onclick: () => ctx.clearBatch()
+    },
+    'Clear batch'
+  )
+
   const imageSec = section(
-    'Image',
+    'Image & Batch',
     true,
-    h('button', { type: 'button', class: 'choose', onclick: () => ctx.openFile() }, 'Choose photo'),
+    chooseBtn,
     h(
       'p',
       { class: 'hint' },
       h('button', { type: 'button', class: 'linkish', onclick: () => ctx.loadSample() }, 'Try the sample'),
-      h('span', { class: 'desktop-only' }, ' · or drop a photo on the page, or paste one')
+      h('span', { class: 'desktop-only' }, ' · or drop photos on the page, or paste one'),
+      h('span', null, ' · '),
+      clearBatchBtn
     ),
     pictureInfo
   )
@@ -65,7 +82,11 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
       'div',
       { class: 'radio-text' },
       h('strong', null, 'Remove all metadata (Recommended)'),
-      h('span', { class: 'radio-desc' }, 'Strips camera, lens, GPS, timestamps, comments, thumbnails, and trailers. Retains orientation and colour profile.')
+      h(
+        'span',
+        { class: 'radio-desc' },
+        'Strips camera, lens, GPS, timestamps, comments, thumbnails, and trailers. Retains orientation and colour profile.'
+      )
     )
   )
 
@@ -77,7 +98,11 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
       'div',
       { class: 'radio-text' },
       h('strong', null, 'Remove location only'),
-      h('span', { class: 'radio-desc' }, 'Wipes GPS coordinates and trailers, but keeps camera model, lens, exposure settings, and date.')
+      h(
+        'span',
+        { class: 'radio-desc' },
+        'Wipes GPS coordinates and trailers, but keeps camera model, lens, exposure settings, and date.'
+      )
     )
   )
 
@@ -109,36 +134,69 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
 
   // 3. Export & Download
   const statusEl = h('p', { class: 'status-msg', 'data-testid': 'scrub-status' })
-  const downloadBtn = h(
+
+  const downloadSingleBtn = h(
     'button',
     {
       type: 'button',
-      class: 'download scrub-download',
+      class: 'download scrub-download primary',
       'data-testid': 'scrub-download-btn',
       onclick: () => ctx.scrubAndDownload()
     },
     'Scrub & Download Clean Photo'
   )
 
+  const downloadZipBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'download scrub-download-zip primary',
+      'data-testid': 'scrub-download-zip-btn',
+      onclick: () => ctx.downloadBatchZip()
+    },
+    'Download Clean ZIP'
+  )
+
   const actionSec = section(
     'Clean & Save',
     true,
-    downloadBtn,
+    downloadSingleBtn,
+    downloadZipBtn,
     statusEl
   )
 
   const el = h('div', { class: 'controls-inner scrub-controls', 'data-testid': 'scrub-controls' }, imageSec, optionsSec, actionSec)
 
   function sync(): void {
+    const items = ctx.batchItems()
     const pic = ctx.picture()
-    if (!pic) {
+
+    if (items.length > 1) {
+      const totalKb = (items.reduce((acc, it) => acc + it.size, 0) / 1024).toFixed(1)
+      const gpsCount = items.filter((it) => it.hasGps).length
+      const gpsNote = gpsCount > 0 ? ` · ${gpsCount} with GPS` : ''
+      pictureInfo.textContent = `${items.length} photos in batch (${totalKb} KB)${gpsNote}`
+      show(downloadSingleBtn, false)
+      show(downloadZipBtn, true)
+      downloadZipBtn.disabled = false
+      downloadZipBtn.textContent = `Download Clean ZIP (${items.length} photos)`
+      show(clearBatchBtn, true)
+    } else if (pic || items.length === 1) {
+      const size = pic?.size ?? items[0].size
+      const name = pic?.name ?? items[0].name
+      const sizeKb = (size / 1024).toFixed(1)
+      pictureInfo.textContent = `${name} · ${sizeKb} KB`
+      show(downloadSingleBtn, true)
+      downloadSingleBtn.disabled = false
+      show(downloadZipBtn, false)
+      show(clearBatchBtn, false)
+    } else {
       pictureInfo.textContent = 'No photo loaded.'
-      downloadBtn.disabled = true
-      return
+      downloadSingleBtn.disabled = true
+      show(downloadSingleBtn, true)
+      show(downloadZipBtn, false)
+      show(clearBatchBtn, false)
     }
-    const sizeKb = (pic.size / 1024).toFixed(1)
-    pictureInfo.textContent = `${pic.name} · ${sizeKb} KB`
-    downloadBtn.disabled = false
 
     const opts = ctx.getOptions()
     radioAll.checked = opts.mode !== 'location_only'

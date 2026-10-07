@@ -1498,3 +1498,199 @@ button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* Dial-Up Baud Rate Playback Simulation */
+.baud-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.baud-label {
+  font-family: var(--brand-font);
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.baud-select {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: var(--brand-font);
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.baud-select:focus {
+  border-color: var(--cyan);
+  outline: none;
+}
+
+.baud-progress {
+  font-family: 'IBM VGA 8x16', monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.ascii-cursor {
+  display: inline-block;
+  color: var(--cyan);
+  font-weight: 700;
+  animation: ascii-blink 0.8s step-start infinite;
+}
+
+@keyframes ascii-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Batch Scrubber Queue */
+.scrub-batch-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.scrub-batch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.scrub-batch-summary {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-family: var(--brand-font);
+}
+
+.scrub-batch-table-wrap {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.scrub-batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  background: var(--panel-2);
+}
+
+.scrub-batch-table th,
+.scrub-batch-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.scrub-batch-table th {
+  background: #14171a;
+  color: var(--muted);
+  font-family: var(--brand-font);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.batch-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.batch-row:hover {
+  background: rgba(0, 255, 255, 0.05);
+}
+
+.batch-row.selected-row {
+  background: rgba(0, 255, 255, 0.12);
+  border-left: 3px solid var(--cyan);
+}
+
+.batch-row.selected-row .col-name {
+  color: var(--cyan);
+  font-weight: 700;
+}
+
+.col-alert {
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
+.col-muted {
+  color: #666;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-family: var(--brand-font);
+  font-weight: 700;
+}
+
+.badge.clean {
+  background: rgba(0, 255, 157, 0.15);
+  color: var(--mint);
+  border: 1px solid var(--mint);
+}
+
+.badge.pend {
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.badge.err {
+  background: rgba(255, 80, 80, 0.15);
+  color: #ff6b6b;
+  border: 1px solid #ff6b6b;
+}
+
+.danger-link {
+  color: #ff6b6b;
+  cursor: pointer;
+}
+
+.danger-link:hover {
+  text-decoration: underline;
+}
+
+.scrub-download-zip {
+  width: 100%;
+  padding: 12px;
+  background: #1d2b1d;
+  border: 1px solid var(--mint);
+  color: var(--mint);
+  border-radius: 4px;
+  font-family: var(--brand-font);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-top: 8px;
+}
+
+.scrub-download-zip:hover:not(:disabled) {
+  background: var(--mint);
+  color: #000;
+  box-shadow: 0 0 12px rgba(0, 255, 157, 0.4);
+}
+

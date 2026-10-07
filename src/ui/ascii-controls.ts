@@ -16,6 +16,9 @@ export interface AsciiControlsContext {
   copyAnsi(): void
   copyHtml(): void
   downloadAns(): void
+  downloadPetsciiSeq(): void
+  downloadPetsciiPrg(): void
+  downloadTeletext(): void
   downloadPng(multiplier: number): void
   picture(): { name: string; origW: number; origH: number } | null
 }
@@ -56,17 +59,27 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     'Render mode',
     [
       { value: 'half-block', text: 'Half-block (▀)' },
-      { value: 'ramp', text: 'Character ramp' }
+      { value: 'ramp', text: 'Character ramp' },
+      { value: 'petscii', text: 'PETSCII (C64)' },
+      { value: 'teletext', text: 'Teletext (Ceefax)' }
     ] as const,
-    (v) => set({ mode: v })
+    (v) => {
+      if (v === 'petscii') {
+        set({ mode: v, colorMode: 'c64', columns: 40 })
+      } else if (v === 'teletext') {
+        set({ mode: v, colorMode: 'teletext', columns: 40 })
+      } else {
+        set({ mode: v })
+      }
+    }
   )
 
   const columnsPresets = segmented<string>(
     'Columns preset',
     [
+      { value: '40', text: '40 cols (C64/Ceefax)' },
       { value: '80', text: '80 cols (BBS)' },
       { value: '132', text: '132 cols' },
-      { value: '160', text: '160 cols' },
       { value: 'custom', text: 'Custom' }
     ] as const,
     (v) => {
@@ -152,11 +165,42 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
 
   const rampSec = section('Character Ramp', true, rampPresets.el, customRampRow, invertRow)
 
-  // 4. Colour Profile
+  // 4. Teletext Options
+  const teletextSeparatedCheckbox = h('input', {
+    type: 'checkbox',
+    id: 'teletext-separated',
+    checked: false,
+    onchange: () => set({ teletextSeparated: teletextSeparatedCheckbox.checked })
+  })
+  const teletextSeparatedRow = h(
+    'label',
+    { class: 'checkbox-row', for: 'teletext-separated' },
+    teletextSeparatedCheckbox,
+    h('span', null, 'Separated mosaics (gap mode)')
+  )
+
+  const teletextHeaderCheckbox = h('input', {
+    type: 'checkbox',
+    id: 'teletext-header',
+    checked: true,
+    onchange: () => set({ teletextHeader: teletextHeaderCheckbox.checked })
+  })
+  const teletextHeaderRow = h(
+    'label',
+    { class: 'checkbox-row', for: 'teletext-header' },
+    teletextHeaderCheckbox,
+    h('span', null, 'Ceefax broadcast header (Page 100)')
+  )
+
+  const teletextSec = section('Teletext Options', true, teletextHeaderRow, teletextSeparatedRow)
+
+  // 5. Colour Profile
   const colorMode = segmented<AsciiColorMode>(
     'Color profile',
     [
       { value: 'ansi16', text: 'ANSI 16-Colour' },
+      { value: 'c64', text: 'C64 VIC-II' },
+      { value: 'teletext', text: 'Teletext 8-Col' },
       { value: 'green', text: 'Green CRT' },
       { value: 'amber', text: 'Amber CRT' },
       { value: 'mono', text: 'Mono' },
@@ -168,7 +212,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
 
   const colorSec = section('Colour Profile', true, colorMode.el)
 
-  // 5. Pre-adjustments
+  // 6. Pre-adjustments
   const contrastSlider = slider({
     id: 'ascii-contrast',
     label: 'Contrast',
@@ -201,7 +245,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
 
   const adjustSec = section('Adjustments', false, contrastSlider.el, brightnessSlider.el, gammaSlider.el)
 
-  // 6. Export & Clipboard Actions
+  // 7. Export & Clipboard Actions
   const statusEl = h('p', { class: 'status-msg', 'data-testid': 'ascii-status' })
 
   const copyRow = h(
@@ -218,9 +262,43 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     {
       type: 'button',
       class: 'btn-download primary',
+      'data-testid': 'ascii-download-ans',
       onclick: () => ctx.downloadAns()
     },
     'Download .ANS (with SAUCE record)'
+  )
+
+  const downloadPetsciiSeqBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'btn-download primary',
+      'data-testid': 'ascii-download-seq',
+      onclick: () => ctx.downloadPetsciiSeq()
+    },
+    'Download .SEQ (PETSCII stream)'
+  )
+
+  const downloadPetsciiPrgBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'btn-download',
+      'data-testid': 'ascii-download-prg',
+      onclick: () => ctx.downloadPetsciiPrg()
+    },
+    'Download .PRG (C64 Screen RAM)'
+  )
+
+  const downloadTeletextBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'btn-download primary',
+      'data-testid': 'ascii-download-ttx',
+      onclick: () => ctx.downloadTeletext()
+    },
+    'Download .TTX (Ceefax page)'
   )
 
   const pngMultipliers = segmented<'1' | '2' | '4'>(
@@ -238,14 +316,27 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     true,
     h('h4', { class: 'subhead' }, 'Copy to clipboard'),
     copyRow,
-    h('h4', { class: 'subhead' }, 'BBS download'),
+    h('h4', { class: 'subhead' }, 'BBS & Vintage download'),
     downloadAnsBtn,
-    h('h4', { class: 'subhead' }, 'Rendered PNG (CP437 font)'),
+    downloadPetsciiSeqBtn,
+    downloadPetsciiPrgBtn,
+    downloadTeletextBtn,
+    h('h4', { class: 'subhead' }, 'Rendered PNG (Font graphics)'),
     pngMultipliers.el,
     statusEl
   )
 
-  const root = h('div', { class: 'controls-col', id: 'ascii-controls-col' }, imageSec, layoutSec, rampSec, colorSec, adjustSec, exportSec)
+  const root = h(
+    'div',
+    { class: 'controls-col', id: 'ascii-controls-col' },
+    imageSec,
+    layoutSec,
+    rampSec,
+    teletextSec,
+    colorSec,
+    adjustSec,
+    exportSec
+  )
 
   const sync = () => {
     const s = ctx.get()
@@ -259,8 +350,9 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
 
     mode.set(s.mode)
     show(rampSec, s.mode === 'ramp')
+    show(teletextSec, s.mode === 'teletext')
 
-    if (s.columns === 80 || s.columns === 132 || s.columns === 160) {
+    if (s.columns === 40 || s.columns === 80 || s.columns === 132) {
       columnsPresets.set(String(s.columns))
     } else {
       columnsPresets.set('custom')
@@ -272,11 +364,19 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     if (s.customRamp) customRampInput.value = s.customRamp
     invertCheckbox.checked = s.invertRamp
 
+    teletextSeparatedCheckbox.checked = !!s.teletextSeparated
+    teletextHeaderCheckbox.checked = s.teletextHeader !== false
+
     colorMode.set(s.colorMode)
 
     contrastSlider.set(s.contrast)
     brightnessSlider.set(s.brightness)
     gammaSlider.set(s.gamma)
+
+    show(downloadPetsciiSeqBtn, s.mode === 'petscii')
+    show(downloadPetsciiPrgBtn, s.mode === 'petscii')
+    show(downloadTeletextBtn, s.mode === 'teletext')
+    show(downloadAnsBtn, s.mode !== 'petscii' && s.mode !== 'teletext')
   }
 
   return {

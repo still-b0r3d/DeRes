@@ -8,8 +8,8 @@ import { attachSauce, type SauceInfo } from './sauce'
 // 2. Character ramp density modes with 2:1 cell aspect ratio.
 // 3. Export to Raw Text, GitHub Markdown, ANSI Terminal Escapes, HTML, and .ANS files with SAUCE records.
 
-export type AsciiMode = 'half-block' | 'ramp'
-export type AsciiColorMode = 'ansi16' | 'green' | 'amber' | 'mono' | 'truecolor'
+export type AsciiMode = 'half-block' | 'ramp' | 'petscii' | 'teletext'
+export type AsciiColorMode = 'ansi16' | 'c64' | 'teletext' | 'green' | 'amber' | 'mono' | 'truecolor'
 
 export const ASCII_RAMPS = {
   standard: ' .:-=+*#%@',
@@ -32,6 +32,8 @@ export interface AsciiSettings {
   brightness: number // -100 to 100
   gamma: number // 0.2 to 3.0
   twoToOneAspect: boolean
+  teletextSeparated?: boolean
+  teletextHeader?: boolean
 }
 
 export const DEFAULT_ASCII_SETTINGS: AsciiSettings = {
@@ -44,7 +46,9 @@ export const DEFAULT_ASCII_SETTINGS: AsciiSettings = {
   contrast: 0,
   brightness: 0,
   gamma: 1.0,
-  twoToOneAspect: true
+  twoToOneAspect: true,
+  teletextSeparated: false,
+  teletextHeader: true
 }
 
 export interface AsciiCell {
@@ -53,6 +57,8 @@ export interface AsciiCell {
   bg: [number, number, number] // [r, g, b] 0..255
   fgAnsi?: number // 0..15 if ANSI 16
   bgAnsi?: number // 0..15 if ANSI 16
+  teletextMask?: number // 0..63 for Teletext 2×3 mosaic
+  c64Color?: number // 0..15 for C64 PETSCII color
 }
 
 export interface AsciiResult {
@@ -83,14 +89,128 @@ export const ANSI_16_PALETTE: [number, number, number][] = [
   [255, 255, 255] // 15: Bright White
 ]
 
-const ANSI_16_MATCHER = new PaletteMatcher(new Uint8Array(ANSI_16_PALETTE.flat()))
+// Commodore 64 VIC-II 16-color palette
+export const C64_VIC_PALETTE: [number, number, number][] = [
+  [0, 0, 0], // 0: Black (#000000)
+  [255, 255, 255], // 1: White (#ffffff)
+  [129, 51, 56], // 2: Red (#813338)
+  [117, 206, 200], // 3: Cyan (#75cec8)
+  [142, 60, 151], // 4: Purple (#8e3c97)
+  [86, 172, 77], // 5: Green (#56ac4d)
+  [46, 44, 155], // 6: Blue (#2e2c9b)
+  [237, 241, 113], // 7: Yellow (#edf171)
+  [142, 80, 41], // 8: Orange (#8e5029)
+  [85, 56, 0], // 9: Brown (#553800)
+  [196, 108, 113], // 10: Light Red (#c46c71)
+  [74, 74, 74], // 11: Dark Grey (#4a4a4a)
+  [123, 123, 123], // 12: Grey (#7b7b7b)
+  [169, 255, 159], // 13: Light Green (#a9ff9f)
+  [112, 109, 235], // 14: Light Blue (#706deb)
+  [178, 178, 178] // 15: Light Grey (#b2b2b2)
+]
 
-/**
- * Maps an RGB color to the closest ANSI 16 index using OKLab color distance.
- */
+// Broadcast Teletext Level 1 8-color primary palette
+export const TELETEXT_PALETTE: [number, number, number][] = [
+  [0, 0, 0], // 0: Black
+  [255, 0, 0], // 1: Red
+  [0, 255, 0], // 2: Green
+  [255, 255, 0], // 3: Yellow
+  [0, 0, 255], // 4: Blue
+  [255, 0, 255], // 5: Magenta
+  [0, 255, 255], // 6: Cyan
+  [255, 255, 255] // 7: White
+]
+
+const ANSI_16_MATCHER = new PaletteMatcher(new Uint8Array(ANSI_16_PALETTE.flat()))
+const C64_MATCHER = new PaletteMatcher(new Uint8Array(C64_VIC_PALETTE.flat()))
+const TELETEXT_MATCHER = new PaletteMatcher(new Uint8Array(TELETEXT_PALETTE.flat()))
+
+/** Maps an RGB color to the closest ANSI 16 index using OKLab color distance. */
 export function matchAnsi16(r: number, g: number, b: number): number {
   return ANSI_16_MATCHER.nearestByte(r, g, b)
 }
+
+/** Maps an RGB color to the closest C64 color index using OKLab color distance. */
+export function matchC64(r: number, g: number, b: number): number {
+  return C64_MATCHER.nearestByte(r, g, b)
+}
+
+/** Maps an RGB color to the closest Teletext broadcast color index. */
+export function matchTeletext(r: number, g: number, b: number): number {
+  return TELETEXT_MATCHER.nearestByte(r, g, b)
+}
+
+// 64-character Teletext / Legacy Computing 2×3 mosaic graphics character table (masks 0..63)
+export const TELETEXT_MOSAICS: readonly string[] = [
+  ' ', '\u{1FB00}', '\u{1FB01}', '\u{1FB02}', '\u{1FB03}', '\u{1FB04}', '\u{1FB05}', '\u{1FB06}',
+  '\u{1FB07}', '\u{1FB08}', '\u{1FB09}', '\u{1FB0A}', '\u{1FB0B}', '\u{1FB0C}', '\u{1FB0D}', '\u{1FB0E}',
+  '\u{1FB0F}', '\u{1FB10}', '\u{1FB11}', '\u{1FB12}', '\u{1FB13}', '\u{1FB14}', '\u{1FB15}', '\u{1FB16}',
+  '\u{1FB17}', '\u{1FB18}', '\u{1FB19}', '\u{1FB1A}', '\u{1FB1B}', '\u{1FB1C}', '\u{1FB1D}', '\u{1FB1E}',
+  '\u{1FB1F}', '\u{1FB20}', '\u{1FB21}', '\u{1FB22}', '\u{1FB23}', '\u{1FB24}', '\u{1FB25}', '\u{1FB26}',
+  '\u{1FB27}', '\u{1FB28}', '\u{1FB29}', '\u{1FB2A}', '\u{1FB2B}', '\u{1FB2C}', '\u{1FB2D}', '\u{1FB2E}',
+  '\u{1FB2F}', '\u{1FB30}', '\u{1FB31}', '\u{1FB32}', '\u{1FB33}', '\u{1FB34}', '\u{1FB35}', '\u{1FB36}',
+  '\u{1FB37}', '\u{1FB38}', '\u{1FB39}', '\u{1FB3A}', '\u{1FB3B}', '▄', '▌', '█'
+]
+
+// Fallback ASCII block representation for terminals or fonts without Unicode 13 sextants
+export const TELETEXT_FALLBACK_BLOCKS: readonly string[] = [
+  ' ', '░', '░', '▔', '░', '▌', '░', '░',
+  '░', '░', '━', '░', '░', '░', '░', '▀',
+  '░', '░', '░', '░', '▌', '▌', '░', '░',
+  '░', '░', '░', '░', '░', '░', '░', '░',
+  '░', '░', '░', '░', '░', '░', '░', '░',
+  '░', '░', '░', '░', '░', '░', '░', '░',
+  '▄', '░', '░', '░', '░', '░', '░', '░',
+  '░', '░', '░', '░', '░', '▄', '▌', '█'
+]
+
+// C64 PETSCII screen code mapping for standard graphics glyphs
+export const PETSCII_SCREEN_CODES: Record<string, number> = {
+  ' ': 0x20,
+  '█': 0xa0,
+  '▌': 0x61,
+  '▄': 0x62,
+  '▀': 0x65,
+  '▐': 0x67,
+  '▒': 0x64,
+  '░': 0x66,
+  '▓': 0xa0,
+  '▖': 0x6a,
+  '▗': 0x6b,
+  '▘': 0x79,
+  '▝': 0x69,
+  '▚': 0x7f,
+  '▞': 0x7e,
+  '━': 0x6c,
+  '┃': 0x7d,
+  '♠': 0x53,
+  '♥': 0x51,
+  '♣': 0x57,
+  '♦': 0x5a,
+  '●': 0x77,
+  '▲': 0x58,
+  '▼': 0x59
+}
+
+// C64 color control codes for PETSCII .seq stream (0..15)
+export const PETSCII_COLOR_CODES: readonly number[] = [
+  0x90, // 0: Black
+  0x05, // 1: White
+  0x1c, // 2: Red
+  0x9f, // 3: Cyan
+  0x9c, // 4: Purple
+  0x1e, // 5: Green
+  0x1f, // 6: Blue
+  0x9e, // 7: Yellow
+  0x81, // 8: Orange
+  0x95, // 9: Brown
+  0x96, // 10: Light Red
+  0x97, // 11: Dark Grey
+  0x98, // 12: Grey
+  0x99, // 13: Light Green
+  0x9a, // 14: Light Blue
+  0x9b  // 15: Light Grey
+]
 
 // Maps CP437 unicode characters to byte codes for .ANS file creation
 const CP437_BYTE_MAP: Record<string, number> = {
@@ -242,6 +362,183 @@ export function generateAscii(
   const cells: AsciiCell[][] = []
   const usedColours = new Set<string>()
 
+  if (s.mode === 'teletext') {
+    const rows = Math.max(1, Math.round((cols * srcH) / (srcW * aspectMultiplier)))
+    const cellWInSrc = srcW / cols
+    const cellHInSrc = srcH / rows
+
+    for (let r = 0; r < rows; r++) {
+      const row: AsciiCell[] = []
+      const isHeaderRow = s.teletextHeader && r === 0
+
+      const y0 = r * cellHInSrc
+      const y1 = (r + 1) * cellHInSrc
+
+      for (let c = 0; c < cols; c++) {
+        if (isHeaderRow) {
+          const headerText = 'P100  CEEFAX 100  OCT 07  b0r3d.org      '.padEnd(cols, ' ')
+          const char = headerText[c] || ' '
+          const fg: [number, number, number] = c < 4 ? [255, 255, 0] : c < 16 ? [0, 255, 255] : [255, 255, 255]
+          const bg: [number, number, number] = [0, 0, 170]
+          row.push({ char, fg, bg, teletextMask: 0 })
+          continue
+        }
+
+        const x0 = c * cellWInSrc
+        const x1 = (c + 1) * cellWInSrc
+        const xm = (x0 + x1) / 2
+        const yh = (y1 - y0) / 3
+
+        const subBoxes = [
+          [x0, y0, xm, y0 + yh],
+          [xm, y0, x1, y0 + yh],
+          [x0, y0 + yh, xm, y0 + 2 * yh],
+          [xm, y0 + yh, x1, y0 + 2 * yh],
+          [x0, y0 + 2 * yh, xm, y1],
+          [xm, y0 + 2 * yh, x1, y1]
+        ]
+
+        let mask = 0
+        let rSum = 0, gSum = 0, bSum = 0, activeCount = 0
+
+        for (let b = 0; b < 6; b++) {
+          const [bx0, by0, bx1, by1] = subBoxes[b]
+          const [sr, sg, sb] = sampleArea(rgba, srcW, srcH, bx0, by0, bx1, by1)
+          const [ar, ag, ab] = applyAdjustments(sr, sg, sb, s.contrast, s.brightness, s.gamma)
+          const lum = luminance(ar, ag, ab)
+          if (lum > 0.35) {
+            mask |= (1 << b)
+            rSum += ar
+            gSum += ag
+            bSum += ab
+            activeCount++
+          }
+        }
+
+        let fgRgb: [number, number, number] = [255, 255, 255]
+        if (activeCount > 0) {
+          const avgR = Math.round(rSum / activeCount)
+          const avgG = Math.round(gSum / activeCount)
+          const avgB = Math.round(bSum / activeCount)
+          const palIdx = matchTeletext(avgR, avgG, avgB)
+          fgRgb = TELETEXT_PALETTE[palIdx === 0 ? 7 : palIdx]
+        }
+        const bgRgb: [number, number, number] = [0, 0, 0]
+
+        usedColours.add(`${fgRgb[0]},${fgRgb[1]},${fgRgb[2]}`)
+        usedColours.add('0,0,0')
+
+        const char = TELETEXT_MOSAICS[mask] ?? ' '
+        row.push({
+          char,
+          fg: fgRgb,
+          bg: bgRgb,
+          teletextMask: mask
+        })
+      }
+      cells.push(row)
+    }
+
+    return {
+      width: cols,
+      height: rows,
+      cells,
+      settings: s,
+      colorCount: usedColours.size
+    }
+  }
+
+  if (s.mode === 'petscii') {
+    const rows = Math.max(1, Math.round((cols * srcH) / (srcW * aspectMultiplier)))
+    const cellWInSrc = srcW / cols
+    const cellHInSrc = srcH / rows
+
+    for (let r = 0; r < rows; r++) {
+      const row: AsciiCell[] = []
+      const y0 = r * cellHInSrc
+      const y1 = (r + 1) * cellHInSrc
+      const ym = (y0 + y1) / 2
+
+      for (let c = 0; c < cols; c++) {
+        const x0 = c * cellWInSrc
+        const x1 = (c + 1) * cellWInSrc
+        const xm = (x0 + x1) / 2
+
+        const qTL = sampleArea(rgba, srcW, srcH, x0, y0, xm, ym)
+        const qTR = sampleArea(rgba, srcW, srcH, xm, y0, x1, ym)
+        const qBL = sampleArea(rgba, srcW, srcH, x0, ym, xm, y1)
+        const qBR = sampleArea(rgba, srcW, srcH, xm, ym, x1, y1)
+
+        const [r0, g0, b0] = applyAdjustments(qTL[0], qTL[1], qTL[2], s.contrast, s.brightness, s.gamma)
+        const [r1, g1, b1] = applyAdjustments(qTR[0], qTR[1], qTR[2], s.contrast, s.brightness, s.gamma)
+        const [r2, g2, b2] = applyAdjustments(qBL[0], qBL[1], qBL[2], s.contrast, s.brightness, s.gamma)
+        const [r3, g3, b3] = applyAdjustments(qBR[0], qBR[1], qBR[2], s.contrast, s.brightness, s.gamma)
+
+        const l0 = luminance(r0, g0, b0)
+        const l1 = luminance(r1, g1, b1)
+        const l2 = luminance(r2, g2, b2)
+        const l3 = luminance(r3, g3, b3)
+        const avgLum = (l0 + l1 + l2 + l3) / 4
+
+        const thresh = Math.max(0.25, Math.min(0.75, avgLum))
+        const bTL = l0 >= thresh ? 1 : 0
+        const bTR = l1 >= thresh ? 1 : 0
+        const bBL = l2 >= thresh ? 1 : 0
+        const bBR = l3 >= thresh ? 1 : 0
+        const qBits = (bTL << 3) | (bTR << 2) | (bBL << 1) | bBR
+
+        let char = ' '
+        switch (qBits) {
+          case 0b1111: char = '█'; break
+          case 0b0000: char = ' '; break
+          case 0b1100: char = '▀'; break
+          case 0b0011: char = '▄'; break
+          case 0b1010: char = '▌'; break
+          case 0b0101: char = '▐'; break
+          case 0b1000: char = '▘'; break
+          case 0b0100: char = '▝'; break
+          case 0b0010: char = '▖'; break
+          case 0b0001: char = '▗'; break
+          case 0b1001: char = '▚'; break
+          case 0b0110: char = '▞'; break
+          default: {
+            if (avgLum > 0.8) char = '█'
+            else if (avgLum > 0.6) char = '▓'
+            else if (avgLum > 0.4) char = '▒'
+            else if (avgLum > 0.2) char = '░'
+            else char = ' '
+            break
+          }
+        }
+
+        const wholeCell = sampleArea(rgba, srcW, srcH, x0, y0, x1, y1)
+        const [wr, wg, wb] = applyAdjustments(wholeCell[0], wholeCell[1], wholeCell[2], s.contrast, s.brightness, s.gamma)
+        const c64FgIdx = matchC64(wr, wg, wb)
+        const fgRgb = C64_VIC_PALETTE[c64FgIdx === 0 && char !== ' ' ? 1 : c64FgIdx]
+        const bgRgb: [number, number, number] = [0, 0, 0]
+
+        usedColours.add(`${fgRgb[0]},${fgRgb[1]},${fgRgb[2]}`)
+        usedColours.add('0,0,0')
+
+        row.push({
+          char,
+          fg: fgRgb,
+          bg: bgRgb,
+          c64Color: c64FgIdx
+        })
+      }
+      cells.push(row)
+    }
+
+    return {
+      width: cols,
+      height: rows,
+      cells,
+      settings: s,
+      colorCount: usedColours.size
+    }
+  }
+
   if (s.mode === 'half-block') {
     // In half-block mode, each character cell (▀) has top half (fg) and bottom half (bg).
     // The total pixel height is (cols * srcH / srcW) when cells are 2:1 tall.
@@ -267,13 +564,15 @@ export function generateAscii(
         let [tr, tg, tb] = sampleArea(rgba, srcW, srcH, x0, topY0, x1, topY1)
         let [br, bg, bb] = sampleArea(rgba, srcW, srcH, x0, botY0, x1, botY1)
 
-        tr = applyAdjustments(tr, tg, tb, s.contrast, s.brightness, s.gamma)[0]
-        tg = applyAdjustments(tr, tg, tb, s.contrast, s.brightness, s.gamma)[1]
-        tb = applyAdjustments(tr, tg, tb, s.contrast, s.brightness, s.gamma)[2]
+        const adjTop = applyAdjustments(tr, tg, tb, s.contrast, s.brightness, s.gamma)
+        tr = adjTop[0]
+        tg = adjTop[1]
+        tb = adjTop[2]
 
-        br = applyAdjustments(br, bg, bb, s.contrast, s.brightness, s.gamma)[0]
-        bg = applyAdjustments(br, bg, bb, s.contrast, s.brightness, s.gamma)[1]
-        bb = applyAdjustments(br, bg, bb, s.contrast, s.brightness, s.gamma)[2]
+        const adjBot = applyAdjustments(br, bg, bb, s.contrast, s.brightness, s.gamma)
+        br = adjBot[0]
+        bg = adjBot[1]
+        bb = adjBot[2]
 
         let fgRgb: [number, number, number]
         let bgRgb: [number, number, number]
@@ -286,6 +585,20 @@ export function generateAscii(
             bgAnsi = matchAnsi16(br, bg, bb)
             fgRgb = ANSI_16_PALETTE[fgAnsi]
             bgRgb = ANSI_16_PALETTE[bgAnsi]
+            break
+          }
+          case 'c64': {
+            const fgC64 = matchC64(tr, tg, tb)
+            const bgC64 = matchC64(br, bg, bb)
+            fgRgb = C64_VIC_PALETTE[fgC64]
+            bgRgb = C64_VIC_PALETTE[bgC64]
+            break
+          }
+          case 'teletext': {
+            const fgTt = matchTeletext(tr, tg, tb)
+            const bgTt = matchTeletext(br, bg, bb)
+            fgRgb = TELETEXT_PALETTE[fgTt]
+            bgRgb = TELETEXT_PALETTE[bgTt]
             break
           }
           case 'green': {
@@ -378,6 +691,18 @@ export function generateAscii(
           bgAnsi = 0 // Black background
           fgRgb = ANSI_16_PALETTE[fgAnsi]
           bgRgb = ANSI_16_PALETTE[bgAnsi]
+          break
+        }
+        case 'c64': {
+          const fgC64 = matchC64(cr, cg, cb)
+          fgRgb = C64_VIC_PALETTE[fgC64 === 0 ? 1 : fgC64]
+          bgRgb = [0, 0, 0]
+          break
+        }
+        case 'teletext': {
+          const fgTt = matchTeletext(cr, cg, cb)
+          fgRgb = TELETEXT_PALETTE[fgTt === 0 ? 7 : fgTt]
+          bgRgb = [0, 0, 0]
           break
         }
         case 'green': {
@@ -600,4 +925,72 @@ export function toAnsiBytes(result: AsciiResult, sauceInfo?: SauceInfo): Uint8Ar
   }
 
   return attachSauce(rawBytes, meta)
+}
+
+/**
+ * Exports PETSCII art as a Commodore .seq byte stream with C64 color control codes.
+ */
+export function exportPetsciiSeq(result: AsciiResult): Uint8Array {
+  const bytes: number[] = []
+  let lastCol = -1
+
+  for (const row of result.cells) {
+    for (const cell of row) {
+      const col = cell.c64Color ?? 1
+      if (col !== lastCol) {
+        bytes.push(PETSCII_COLOR_CODES[col] ?? 0x05)
+        lastCol = col
+      }
+      const code = PETSCII_SCREEN_CODES[cell.char] ?? 0x20
+      bytes.push(code)
+    }
+    bytes.push(0x0d) // PETSCII Return
+  }
+
+  return new Uint8Array(bytes)
+}
+
+/**
+ * Exports PETSCII art as a C64 PRG file (load address $0400 screen RAM + $D800 color RAM).
+ */
+export function exportPetsciiPrg(result: AsciiResult): Uint8Array {
+  // Format:
+  // 2 bytes: Load address $0400 (0x00, 0x04)
+  // 1000 bytes: Screen RAM ($0400 - $07E7)
+  // 1000 bytes: Color RAM ($D800 - $DBE7)
+  const prg = new Uint8Array(2 + 1000 + 1000)
+
+  // Load address $0400
+  prg[0] = 0x00
+  prg[1] = 0x04
+
+  let cellIdx = 0
+  for (let r = 0; r < result.height && cellIdx < 1000; r++) {
+    const row = result.cells[r]
+    for (let c = 0; c < result.width && cellIdx < 1000; c++) {
+      const cell = row[c]
+      const sc = PETSCII_SCREEN_CODES[cell.char] ?? 0x20
+      const col = (cell.c64Color ?? 1) & 0x0f
+      prg[2 + cellIdx] = sc
+      prg[2 + 1000 + cellIdx] = col
+      cellIdx++
+    }
+  }
+
+  return prg
+}
+
+/**
+ * Formats Teletext result into a classic broadcast Ceefax page (.ttx plain text).
+ */
+export function exportTeletextPage(result: AsciiResult): string {
+  const lines: string[] = []
+  for (let r = 0; r < result.height; r++) {
+    let line = ''
+    for (let c = 0; c < result.width; c++) {
+      line += result.cells[r][c].char
+    }
+    lines.push(line)
+  }
+  return lines.join('\n')
 }
