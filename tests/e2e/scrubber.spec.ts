@@ -29,4 +29,6 @@ test('a phone-style JPEG stays upright after scrubbing and ends at its last mark
   expect(meta.gps).toBeUndefined()
   expect(meta.make).toBeUndefined()
   expect(await decodedSize(page, bytes, 'image/jpeg')).toEqual([16, 32])
+  await expect(page.getByTestId('scrub-check-badge')).toHaveText('✓ Verified Clean')
+  await expect(page.getByTestId('scrub-self-check')).not.toHaveClass(/fail/)
 })

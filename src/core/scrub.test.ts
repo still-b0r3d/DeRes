@@ -51,6 +51,43 @@ describe('phone-style JPEGs (Exif first, no JFIF)', () => {
   })
 })
 
+describe('the self-check reports what it actually found', () => {
+  const dirty = () =>
+    new Uint8Array([0xff, 0xd8, ...fakeExifApp1(FAKE_PHONE), ...tinyJpegBody(), 1, 2, 3])
+
+  it('a file that still has GPS, camera tags and trailing bytes is not clean, and says so', () => {
+    const src = dirty()
+    // Check the unscrubbed file against itself: everything is still there.
+    const r = verifyScrubbed(inspectMetadata(src), src.length, src)
+    expect(r.isClean).toBe(false)
+    expect(r.summary).not.toContain('0 GPS')
+    expect(r.summary).toContain('Still found:')
+    // 5 tags in IFD0 + 5 in the GPS block, less the orientation that is kept on purpose.
+    expect(r.leftovers).toEqual(['GPS coordinates', 'camera tags (FakeCam Test 1)', '9 metadata fields in all', '3 trailing bytes'])
+  })
+
+  it('location-only mode only counts GPS and trailing bytes against the file', () => {
+    const src = dirty()
+    const r = verifyScrubbed(inspectMetadata(src), src.length, src, { mode: 'location_only' })
+    expect(r.isClean).toBe(false)
+    expect(r.leftovers).toEqual(['GPS coordinates', '3 trailing bytes'])
+  })
+
+  it('a really clean file passes with the counts it checked', () => {
+    const src = dirty()
+    const out = scrubJpeg(src)
+    const r = verifyScrubbed(inspectMetadata(src), src.length, out)
+    expect(r.isClean).toBe(true)
+    expect(r.leftovers).toEqual([])
+    expect(r.summary).toBe('Checked: 0 GPS coordinates, 0 camera tags, 0 trailing bytes found. Kept: orientation.')
+  })
+
+  it('batch items carry their own report', () => {
+    const [item] = scrubBatch([createScrubBatchItem(dirty(), 'a.jpg')]).items
+    expect(item.report?.isClean).toBe(true)
+  })
+})
+
 describe('exif & metadata scrubber', () => {
   it('constructs valid minimal orientation structures', () => {
     const tiff = buildMinimalOrientationTiff(6)
@@ -135,7 +172,7 @@ describe('exif & metadata scrubber', () => {
     expect(check.orientationPreserved).toBe(true)
     expect(check.iccPreserved).toBe(true)
     expect(check.isClean).toBe(true)
-    expect(check.summary).toContain('Checked: 0 GPS coordinates, 0 camera tags found')
+    expect(check.summary).toContain('Checked: 0 GPS coordinates, 0 camera tags, 0 trailing bytes found')
     expect(check.summary).toContain('colour profile')
     expect(check.summary).toContain('orientation')
   })

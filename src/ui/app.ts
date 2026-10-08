@@ -529,7 +529,11 @@ export function startApp(): void {
         a.click()
         a.remove()
         setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        scrubControls.status(`Cleaned and saved ${filename}.`)
+        scrubControls.status(
+          result.report.isClean
+            ? `Cleaned and saved ${filename}.`
+            : `Saved ${filename}, but it is not fully clean: ${result.report.leftovers.join(', ')}.`
+        )
       } catch (err) {
         scrubControls.status(`Failed to scrub: ${(err as Error).message}`)
       }
@@ -553,8 +557,11 @@ export function startApp(): void {
         a.remove()
         setTimeout(() => URL.revokeObjectURL(url), 60_000)
         scrubStage.showBatch(batchItems, activeBatchIndex, selectBatchIndex)
+        const notClean = batchItems.filter((it) => it.report && !it.report.isClean).length
         scrubControls.status(
-          `Bundled & saved ${filename} (${zipEntries.length} clean photos, ${(zipData.length / 1024).toFixed(1)} KB).`
+          notClean === 0
+            ? `Bundled & saved ${filename} (${zipEntries.length} clean photos, ${(zipData.length / 1024).toFixed(1)} KB).`
+            : `Saved ${filename} (${zipEntries.length} photos, ${(zipData.length / 1024).toFixed(1)} KB), but ${notClean} not fully clean: see the table.`
         )
       } catch (err) {
         scrubControls.status(`ZIP failed: ${(err as Error).message}`)

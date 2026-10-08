@@ -31,6 +31,8 @@ export interface SelfCheckReport {
   orientationPreserved: boolean
   iccPreserved: boolean
   isClean: boolean
+  /** What the check still found in the saved file, in plain words (empty when clean). */
+  leftovers: string[]
   summary: string
 }
 
@@ -614,25 +616,37 @@ export function verifyScrubbed(
     originalMeta.orientation <= 1 ||
     scrubbedMeta.orientation === originalMeta.orientation
 
-  const isClean =
-    gpsRemoved &&
-    trailersRemoved &&
-    (mode === 'location_only' || cameraRemoved)
+  // In 'all' mode the only field allowed to stay is the orientation we wrote.
+  const keptOrientation = scrubbedMeta.orientation !== undefined && scrubbedMeta.orientation > 1 ? 1 : 0
+  const fieldsLeft = mode === 'all' ? Math.max(0, scrubbedMeta.rawTagCount - keptOrientation) : 0
+
+  const leftovers: string[] = []
+  if (!gpsRemoved) leftovers.push('GPS coordinates')
+  if (mode === 'all' && !cameraRemoved) {
+    leftovers.push(`camera tags (${[scrubbedMeta.make, scrubbedMeta.model].filter(Boolean).join(' ')})`)
+  }
+  if (fieldsLeft > 0) leftovers.push(`${fieldsLeft} metadata field${fieldsLeft === 1 ? '' : 's'} in all`)
+  if (!trailersRemoved) leftovers.push(`${scrubbedMeta.trailerBytes.toLocaleString()} trailing bytes`)
+
+  const isClean = leftovers.length === 0
 
   // Build plain-English summary
   const summaryParts: string[] = []
+  if (!isClean) {
+    summaryParts.push(`Still found: ${leftovers.join(', ')}.`)
+  }
   if (mode === 'all') {
-    summaryParts.push('Checked: 0 GPS coordinates, 0 camera tags found.')
+    if (isClean) summaryParts.push('Checked: 0 GPS coordinates, 0 camera tags, 0 trailing bytes found.')
     const kept: string[] = []
     if (scrubbedMeta.hasIccProfile) kept.push('colour profile')
     if (scrubbedMeta.orientation && scrubbedMeta.orientation > 1) kept.push('orientation')
     if (kept.length > 0) {
       summaryParts.push(`Kept: ${kept.join(', ')}.`)
-    } else {
+    } else if (isClean) {
       summaryParts.push('Clean pixel stream.')
     }
   } else {
-    summaryParts.push('Checked: 0 GPS coordinates found.')
+    if (isClean) summaryParts.push('Checked: 0 GPS coordinates, 0 trailing bytes found.')
     const kept: string[] = []
     if (scrubbedMeta.make || scrubbedMeta.model) {
       kept.push(`camera (${[scrubbedMeta.make, scrubbedMeta.model].filter(Boolean).join(' ')})`)
@@ -657,6 +671,7 @@ export function verifyScrubbed(
     orientationPreserved,
     iccPreserved,
     isClean,
+    leftovers,
     summary: summaryParts.join(' ')
   }
 }
@@ -703,6 +718,8 @@ export interface ScrubBatchItem {
   meta: ImageMetadata
   cleanBytes?: Uint8Array
   cleanFilename?: string
+  /** The self-check of the scrubbed file. */
+  report?: SelfCheckReport
   status: 'pending' | 'scrubbed' | 'error'
   errorMessage?: string
 }
@@ -731,6 +748,7 @@ export function scrubBatch(
     try {
       const res = scrubImage(item.rawBytes, options)
       item.cleanBytes = res.data
+      item.report = res.report
       const ext = res.format === 'jpeg' ? 'jpg' : res.format
       const base = item.name.replace(/\.[^/.]+$/, '')
       item.cleanFilename = `${base}-clean.${ext}`

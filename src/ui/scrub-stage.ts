@@ -2,6 +2,18 @@ import { formatGpsDecimal, formatGpsDms, getMetadataNarrative, type ImageMetadat
 import type { ScrubBatchItem, SelfCheckReport } from '../core/scrub'
 import { h, show } from './dom'
 
+/** The self-check badge: it says clean only when the check found nothing left. */
+export function selfCheckBadge(report: SelfCheckReport): string {
+  return report.isClean ? '✓ Verified Clean' : '⚠ Not clean: metadata left'
+}
+
+/** A batch row's status, from that file's own self-check. */
+export function batchStatus(item: ScrubBatchItem): { text: string; cls: 'clean' | 'err' | 'pend' } {
+  if (item.status === 'error') return { text: 'Error', cls: 'err' }
+  if (item.status !== 'scrubbed' || !item.report) return { text: 'Queued', cls: 'pend' }
+  return item.report.isClean ? { text: '✓ Cleaned', cls: 'clean' } : { text: '⚠ Not clean', cls: 'err' }
+}
+
 export class ScrubStage {
   readonly el: HTMLElement
   private readonly statusMsg: HTMLElement
@@ -19,6 +31,7 @@ export class ScrubStage {
   private readonly trailerAlertEl: HTMLElement
   private readonly trailerDescEl: HTMLElement
   private readonly checkBannerEl: HTMLElement
+  private readonly checkBadgeEl: HTMLElement
   private readonly checkSummaryEl: HTMLElement
   private readonly checkStatsEl: HTMLElement
   private readonly tableEl: HTMLTableElement
@@ -101,10 +114,11 @@ export class ScrubStage {
     // Self-check verification badge
     this.checkSummaryEl = h('div', { class: 'scrub-check-summary' })
     this.checkStatsEl = h('div', { class: 'scrub-check-stats' })
+    this.checkBadgeEl = h('div', { class: 'scrub-check-badge', 'data-testid': 'scrub-check-badge' })
     this.checkBannerEl = h(
       'div',
       { class: 'scrub-self-check', 'data-testid': 'scrub-self-check', hidden: true },
-      h('div', { class: 'scrub-check-badge' }, '✓ Verified Clean'),
+      this.checkBadgeEl,
       this.checkSummaryEl,
       this.checkStatsEl
     )
@@ -164,12 +178,12 @@ export class ScrubStage {
 
     const rows = items.map((it, idx) => {
       const isSelected = idx === activeIndex
-      const statusBadge =
-        it.status === 'scrubbed'
-          ? h('span', { class: 'badge clean' }, '✓ Cleaned')
-          : it.status === 'error'
-            ? h('span', { class: 'badge err' }, 'Error')
-            : h('span', { class: 'badge pend' }, 'Queued')
+      const st = batchStatus(it)
+      const statusBadge = h(
+        'span',
+        { class: `badge ${st.cls}`, title: it.report && !it.report.isClean ? it.report.summary : null },
+        st.text
+      )
 
       const row = h(
         'tr',
@@ -253,6 +267,8 @@ export class ScrubStage {
 
   showSelfCheck(report: SelfCheckReport): void {
     show(this.checkBannerEl, true)
+    this.checkBannerEl.classList.toggle('fail', !report.isClean)
+    this.checkBadgeEl.textContent = selfCheckBadge(report)
     this.checkSummaryEl.textContent = report.summary
     const savedStr = report.bytesSaved > 0 ? ` · Saved ${report.bytesSaved.toLocaleString()} bytes` : ''
     this.checkStatsEl.textContent = `Original: ${(report.originalSize / 1024).toFixed(1)} KB → Clean: ${(report.scrubbedSize / 1024).toFixed(1)} KB${savedStr} · Bit-identical pixels`

@@ -1351,6 +1351,15 @@ button:disabled {
   font-size: 0.95rem;
 }
 
+.scrub-self-check.fail {
+  background: rgba(255, 80, 80, 0.08);
+  border-color: #ff6b6b;
+}
+
+.scrub-self-check.fail .scrub-check-badge {
+  color: #ff6b6b;
+}
+
 .scrub-check-summary {
   font-size: 0.9rem;
   color: var(--text);
