@@ -458,11 +458,13 @@ export function scrubPng(data: Uint8Array, options?: ScrubOptions): Uint8Array {
   let pos = 8
 
   while (pos + 8 <= data.length) {
+    // Unsigned, so a damaged length can't send the walk backwards.
     const len =
-      (data[pos] << 24) |
-      (data[pos + 1] << 16) |
-      (data[pos + 2] << 8) |
-      data[pos + 3]
+      ((data[pos] << 24) |
+        (data[pos + 1] << 16) |
+        (data[pos + 2] << 8) |
+        data[pos + 3]) >>>
+      0
     const type = String.fromCharCode(
       data[pos + 4],
       data[pos + 5],

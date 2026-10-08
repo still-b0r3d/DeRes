@@ -98,3 +98,17 @@ test("a HEIC this browser can't show is still inspected, with nothing left over 
   await expect(page.locator('.stage-note')).toContainText("can't open that file")
   await expect(page.getByTestId('picture-info')).toHaveText('older.jpg · 32×16')
 })
+
+test('a damaged PNG leaves the page working', async ({ page }) => {
+  // A real PNG with a chunk whose length has the top bit set, right after IHDR.
+  const png = await gradientPng(20, 20)
+  const bad = Buffer.concat([png.subarray(0, 33), Buffer.from([0xff, 0xff, 0xff, 0xf4, 0x74, 0x45, 0x58, 0x74, 1, 2, 3, 4]), png.subarray(33)])
+  await page.locator('#file-input').setInputFiles({ name: 'damaged.png', mimeType: 'image/png', buffer: bad })
+  await page.getByTestId('tab-scrub').click()
+  await expect(page.getByTestId('scrub-picture-info')).toContainText('damaged.png', { timeout: 5000 })
+  await expect(page.getByTestId('scrub-trailer-alert')).toBeVisible()
+  // Still responsive: switching tools and opening another picture work.
+  await page.getByTestId('tab-deres').click()
+  await page.locator('#file-input').setInputFiles({ name: 'fine.png', mimeType: 'image/png', buffer: png })
+  await expect(page.getByTestId('picture-info')).toHaveText('fine.png · 20×20')
+})

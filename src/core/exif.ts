@@ -189,7 +189,8 @@ class TiffReader {
   getString(offset: number, length: number): string {
     const pos = this.baseOffset + offset
     if (pos >= this.data.length) return ''
-    const end = Math.min(this.data.length, pos + length)
+    // Text fields are short; a damaged count must not make this read megabytes.
+    const end = Math.min(this.data.length, pos + Math.min(length, 1024))
     let s = ''
     for (let i = pos; i < end; i++) {
       if (this.data[i] === 0) break
@@ -221,8 +222,7 @@ class TiffReader {
           case 1: // BYTE
             value = this.data[this.baseOffset + cur + 8]
             break
-          case 2: // ASCII
-            value = this.getString(cur + 8, count)
+          case 2: // ASCII, read when asked for (below)
             break
           case 3: // SHORT
             value = this.getUint16(cur + 8)
@@ -239,8 +239,7 @@ class TiffReader {
       } else {
         valOffset = this.getUint32(cur + 8)
         switch (type) {
-          case 2: // ASCII
-            value = this.getString(valOffset, count)
+          case 2: // ASCII, read when asked for (below)
             break
           case 5: // RATIONAL
           case 10: // SRATIONAL
@@ -251,7 +250,22 @@ class TiffReader {
         }
       }
 
-      entries.set(tag, { type, count, value, valOffset })
+      if (type === 2) {
+        // Text is only read for the few tags shown, so a damaged block with
+        // thousands of long text tags costs nothing.
+        const at = valOffset
+        const text = () => this.getString(at, count)
+        entries.set(tag, {
+          type,
+          count,
+          valOffset,
+          get value() {
+            return text()
+          }
+        })
+      } else {
+        entries.set(tag, { type, count, value, valOffset })
+      }
       cur += 12
     }
 
@@ -424,7 +438,13 @@ function inspectJpeg(data: Uint8Array, meta: ImageMetadata): void {
       break
     }
 
-    if (marker === 0x00 || (marker >= 0xd0 && marker <= 0xd7)) {
+    // 0xFF fill bytes may come before any marker.
+    if (marker === 0xff) {
+      pos++
+      continue
+    }
+
+    if (marker === 0x00 || marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) {
       pos += 2
       continue
     }
@@ -446,6 +466,8 @@ function inspectJpeg(data: Uint8Array, meta: ImageMetadata): void {
     const segLen = (data[pos + 2] << 8) | data[pos + 3]
     const segStart = pos + 4
     const segEnd = pos + 2 + segLen
+    // A damaged length: stop here rather than read past the file.
+    if (segLen < 2 || segEnd > data.length) break
 
     if (marker === 0xe1) {
       // APP1: Exif or XMP
@@ -485,11 +507,14 @@ function inspectPng(data: Uint8Array, meta: ImageMetadata): void {
   let iendEnd = -1
 
   while (pos + 8 <= data.length) {
+    // Unsigned: a length with the top bit set used to read as negative and
+    // send the walk backwards forever.
     const len =
-      (data[pos] << 24) |
-      (data[pos + 1] << 16) |
-      (data[pos + 2] << 8) |
-      data[pos + 3]
+      ((data[pos] << 24) |
+        (data[pos + 1] << 16) |
+        (data[pos + 2] << 8) |
+        data[pos + 3]) >>>
+      0
     const type = String.fromCharCode(
       data[pos + 4],
       data[pos + 5],
@@ -498,6 +523,12 @@ function inspectPng(data: Uint8Array, meta: ImageMetadata): void {
     )
     const chunkData = pos + 8
     const nextChunk = chunkData + len + 4
+    if (nextChunk > data.length) {
+      // A damaged chunk: whatever follows can't be read, so it counts as
+      // data after the picture (the scrubber drops it).
+      meta.trailerBytes = data.length - pos
+      return
+    }
 
     if (type === 'eXIf') {
       parseTiffBlock(data, chunkData, meta)
