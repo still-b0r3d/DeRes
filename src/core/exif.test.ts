@@ -82,7 +82,8 @@ describe('exif parser & inspector', () => {
       hasIccProfile: true,
       hasThumbnail: false,
       trailerBytes: 0,
-      rawTagCount: 12
+      rawTagCount: 12,
+      allTags: []
     }
 
     const narrative = getMetadataNarrative(meta)
@@ -158,6 +159,30 @@ describe('exif parser & inspector', () => {
     const data = new Uint8Array(iccHeader)
     const meta = inspectMetadata(data)
     expect(meta.hasIccProfile).toBe(true)
+  })
+
+  it('records full tag tree with category, hex ID, and formatted display values', () => {
+    const jpeg = new Uint8Array(2 + 36 + 2)
+    jpeg[0] = 0xff
+    jpeg[1] = 0xd8
+    jpeg.set(buildMinimalOrientationApp1(6), 2)
+    jpeg[38] = 0xff
+    jpeg[39] = 0xd9
+
+    const meta = inspectMetadata(jpeg)
+    expect(meta.allTags).toBeDefined()
+    expect(meta.allTags.length).toBe(1)
+    expect(meta.allTags[0].tagHex).toBe('0x0112')
+    expect(meta.allTags[0].name).toBe('Orientation')
+    expect(meta.allTags[0].category).toBe('IFD0')
+    expect(meta.allTags[0].displayValue).toContain('Rotate 90° CW')
+  })
+
+  it('includes aiDetection report in inspected metadata', () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9])
+    const meta = inspectMetadata(jpeg)
+    expect(meta.aiDetection).toBeDefined()
+    expect(meta.aiDetection?.detected).toBe(false)
   })
 })
 

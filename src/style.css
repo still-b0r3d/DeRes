@@ -1350,6 +1350,25 @@ button:disabled {
   font-size: 1rem;
 }
 
+.scrub-ai-alert {
+  background: rgba(180, 80, 255, 0.08);
+  border: 1px solid rgba(180, 80, 255, 0.4);
+}
+
+.scrub-ai-alert .scrub-alert-title {
+  color: #d084ff;
+  font-weight: 700;
+  font-family: var(--brand-font);
+  font-size: 1rem;
+}
+
+.scrub-ai-evidence {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-family: 'IBM VGA 8x16', monospace;
+  margin-top: 4px;
+}
+
 .scrub-self-check {
   padding: 14px;
   background: rgba(0, 255, 157, 0.08);
@@ -1403,6 +1422,56 @@ button:disabled {
   margin-top: 8px;
 }
 
+.scrub-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.scrub-view-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.scrub-tab-btn {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.scrub-tab-btn:hover {
+  border-color: var(--muted);
+  color: var(--text);
+}
+
+.scrub-tab-btn.active {
+  background: rgba(0, 255, 255, 0.12);
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.scrub-filter-input {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: var(--brand-font);
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  min-width: 200px;
+}
+
+.scrub-filter-input:focus {
+  border-color: var(--cyan);
+  outline: none;
+}
+
 .scrub-sec-title {
   font-family: var(--brand-font);
   font-size: 0.95rem;
@@ -1438,6 +1507,13 @@ button:disabled {
 
 .scrub-table tr:last-child td {
   border-bottom: none;
+}
+
+.scrub-table .field-hex {
+  font-family: 'IBM VGA 8x16', monospace;
+  color: var(--pink);
+  font-size: 0.8rem;
+  width: 90px;
 }
 
 .scrub-table .field-name {

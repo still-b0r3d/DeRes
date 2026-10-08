@@ -32,12 +32,20 @@ export class ScrubStage {
   private readonly thumbImg: HTMLImageElement
   private readonly trailerAlertEl: HTMLElement
   private readonly trailerDescEl: HTMLElement
+  private readonly aiAlertEl: HTMLElement
+  private readonly aiDescEl: HTMLElement
+  private readonly aiEvidenceEl: HTMLElement
   private readonly checkBannerEl: HTMLElement
   private readonly checkBadgeEl: HTMLElement
   private readonly checkSummaryEl: HTMLElement
   private readonly checkStatsEl: HTMLElement
+  private readonly summaryTabBtn: HTMLButtonElement
+  private readonly treeTabBtn: HTMLButtonElement
+  private readonly filterInput: HTMLInputElement
   private readonly tableEl: HTMLTableElement
   private currentMeta: ImageMetadata | null = null
+  private currentViewMode: 'summary' | 'tree' = 'summary'
+  private filterQuery = ''
   /** Shows a line in the scrubber's status (set by the app). */
   onStatus: (text: string) => void = () => {}
 
@@ -127,6 +135,22 @@ export class ScrubStage {
       this.trailerDescEl
     )
 
+    // AI Generation Marker Alert
+    this.aiDescEl = h('p', { class: 'scrub-alert-body' })
+    this.aiEvidenceEl = h('div', { class: 'scrub-ai-evidence', 'data-testid': 'scrub-ai-evidence' })
+    this.aiAlertEl = h(
+      'div',
+      { class: 'scrub-alert scrub-ai-alert', 'data-testid': 'scrub-ai-alert', hidden: true },
+      h('div', { class: 'scrub-alert-title' }, '🤖 AI Generation Marker Found'),
+      this.aiDescEl,
+      this.aiEvidenceEl,
+      h(
+        'p',
+        { class: 'scrub-alert-note' },
+        "Note: Metadata markers can be removed or omitted, so absence of markers does not guarantee human creation. Google SynthID watermarks cannot be analyzed without Google's proprietary verification service."
+      )
+    )
+
     // Self-check verification badge
     this.checkSummaryEl = h('div', { class: 'scrub-check-summary' })
     this.checkStatsEl = h('div', { class: 'scrub-check-stats' })
@@ -139,13 +163,52 @@ export class ScrubStage {
       this.checkStatsEl
     )
 
+    // View Tabs & Filter for Metadata Inspector
+    this.summaryTabBtn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'pill-btn scrub-tab-btn active',
+        'data-testid': 'scrub-summary-tab',
+        onclick: () => this.switchView('summary')
+      },
+      'Summary'
+    )
+    this.treeTabBtn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'pill-btn scrub-tab-btn',
+        'data-testid': 'scrub-tree-tab',
+        onclick: () => this.switchView('tree')
+      },
+      'All Tags Tree'
+    )
+    this.filterInput = h('input', {
+      type: 'text',
+      class: 'scrub-filter-input',
+      'data-testid': 'scrub-filter-input',
+      placeholder: 'Filter tags (e.g. Lens, Make)...',
+      hidden: true,
+      oninput: (e) => {
+        this.filterQuery = (e.target as HTMLInputElement).value
+        if (this.currentMeta) this.renderTable(this.currentMeta)
+      }
+    })
+
     // Metadata Inspector Table
     this.tableEl = h('table', { class: 'scrub-table', 'data-testid': 'scrub-table' })
 
     const tableContainer = h(
       'div',
       { class: 'scrub-table-container' },
-      h('h3', { class: 'scrub-sec-title' }, 'Metadata Inspector'),
+      h(
+        'div',
+        { class: 'scrub-table-header' },
+        h('h3', { class: 'scrub-sec-title' }, 'Metadata Inspector'),
+        h('div', { class: 'scrub-view-tabs' }, this.summaryTabBtn, this.treeTabBtn),
+        this.filterInput
+      ),
       this.tableEl
     )
 
@@ -157,6 +220,7 @@ export class ScrubStage {
       this.noPreviewEl,
       this.checkBannerEl,
       this.narrativeEl,
+      this.aiAlertEl,
       this.gpsAlertEl,
       this.thumbAlertEl,
       this.trailerAlertEl,
@@ -282,6 +346,15 @@ export class ScrubStage {
       show(this.trailerAlertEl, false)
     }
 
+    // AI Generation Marker Warning
+    if (meta.aiDetection && meta.aiDetection.detected) {
+      show(this.aiAlertEl, true)
+      this.aiDescEl.textContent = `${meta.aiDetection.summary}${meta.aiDetection.promptOrParams ? ` Prompt: "${meta.aiDetection.promptOrParams}"` : ''}`
+      this.aiEvidenceEl.textContent = meta.aiDetection.evidence.join(' · ')
+    } else {
+      show(this.aiAlertEl, false)
+    }
+
     // Populate Table
     this.renderTable(meta)
   }
@@ -295,6 +368,15 @@ export class ScrubStage {
     this.checkStatsEl.textContent = `Original: ${(report.originalSize / 1024).toFixed(1)} KB → Clean: ${(report.scrubbedSize / 1024).toFixed(1)} KB${savedStr} · Bit-identical pixels`
   }
 
+  private switchView(mode: 'summary' | 'tree'): void {
+    this.currentViewMode = mode
+    this.summaryTabBtn.classList.toggle('active', mode === 'summary')
+    this.treeTabBtn.classList.toggle('active', mode === 'tree')
+    show(this.filterInput, mode === 'tree')
+    if (mode === 'tree') this.filterInput.focus()
+    if (this.currentMeta) this.renderTable(this.currentMeta)
+  }
+
   private renderTable(meta: ImageMetadata): void {
     if (meta.format === 'unknown') {
       // Nothing was read, so no "None" that would read as "checked, none".
@@ -304,6 +386,55 @@ export class ScrubStage {
       )
       return
     }
+
+    if (this.currentViewMode === 'tree') {
+      const q = this.filterQuery.trim().toLowerCase()
+      const filtered = q
+        ? meta.allTags.filter(
+            (t) =>
+              t.name.toLowerCase().includes(q) ||
+              t.tagHex.toLowerCase().includes(q) ||
+              t.category.toLowerCase().includes(q) ||
+              t.displayValue.toLowerCase().includes(q)
+          )
+        : meta.allTags
+
+      this.tableEl.replaceChildren(
+        h(
+          'thead',
+          null,
+          h('tr', null, h('th', null, 'Tag'), h('th', null, 'Name'), h('th', null, 'Category'), h('th', null, 'Value'))
+        ),
+        h(
+          'tbody',
+          null,
+          ...(filtered.length > 0
+            ? filtered.map((t) =>
+                h(
+                  'tr',
+                  null,
+                  h('td', { class: 'field-hex' }, t.tagHex),
+                  h('td', { class: 'field-name' }, t.name),
+                  h('td', { class: 'val-muted' }, t.category),
+                  h('td', { class: 'val-highlight' }, t.displayValue)
+                )
+              )
+            : [
+                h(
+                  'tr',
+                  null,
+                  h(
+                    'td',
+                    { colspan: 4, class: 'val-muted' },
+                    q ? `No tags matching "${q}"` : 'No raw EXIF/TIFF tags recorded.'
+                  )
+                )
+              ])
+        )
+      )
+      return
+    }
+
     const rows: [string, string][] = [
       ['Format', meta.format.toUpperCase()],
       ['Camera Make', meta.make || 'None'],
@@ -349,10 +480,9 @@ export class ScrubStage {
     const text = formatGpsDecimal(this.currentMeta.gps)
     navigator.clipboard.writeText(text).then(
       () => {
-        const orig = this.copyGpsBtn.textContent
         this.copyGpsBtn.textContent = 'Copied!'
         setTimeout(() => {
-          this.copyGpsBtn.textContent = orig
+          this.copyGpsBtn.textContent = 'Copy coordinates'
         }, 2000)
       },
       () => this.onStatus(`Couldn't copy. The coordinates are ${text}`)

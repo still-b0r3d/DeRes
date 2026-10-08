@@ -525,6 +525,11 @@ export function scrubPng(data: Uint8Array, options?: ScrubOptions): Uint8Array {
       // In 'all' mode, eXIf is dropped
     } else if (type === 'tEXt' || type === 'zTXt' || type === 'iTXt' || type === 'tIME') {
       // Text and timestamp chunks are dropped
+    } else if (type === 'caBX') {
+      // C2PA Content Credentials chunk dropped in 'all' mode
+      if (mode === 'location_only') {
+        appendChunk(chunkData)
+      }
     } else if (type === 'IEND') {
       // Append IEND chunk and terminate immediately, truncating anything trailing
       appendChunk(chunkData)

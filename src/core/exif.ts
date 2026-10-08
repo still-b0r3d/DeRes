@@ -2,12 +2,24 @@
 // Extracts camera, GPS coordinates, timestamps, exposure settings, thumbnails,
 // and trailer data across JPEG, PNG, WebP, and HEIC files without external dependencies.
 
+import { formatTagValue, getTagName } from './exif-dictionary'
+import { detectAiMarkers, type AiMarkerReport } from './ai-detect'
+
 export interface GpsCoordinates {
   latitude: number
   longitude: number
   altitude?: number
   latRef: string
   lonRef: string
+}
+
+export interface ParsedExifTag {
+  tagId: number
+  tagHex: string
+  name: string
+  category: 'IFD0' | 'Exif' | 'GPS' | 'Interop' | 'IFD1' | 'XMP' | 'Text'
+  rawValue: unknown
+  displayValue: string
 }
 
 export interface ImageMetadata {
@@ -33,6 +45,10 @@ export interface ImageMetadata {
   }
   trailerBytes: number
   rawTagCount: number
+  allTags: ParsedExifTag[]
+  aiDetection?: AiMarkerReport
+  xmpText?: string
+  textChunks?: Record<string, string>
 }
 
 /** Formats decimal GPS coordinates to human-readable DMS text. */
@@ -147,6 +163,13 @@ export function detectFormat(data: Uint8Array): ImageMetadata['format'] {
   return 'unknown'
 }
 
+interface IfdEntry {
+  type: number
+  count: number
+  value: unknown
+  valOffset: number
+}
+
 // TIFF parser helper
 class TiffReader {
   private le: boolean
@@ -203,8 +226,8 @@ class TiffReader {
     return s.trim()
   }
 
-  readIfd(offset: number): Map<number, { type: number; count: number; value: unknown; valOffset: number }> {
-    const entries = new Map<number, { type: number; count: number; value: unknown; valOffset: number }>()
+  readIfd(offset: number): Map<number, IfdEntry> {
+    const entries = new Map<number, IfdEntry>()
     if (offset + 2 > this.data.length - this.baseOffset) return entries
     const numTags = this.getUint16(offset)
     let cur = offset + 2
@@ -297,8 +320,27 @@ export function parseTiffBlock(data: Uint8Array, tiffStart: number, meta: ImageM
   const ifd0Offset = reader.getUint32(4)
   if (ifd0Offset === 0) return
 
+  const recordIfdTags = (
+    ifd: Map<number, IfdEntry>,
+    category: 'IFD0' | 'Exif' | 'GPS' | 'Interop' | 'IFD1'
+  ) => {
+    for (const [tagId, entry] of ifd.entries()) {
+      const name = getTagName(category, tagId)
+      const displayValue = formatTagValue(category, tagId, entry.value)
+      meta.allTags.push({
+        tagId,
+        tagHex: `0x${tagId.toString(16).padStart(4, '0')}`,
+        name,
+        category,
+        rawValue: entry.value,
+        displayValue
+      })
+    }
+  }
+
   const ifd0 = reader.readIfd(ifd0Offset)
   meta.rawTagCount += ifd0.size
+  recordIfdTags(ifd0, 'IFD0')
 
   // Standard tags in IFD0
   if (ifd0.has(0x010f)) meta.make = String(ifd0.get(0x010f)!.value)
@@ -314,6 +356,16 @@ export function parseTiffBlock(data: Uint8Array, tiffStart: number, meta: ImageM
     const exifOffset = Number(ifd0.get(0x8769)!.value)
     const exifIfd = reader.readIfd(exifOffset)
     meta.rawTagCount += exifIfd.size
+    recordIfdTags(exifIfd, 'Exif')
+
+    if (exifIfd.has(0xa005)) {
+      const interopOffset = Number(exifIfd.get(0xa005)!.value)
+      if (interopOffset > 0 && interopOffset < data.length - tiffStart) {
+        const interopIfd = reader.readIfd(interopOffset)
+        meta.rawTagCount += interopIfd.size
+        recordIfdTags(interopIfd, 'Interop')
+      }
+    }
 
     if (exifIfd.has(0x9003) && !meta.dateTime) meta.dateTime = String(exifIfd.get(0x9003)!.value)
     if (exifIfd.has(0xa434)) meta.lensModel = String(exifIfd.get(0xa434)!.value)
@@ -335,6 +387,8 @@ export function parseTiffBlock(data: Uint8Array, tiffStart: number, meta: ImageM
     const gpsOffset = Number(ifd0.get(0x8825)!.value)
     const gpsIfd = reader.readIfd(gpsOffset)
     meta.rawTagCount += gpsIfd.size
+
+    recordIfdTags(gpsIfd, 'GPS')
 
     const latRef = gpsIfd.has(0x0001) ? String(gpsIfd.get(0x0001)!.value).toUpperCase().trim() : 'N'
     const lonRef = gpsIfd.has(0x0003) ? String(gpsIfd.get(0x0003)!.value).toUpperCase().trim() : 'W'
@@ -383,6 +437,8 @@ export function parseTiffBlock(data: Uint8Array, tiffStart: number, meta: ImageM
   const ifd1Offset = reader.getNextIfdOffset(ifd0Offset)
   if (ifd1Offset > 0 && ifd1Offset < data.length - tiffStart) {
     const ifd1 = reader.readIfd(ifd1Offset)
+    meta.rawTagCount += ifd1.size
+    recordIfdTags(ifd1, 'IFD1')
     if (ifd1.has(0x0201) && ifd1.has(0x0202)) {
       const thumbOffset = Number(ifd1.get(0x0201)!.value)
       const thumbLength = Number(ifd1.get(0x0202)!.value)
@@ -408,7 +464,8 @@ export function inspectMetadata(data: Uint8Array): ImageMetadata {
     hasIccProfile: false,
     hasThumbnail: false,
     trailerBytes: 0,
-    rawTagCount: 0
+    rawTagCount: 0,
+    allTags: []
   }
 
   if (format === 'jpeg') {
@@ -421,6 +478,18 @@ export function inspectMetadata(data: Uint8Array): ImageMetadata {
     // Both are HEIF files and keep Exif the same way.
     inspectHeic(data, meta)
   }
+
+  const textBlocks: string[] = []
+  if (meta.xmpText) textBlocks.push(meta.xmpText)
+  if (meta.textChunks) {
+    for (const [k, v] of Object.entries(meta.textChunks)) {
+      textBlocks.push(`${k}: ${v}`)
+    }
+  }
+  for (const t of meta.allTags) {
+    if (typeof t.rawValue === 'string') textBlocks.push(t.rawValue)
+  }
+  meta.aiDetection = detectAiMarkers(data, textBlocks, meta.software)
 
   return meta
 }
@@ -485,7 +554,36 @@ function inspectJpeg(data: Uint8Array, meta: ImageMetadata): void {
       ) {
         // Exif TIFF block starts at segStart + 6
         parseTiffBlock(data, segStart + 6, meta)
+      } else {
+        const xmpSig = 'http://ns.adobe.com/xap/1.0/\0'
+        if (segLen >= 29) {
+          const str = new TextDecoder('latin1').decode(data.subarray(segStart, segStart + 29))
+          if (str === xmpSig) {
+            const xmp = new TextDecoder('utf-8').decode(data.subarray(segStart + 29, segEnd))
+            meta.xmpText = xmp
+            meta.rawTagCount++
+            meta.allTags.push({
+              tagId: 0,
+              tagHex: 'XMP',
+              name: 'XMP Metadata Packet',
+              category: 'XMP',
+              rawValue: xmp,
+              displayValue: `${xmp.length} chars`
+            })
+          }
+        }
       }
+    } else if (marker === 0xeb) {
+      // APP11: C2PA JUMBF Box
+      meta.rawTagCount++
+      meta.allTags.push({
+        tagId: 0,
+        tagHex: 'APP11',
+        name: 'C2PA Content Credentials Manifest',
+        category: 'XMP',
+        rawValue: 'APP11 C2PA segment',
+        displayValue: `${segLen} bytes`
+      })
     } else if (marker === 0xe2) {
       // APP2: ICC Profile or MPF
       if (
@@ -540,6 +638,34 @@ function inspectPng(data: Uint8Array, meta: ImageMetadata): void {
       meta.hasIccProfile = true
     } else if (type === 'tEXt' || type === 'zTXt' || type === 'iTXt') {
       meta.rawTagCount++
+      if (type === 'tEXt') {
+        const chunkBytes = data.subarray(chunkData, chunkData + len)
+        const nullIdx = chunkBytes.indexOf(0)
+        if (nullIdx > 0) {
+          const keyword = new TextDecoder('latin1').decode(chunkBytes.subarray(0, nullIdx))
+          const text = new TextDecoder('latin1').decode(chunkBytes.subarray(nullIdx + 1))
+          if (!meta.textChunks) meta.textChunks = {}
+          meta.textChunks[keyword] = text
+          meta.allTags.push({
+            tagId: 0,
+            tagHex: 'tEXt',
+            name: `PNG Text (${keyword})`,
+            category: 'Text',
+            rawValue: text,
+            displayValue: text.length > 80 ? `${text.slice(0, 80)}...` : text
+          })
+        }
+      }
+    } else if (type === 'caBX') {
+      meta.rawTagCount++
+      meta.allTags.push({
+        tagId: 0,
+        tagHex: 'caBX',
+        name: 'C2PA Content Credentials Box',
+        category: 'XMP',
+        rawValue: 'caBX chunk',
+        displayValue: `${len} bytes`
+      })
     } else if (type === 'IEND') {
       iendEnd = nextChunk
       break
@@ -598,6 +724,16 @@ function inspectWebp(data: Uint8Array, meta: ImageMetadata): void {
       meta.hasIccProfile = true
     } else if (fourCC === 'XMP ') {
       meta.rawTagCount++
+      const xmpStr = new TextDecoder('utf-8').decode(data.subarray(pos + 8, pos + 8 + size))
+      meta.xmpText = xmpStr
+      meta.allTags.push({
+        tagId: 0,
+        tagHex: 'XMP',
+        name: 'XMP Metadata Packet',
+        category: 'XMP',
+        rawValue: xmpStr,
+        displayValue: `${xmpStr.length} chars`
+      })
     }
 
     pos = nextChunk
