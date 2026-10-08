@@ -33,7 +33,7 @@ images.
   - **Per-cell graphics modes & attribute clash:**
     - **ZX Spectrum:** 256×192 with 8×8 cell attribute clash (1 ink + 1 paper colour per cell, both normal or both bright).
     - **C64 Multicolour:** 160×200 wide pixels with 4×8 double-width cells (1 shared backdrop + 3 cell colours).
-    - **NES attributes:** 256×240 with 16×16 attribute blocks (4 hardware sub-palettes of 3 colours + 1 shared backdrop).
+    - **NES attributes:** 256×240 with 16×16 attribute blocks (4 sub-palettes of 3 colours, chosen from the picture, + 1 shared backdrop).
     - **Apple II hi-res:** 280×192 with 7-pixel byte rule (high bit selecting Green/Violet vs Orange/Blue).
   - **Picked from a range (bit-grid snapped):** Master System (2 bits per channel, 32 colours),
     Genesis (3 bits per channel, 64 colours), SNES (5 bits per channel, 256 colours),
@@ -46,15 +46,20 @@ images.
 - **Emulator file exports:**
   - **ZX Spectrum `.scr`:** exactly 6,912 bytes (6,144 bytes interleaved bitmap + 768 bytes attributes), ready to load directly in Spectrum emulators.
   - **C64 Koala Painter `.koa`:** exactly 10,003 bytes (load address `$6000`, 8,000 bytes bitmap, 1,000 screen RAM, 1,000 color RAM, 1 background byte).
-  - **Game Boy `.chr`:** 2BPP planar tiles (16 bytes per 8×8 tile, deduplicated tile sheet).
+  - **Game Boy `.chr`:** 2BPP planar tiles (16 bytes per 8×8 tile, each distinct tile once), colour 0 the lightest as on the hardware.
+  - **NES `.chr`** (NES attributes only): CHR tiles, 8 bytes of plane 0 then 8 of plane 1 per tile, each pixel's number inside its block's sub-palette. The plain NES look has no .chr because it uses any colour anywhere.
+  - With "fit" bars, the files hold the bars too, so they match the preview.
 - **Quantization & bit grids:** range and custom profiles use deterministic
   weighted median-cut quantization snapped to the machine's exact hardware bit depth.
+  Each machine gets its own number of colours; the slider can ask for fewer, never more.
 - **Custom palette files:** import palettes from `.hex`, JASC `.pal`, GIMP `.gpl`,
   and palette PNG files, or download grabbed palettes as `.hex`.
-- **Palette grabber:** pull the dominant N colours out of the current picture, apply them
-  instantly to the session, and download the `.hex` file.
+- **Palette grabber:** pull the dominant N colours out of the current picture, switch to
+  the Custom machine with them, and download the `.hex` file. Grabbed and loaded palettes
+  only ever apply to Custom.
 - **Share links:** encode all current settings into the URL hash (`#s=...`) and copy
-  to clipboard with one click.
+  to clipboard with one click. Opening one checks every value like saved settings, so a
+  link from another version falls back instead of breaking the page.
 - **Resolution:** the machine's native size (crop to fill, fit with bars, or
   stretch), or a custom block size. Shrinking is an area average in linear
   light, so nothing aliases.
@@ -63,7 +68,9 @@ images.
 - **Dither:** none, Bayer 2×2 / 4×4 / 8×8, Floyd–Steinberg (serpentine),
   Atkinson, Yliluoma (ordered dithering for uneven palettes), the PlayStation GPU's
   hardware dither table, and the Game Boy Camera's own. Error is carried in linear light;
-  colours are matched in OKLab.
+  colours are matched in OKLab. Dithers that change nothing on a machine are greyed out with
+  a note (the cell machines choose their colours cell by cell; the PlayStation only has its
+  own table).
 - **Screen effects** (preview, and optionally the export from 3× up): CRT with
   shadow mask or aperture grille, scanlines, curve and bloom; Game Boy LCD grid
   with ghosting. Nothing flickers.
@@ -74,23 +81,25 @@ images.
   stretched to the machine's pixel shape ("as on a TV"). Without screen effects
   it's an indexed PNG holding the machine's exact palette (or RGB for > 256 colors).
   Named like `photo-nes-256x240-4x.png`. Nothing but the picture is written into it.
+  Animations (below) hold every frame at once, so they stop at 1024×1024.
 - **ASCII / ANSI Studio (v0.4.0):**
   - **Half-block color mode (`▀`):** doubles vertical resolution for authentic 24-bit RGB and 16-color ANSI BBS art scenes.
   - **Character ramps:** Standard (` .:-=+*#%@`), Detailed, Block shades (` ░▒▓█`), Katakana (half-width), Binary, and custom text inputs, with 2:1 cell aspect ratio correction.
   - **Colour profiles:** Vintage 16-color ANSI (CGA/PC text mode), Green CRT phosphor, Amber CRT phosphor, Monochrome, and RGB Truecolor.
   - **Clipboard copy:** one-click copy as raw text, GitHub Markdown, terminal ANSI escape codes, or formatted HTML `<pre>`.
-  - **BBS `.ans` export:** native CP437 bytes with DOS ANSI escape sequences and 128-byte SAUCE metadata record (title, author `still_b0r3d`, group `b0r3d.org`, date, dimensions).
+  - **BBS `.ans` export:** native CP437 bytes with DOS ANSI escape sequences and 128-byte SAUCE metadata record (title, group `b0r3d.org`, date, dimensions; the author is left blank for the artist).
   - **Rendered PNG export:** crisp 1×, 2×, 4× image export rendered with the bundled CP437 font.
 - **EXIF Scrubber (v0.5.0):**
-  - **Byte-level stripping (no canvas re-encoding):** pixel streams remain bit-identical with zero generational quality loss, preserving Display P3 and sRGB ICC profiles.
-  - **JPEG stripping:** strips APP1 (Exif, XMP), APP13 (Photoshop IRB / IPTC), COM, and APP2 MPF while preserving JFIF, Adobe APP14, and decoding tables.
-  - **Trailing data removal:** truncates data following JPEG `FF D9` (EOI) and PNG `IEND` to eliminate Google Pixel Motion Photo MP4 videos, Samsung camera trailers, and gain maps.
-  - **Orientation preservation:** writes back a clean, minimal 36-byte APP1 segment holding only the orientation tag (if orientation > 1), preventing vertical phone photos from rendering rotated in viewers.
+  - **Byte-level stripping (no canvas re-encoding):** pixel streams remain bit-identical with zero generational quality loss, and the colour profile is kept.
+  - **JPEG stripping:** strips APP1 (Exif, XMP), APP13 (Photoshop IRB / IPTC), COM, and APP2 MPF while preserving JFIF, Adobe APP14, and decoding tables, including metadata tucked between a progressive JPEG's scans.
+  - **Trailing data removal:** truncates data following JPEG `FF D9` (EOI), PNG `IEND` and a WebP's RIFF end, to eliminate Google Pixel Motion Photo MP4 videos, Samsung camera trailers, and gain maps.
+  - **Orientation preservation:** writes back a clean, minimal 36-byte APP1 segment holding only the orientation tag (if orientation > 1), at the start of the file (after JFIF if there is one) where viewers look for it, so upright phone photos stay upright. WebP gets none: browsers ignore a WebP's orientation tag.
   - **PNG & WebP stripping:** drops PNG `eXIf`, `tEXt`, `zTXt`, `iTXt`, `tIME`; strips WebP `EXIF` and `XMP ` chunks, clears VP8X flags, and updates RIFF lengths.
+  - **HEIC and AVIF:** inspect only (the metadata is shown even when the browser can't display the picture); convert to JPEG or WebP to scrub.
   - **Metadata inspector & narrative:** displays camera make/model, lens, timestamps, shutter speed, aperture, ISO, and a plain-English narrative summary.
   - **GPS coordinate callout:** displays coordinates as DMS and decimal with 1-click copy; loads zero external maps or tile APIs (zero phone-home rule).
-  - **Uncropped-thumbnail warning:** detects embedded IFD1 thumbnails, renders a preview, and warns users when thumbnails contain uncropped original photos.
-  - **Automated privacy self-check:** re-parses the scrubbed output buffer with the metadata inspector to verify zero GPS coordinates, zero camera tags, and confirms preserved color profiles and orientation.
+  - **Uncropped-thumbnail warning:** detects embedded IFD1 thumbnails, renders a preview, and warns that a thumbnail may show the uncropped original.
+  - **Automated privacy self-check:** re-parses the scrubbed output buffer with the metadata inspector. The "Verified Clean" badge (and each batch row's "Cleaned") only shows when no GPS or camera metadata is left; otherwise it says what is.
 - **Analog, print & video aesthetics (v0.6.0):**
   - **VHS Tape (`vhs`):** 320×240 analog magnetic tape with bottom tracking scanline jitter band, head switching noise, horizontal chroma smear (~0.4 MHz color carrier limitation), and green/white `PLAY ▶` + timestamp OSD in the corner.
   - **Early CCD Camera (`ccd-early`):** 640×480 sensor mode, CCD sensor noise (photon shot noise + thermal chroma grain), and burnt-orange 7-segment digital date stamp (`'99 10 24`) in bottom right.
@@ -111,17 +120,19 @@ images.
   - **Crisp wallpaper export presets:** 1-click centered integer exports for Phone Lockscreen (1080×2400), b0r3d 95 Desktop (1024×768), and Full HD Desktop (1920×1080).
   - **"Surprise me" randomizer:** `🎲 Surprise me` button shuffling a random retro profile, dither, pre-filter recipe, and screen effect.
 - **BBS Heritage, Teletext & Batch Tools (v0.8.0):**
-  - **PETSCII Studio (Commodore 64):** Full C64 character glyph set, 16-color VIC-II palette matching, and direct export to `.seq` byte streams (with color control codes) and `.prg` standard C64 binary dumps (2002 bytes: `$0400` load address + 1000 screen RAM + 1000 color RAM).
-  - **Teletext / Ceefax 2×3 Mosaics:** Sub-pixel mosaic character generator with 64 contiguous/separated block patterns, 8 broadcast colors, optional Ceefax broadcast header row (`P100 CEEFAX 100...`), and `.ttx` page export.
+  - **PETSCII Studio (Commodore 64):** always the C64's own 40×25 screen, the C64 character glyph set, 16-color VIC-II palette matching, and two exports:
+    - `.seq`: a PETSCII byte stream (colour and reverse control codes) that prints the picture through the C64's CHROUT.
+    - `.prg`: a program that shows it. `LOAD"NAME",8` then `RUN`: a one-line BASIC stub (`10 SYS 2061`) starts a short routine that copies the picture into screen memory (`$0400`) and colour memory (`$D800`), waits for a key, then clears the screen.
+  - **Teletext / Ceefax 2×3 Mosaics:** Sub-pixel mosaic character generator with 64 contiguous/separated block patterns (Unicode's sextant characters), 8 broadcast colors, optional Ceefax broadcast header row (`P100 CEEFAX 100...`), and a `.txt` download (plain Unicode text, not a broadcast teletext file).
   - **Dial-Up Baud Rate Playback Simulation:** Vintage modem streaming playback simulation at 300, 1200, 2400, 9600, 14.4k, 28.8k baud, or Instant, featuring Play, Pause, Replay controls, streaming byte progress counter, and blinking teletype cursor `█`.
-  - **Batch EXIF Scrubber & In-Browser ZIP Bundling:** Multi-photo drag-and-drop and file picking, interactive batch queue inspector with GPS and trailer detection badges, and 1-click "Download Clean ZIP" bundling all cleaned photos into standard `.zip` files entirely in browser memory with zero network requests.
+  - **Batch EXIF Scrubber & In-Browser ZIP Bundling:** Multi-photo drag-and-drop and file picking, interactive batch queue inspector with GPS and trailer detection badges, and 1-click "Download Clean ZIP" bundling all cleaned photos into standard `.zip` files entirely in browser memory with zero network requests. A batch is the photos picked or dropped together (never the sample); repeated names get `-2`, `-3`, and every entry has the same fixed 1980-01-01 date.
 - **Animated PNG (APNG) & Looping GIF Exports (v0.8.2):**
   - **Zero-dependency APNG encoder:** creates standard Animated PNGs with `acTL`, `fcTL`, `IDAT`, and `fdAT` chunk sequences, supporting infinite loops (`num_plays = 0`), indexed palettes, and 24-bit RGB with native browser zlib deflate compression.
   - **Zero-dependency GIF89a encoder:** complete in-browser GIF encoder with Logical Screen Descriptor, Global/Local Color Tables, Netscape 2.0 loop extension block, Graphic Control Extensions with frame delays, and pure TypeScript LZW stream compression.
   - **Screen FX loop:** cycles CRT scanline ripples, electron beam oscillations, composite chroma subcarrier phase rotations, and rolling VHS tracking glitches with dynamic tape head noise snow.
   - **A/B compare wipe loop:** smooth looping split wipe transition between the original photo and the retro deres result with a crisp retro divider bar.
   - **Dither shimmer loop:** shifts Bayer, PS1, and ordered dither matrix coordinates across 8 phase rotations for an authentic retro hardware shimmer.
-  - **Export actions:** 1-click "Download APNG" and "Download GIF" buttons directly in the Export section with animation style selector.
+  - **Export actions:** 1-click "Download APNG" and "Download GIF" buttons directly in the Export section with animation style selector, up to 1024×1024 per frame, with the status line counting the frames as they're made.
 - Settings are remembered on your device. The picture never is.
 
 ## Planned
@@ -207,8 +218,8 @@ their colours and every emulator's numbers differ a little.
 
 ## Credits
 
-All the code here is written for this project; nothing is bundled from
-elsewhere. The methods come from:
+All the code here is written for this project. The one thing bundled from
+elsewhere is the ASCII studio's font (below, CC BY-SA 4.0). The methods come from:
 
 - OKLab, by Björn Ottosson.
 - Ordered dithering for arbitrary palettes, by Joel Yliluoma ("algorithm 2").
