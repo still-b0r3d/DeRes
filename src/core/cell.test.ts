@@ -6,8 +6,10 @@ import {
   processApple2Hires,
   processMsxScreen2,
   processGbcTiles,
-  spectrumBitmapOffset
+  spectrumBitmapOffset,
+  NES_PALETTE
 } from './cell'
+import { BYTE_TO_LINEAR, hexToRgb } from './color'
 
 describe('cell mode processing', () => {
   it('ZX Spectrum respects 1 ink + 1 paper per 8×8 cell', () => {
@@ -212,5 +214,50 @@ describe('NES attributes keep each pixel\'s place in its sub-palette', () => {
     }
     const backdrop = res.subPalettes[0][0]
     for (const pal of res.subPalettes) expect(pal[0]).toBe(backdrop)
+  })
+})
+
+describe('NES attributes choose their sub-palettes from the picture', () => {
+  it('four colours none of the old fixed sets had come out exactly', () => {
+    const w = 64
+    const h = 64
+    // Quadrants of purple, cyan, pink and orange, straight from the NES palette.
+    const quad = ['#9878f8', '#00e8d8', '#f878f8', '#fca044']
+    const rgb = new Float32Array(w * h * 3)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const [r, g, b] = hexToRgb(quad[(y >= 32 ? 2 : 0) + (x >= 32 ? 1 : 0)])
+        rgb.set([BYTE_TO_LINEAR[r], BYTE_TO_LINEAR[g], BYTE_TO_LINEAR[b]], (y * w + x) * 3)
+      }
+    }
+    const res = processNesAttributes(rgb, w, h)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const want = NES_PALETTE.indexOf(quad[(y >= 32 ? 2 : 0) + (x >= 32 ? 1 : 0)])
+        expect(res.indices[y * w + x]).toBe(want)
+      }
+    }
+  })
+
+  it('still 4 sub-palettes of up to 3 colours plus one shared backdrop, on a busy picture', () => {
+    const w = 128
+    const h = 96
+    const rgb = new Float32Array(w * h * 3)
+    for (let i = 0; i < w * h; i++) rgb.set([((i * 37) % 256) / 255, ((i * 91) % 256) / 255, ((i * 53) % 256) / 255], i * 3)
+    const res = processNesAttributes(rgb, w, h)
+    expect(res.subPalettes.length).toBe(4)
+    for (const pal of res.subPalettes) {
+      expect(pal.length).toBe(4)
+      expect(pal[0]).toBe(res.subPalettes[0][0])
+      for (const c of pal) expect(c).toBeLessThan(NES_PALETTE.length)
+    }
+    // Every 16×16 block uses at most its 4 colours.
+    for (let by = 0; by < h / 16; by++) {
+      for (let bx = 0; bx < w / 16; bx++) {
+        const seen = new Set<number>()
+        for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) seen.add(res.indices[(by * 16 + y) * w + bx * 16 + x])
+        expect(seen.size).toBeLessThanOrEqual(4)
+      }
+    }
   })
 })

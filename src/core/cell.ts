@@ -363,6 +363,100 @@ export interface NesAttributesResult {
   subPalettes: number[][]
 }
 
+/** The NES palette number nearest an sRGB colour, skipping any in `skip`. */
+function nearestNes(r: number, g: number, b: number, skip?: ReadonlySet<number>): number {
+  let best = 0
+  let bestD = Infinity
+  for (let c = 0; c < NES_RGB.length; c++) {
+    if (skip?.has(c)) continue
+    const [cr, cg, cb] = NES_RGB[c]
+    const d = colorDistSq(r, g, b, cr, cg, cb)
+    if (d < bestD) {
+      bestD = d
+      best = c
+    }
+  }
+  return best
+}
+
+/**
+ * Picks the NES's 4 background sub-palettes from the picture: the shared
+ * backdrop is the colour it uses most, and each 16×16 block's three most-used
+ * other colours are clustered (k-means, as the Game Boy Color code does) into
+ * 4 sets of 3, each snapped to distinct NES colours.
+ */
+function chooseNesSubPalettes(srgb: Uint8Array, width: number, height: number): number[][] {
+  const nearest = new Uint8Array(width * height)
+  const counts = new Uint32Array(NES_RGB.length)
+  for (let i = 0; i < width * height; i++) {
+    nearest[i] = nearestNes(srgb[i * 3], srgb[i * 3 + 1], srgb[i * 3 + 2])
+    counts[nearest[i]]++
+  }
+  let backdrop = 0
+  for (let c = 1; c < counts.length; c++) if (counts[c] > counts[backdrop]) backdrop = c
+
+  // Each block's three most-used colours besides the backdrop, darkest first.
+  const lum = (c: number) => 0.299 * NES_RGB[c][0] + 0.587 * NES_RGB[c][1] + 0.114 * NES_RGB[c][2]
+  const vectors: number[][] = []
+  for (let by = 0; by < Math.ceil(height / 16); by++) {
+    for (let bx = 0; bx < Math.ceil(width / 16); bx++) {
+      const local = new Map<number, number>()
+      for (let y = by * 16; y < Math.min(height, by * 16 + 16); y++) {
+        for (let x = bx * 16; x < Math.min(width, bx * 16 + 16); x++) {
+          const c = nearest[y * width + x]
+          if (c !== backdrop) local.set(c, (local.get(c) ?? 0) + 1)
+        }
+      }
+      if (local.size === 0) continue // the backdrop alone: any sub-palette will do
+      const top = [...local].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 3).map(([c]) => c)
+      while (top.length < 3) top.push(top[top.length - 1])
+      top.sort((a, b) => lum(a) - lum(b))
+      vectors.push(top.flatMap((c) => NES_RGB[c]))
+    }
+  }
+
+  const dist = (a: number[], b: number[]) => a.reduce((s, v, j) => s + (v - b[j]) ** 2, 0)
+  const K = 4
+  const centroids: number[][] = []
+  if (vectors.length > 0) {
+    // Start from blocks far apart, so a small colourful area gets its own set.
+    centroids.push([...vectors[0]])
+    while (centroids.length < K) {
+      let far = -1
+      let farD = 0
+      for (let v = 0; v < vectors.length; v++) {
+        const d = Math.min(...centroids.map((c) => dist(vectors[v], c)))
+        if (d > farD) {
+          farD = d
+          far = v
+        }
+      }
+      if (far < 0) break
+      centroids.push([...vectors[far]])
+    }
+    for (let iter = 0; iter < 8; iter++) {
+      const sums = centroids.map(() => new Array(9).fill(0))
+      const n = new Array(centroids.length).fill(0)
+      for (const v of vectors) {
+        let k = 0
+        for (let j = 1; j < centroids.length; j++) if (dist(v, centroids[j]) < dist(v, centroids[k])) k = j
+        n[k]++
+        for (let j = 0; j < 9; j++) sums[k][j] += v[j]
+      }
+      for (let k = 0; k < centroids.length; k++) if (n[k] > 0) centroids[k] = sums[k].map((s) => s / n[k])
+    }
+  }
+
+  const subPalettes = centroids.map((cent) => {
+    const pal = [backdrop]
+    for (let j = 0; j < 3; j++) pal.push(nearestNes(cent[j * 3], cent[j * 3 + 1], cent[j * 3 + 2], new Set(pal)))
+    return pal
+  })
+  if (subPalettes.length === 0) subPalettes.push([backdrop, ...[0, 1, 2].map(() => backdrop)])
+  while (subPalettes.length < K) subPalettes.push([...subPalettes[subPalettes.length - 1]])
+  return subPalettes
+}
+
 /**
  * Applies NES attribute constraints: 16×16 blocks, 4 sub-palettes of 3 colours + 1 shared backdrop.
  */
@@ -378,20 +472,7 @@ export function processNesAttributes(linearRgb: Float32Array, width: number, hei
     srgbBytes[i * 3 + 2] = linearToByte(linearRgb[i * 3 + 2])
   }
 
-  // 1 shared backdrop colour (NES entry 13 is Black '#000000')
-  const backdropIndex = 13
-
-  // Four classic NES 3-colour sets:
-  // Palette 0: Cool / Blue (#0078f8, #6888fc, #f8f8f8)
-  // Palette 1: Warm / Red-Orange (#e40058, #f87858, #fce0a8)
-  // Palette 2: Nature / Green (#00a800, #b8f818, #f8d878)
-  // Palette 3: Earth / Neutral (#503000, #ac7c00, #bcbcbc)
-  const subPalettes = [
-    [backdropIndex, 15, 29, 27],
-    [backdropIndex, 19, 34, 47],
-    [backdropIndex, 24, 36, 48],
-    [backdropIndex, 8, 22, 14]
-  ]
+  const subPalettes = chooseNesSubPalettes(srgbBytes, width, height)
 
   const blocksX = Math.ceil(width / 16)
   const blocksY = Math.ceil(height / 16)
