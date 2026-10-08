@@ -949,7 +949,7 @@ export function toAnsiBytes(result: AsciiResult, sauceInfo?: SauceInfo): Uint8Ar
 
   const meta: SauceInfo = {
     title: sauceInfo?.title ?? 'B0r3d ANSI Art',
-    author: sauceInfo?.author ?? 'still_b0r3d',
+    author: sauceInfo?.author ?? '',
     group: sauceInfo?.group ?? 'b0r3d.org',
     tInfo1: result.width,
     tInfo2: result.height,

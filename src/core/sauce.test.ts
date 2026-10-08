@@ -55,3 +55,10 @@ describe('SAUCE metadata record', () => {
     expect(parseSauce(new Uint8Array(10))).toBeNull()
   })
 })
+
+describe('SAUCE author', () => {
+  it('is left blank unless one is given (the visitor made the art)', () => {
+    const parsed = parseSauce(attachSauce(new Uint8Array([0x41]), { title: 'x' }))
+    expect(parsed?.author).toBe('')
+  })
+})

@@ -406,9 +406,10 @@ export function startApp(): void {
     downloadAns: () => {
       if (!currentAsciiResult || !picture) return
       try {
+        // The visitor made the art, so no author; the group names where it was made.
         const bytes = toAnsiBytes(currentAsciiResult, {
           title: picture.base,
-          author: 'still_b0r3d',
+          author: '',
           group: 'b0r3d.org'
         })
         const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' })

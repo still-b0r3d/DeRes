@@ -385,7 +385,9 @@ test('v0.4: ASCII studio downloads .ans with valid SAUCE record and rendered PNG
     const bytes = new Uint8Array(readFileSync(ansPath))
     const sauce = parseSauce(bytes)
     expect(sauce).not.toBeNull()
-    expect(sauce?.author).toBe('still_b0r3d')
+    // The visitor made the art: no author is claimed; the group names the tool's home.
+    expect(sauce?.author).toBe('')
+    expect(sauce?.group).toBe('b0r3d.org')
     expect(sauce?.fontName).toBe('IBM VGA')
   }
 

@@ -55,7 +55,8 @@ export function buildSauceRecord(fileSize: number, info: SauceInfo = {}): Uint8A
   record.set(padString(info.title ?? '', 35), 7)
 
   // 42..61: Author (20 chars)
-  record.set(padString(info.author ?? 'still_b0r3d', 20), 42)
+  // No author unless one is given: the visitor made the art.
+  record.set(padString(info.author ?? '', 20), 42)
 
   // 62..81: Group (20 chars)
   record.set(padString(info.group ?? 'b0r3d.org', 20), 62)
