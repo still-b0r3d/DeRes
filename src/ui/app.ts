@@ -462,14 +462,14 @@ export function startApp(): void {
         const text = exportTeletextPage(currentAsciiResult)
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
         const url = URL.createObjectURL(blob)
-        const a = h('a', { href: url, download: `${picture.base}.ttx`, class: 'visually-hidden' })
+        const a = h('a', { href: url, download: `${picture.base}.txt`, class: 'visually-hidden' })
         document.body.append(a)
         a.click()
         a.remove()
         setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        asciiControls.status(`Saved ${picture.base}.ttx (Teletext broadcast page).`)
+        asciiControls.status(`Saved ${picture.base}.txt (the Teletext art as plain text).`)
       } catch (err) {
-        asciiControls.status(`Couldn't export .ttx: ${(err as Error).message}`)
+        asciiControls.status(`Couldn't save the .txt: ${(err as Error).message}`)
       }
     },
     downloadPng: async (multiplier: number) => {

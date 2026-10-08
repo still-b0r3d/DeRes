@@ -1071,7 +1071,8 @@ export function exportPetsciiPrg(result: AsciiResult): Uint8Array {
 }
 
 /**
- * Formats Teletext result into a classic broadcast Ceefax page (.ttx plain text).
+ * The Teletext art as plain Unicode text, one line per row (saved as .txt:
+ * it is not a broadcast teletext file).
  */
 export function exportTeletextPage(result: AsciiResult): string {
   const lines: string[] = []

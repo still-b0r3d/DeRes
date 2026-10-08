@@ -302,10 +302,10 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     {
       type: 'button',
       class: 'btn-download primary',
-      'data-testid': 'ascii-download-ttx',
+      'data-testid': 'ascii-download-txt',
       onclick: () => ctx.downloadTeletext()
     },
-    'Download .TTX (Ceefax page)'
+    'Download .TXT (Teletext as text)'
   )
 
   const pngMultipliers = segmented<'1' | '2' | '4'>(

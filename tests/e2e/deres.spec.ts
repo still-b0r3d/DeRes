@@ -734,17 +734,17 @@ test('v0.8: PETSCII mode generates Commodore 64 art and downloads .seq and .prg'
   }
 })
 
-test('v0.8: Teletext mode generates broadcast Ceefax art and downloads .ttx page', async ({ page }) => {
+test('v0.8: Teletext mode generates broadcast Ceefax art and downloads it as plain text (.txt)', async ({ page }) => {
   await page.getByTestId('tab-ascii').click()
   await page.getByRole('button', { name: 'Teletext (Ceefax)' }).click()
   await expect(page.getByTestId('ascii-readout')).toContainText('teletext')
-  await expect(page.getByTestId('ascii-download-ttx')).toBeVisible()
+  await expect(page.getByTestId('ascii-download-txt')).toBeVisible()
 
-  // Test downloading .ttx
+  // Test downloading the .txt (plain Unicode text, not a broadcast teletext file)
   const downloadTtxPromise = page.waitForEvent('download')
-  await page.getByTestId('ascii-download-ttx').click()
+  await page.getByTestId('ascii-download-txt').click()
   const ttxDownload = await downloadTtxPromise
-  expect(ttxDownload.suggestedFilename()).toBe('rukus.ttx')
+  expect(ttxDownload.suggestedFilename()).toBe('rukus.txt')
   const ttxPath = await ttxDownload.path()
   if (ttxPath) {
     const text = readFileSync(ttxPath, 'utf8')
