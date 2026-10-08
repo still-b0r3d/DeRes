@@ -140,17 +140,20 @@ export function matchTeletext(r: number, g: number, b: number): number {
   return TELETEXT_MATCHER.nearestByte(r, g, b)
 }
 
-// 64-character Teletext / Legacy Computing 2×3 mosaic graphics character table (masks 0..63)
-export const TELETEXT_MOSAICS: readonly string[] = [
-  ' ', '\u{1FB00}', '\u{1FB01}', '\u{1FB02}', '\u{1FB03}', '\u{1FB04}', '\u{1FB05}', '\u{1FB06}',
-  '\u{1FB07}', '\u{1FB08}', '\u{1FB09}', '\u{1FB0A}', '\u{1FB0B}', '\u{1FB0C}', '\u{1FB0D}', '\u{1FB0E}',
-  '\u{1FB0F}', '\u{1FB10}', '\u{1FB11}', '\u{1FB12}', '\u{1FB13}', '\u{1FB14}', '\u{1FB15}', '\u{1FB16}',
-  '\u{1FB17}', '\u{1FB18}', '\u{1FB19}', '\u{1FB1A}', '\u{1FB1B}', '\u{1FB1C}', '\u{1FB1D}', '\u{1FB1E}',
-  '\u{1FB1F}', '\u{1FB20}', '\u{1FB21}', '\u{1FB22}', '\u{1FB23}', '\u{1FB24}', '\u{1FB25}', '\u{1FB26}',
-  '\u{1FB27}', '\u{1FB28}', '\u{1FB29}', '\u{1FB2A}', '\u{1FB2B}', '\u{1FB2C}', '\u{1FB2D}', '\u{1FB2E}',
-  '\u{1FB2F}', '\u{1FB30}', '\u{1FB31}', '\u{1FB32}', '\u{1FB33}', '\u{1FB34}', '\u{1FB35}', '\u{1FB36}',
-  '\u{1FB37}', '\u{1FB38}', '\u{1FB39}', '\u{1FB3A}', '\u{1FB3B}', '▄', '▌', '█'
-]
+// Teletext 2×3 mosaics as Unicode characters, by mask (0..63). Mask bits:
+// 0 top-left, 1 top-right, 2 middle-left, 3 middle-right, 4 bottom-left,
+// 5 bottom-right. Unicode's sextants (U+1FB00…U+1FB3B, Symbols for Legacy
+// Computing) run in mask order but leave out the four shapes that already
+// had characters: empty (space), left half 21 (▌), right half 42 (▐) and
+// full 63 (█). So masks 1–20 are U+1FB00 + m − 1, 22–41 are + m − 2 and
+// 43–62 are + m − 3.
+export const TELETEXT_MOSAICS: readonly string[] = Array.from({ length: 64 }, (_, m) => {
+  if (m === 0) return ' '
+  if (m === 21) return '▌'
+  if (m === 42) return '▐'
+  if (m === 63) return '█'
+  return String.fromCodePoint(0x1fb00 + m - (m < 21 ? 1 : m < 42 ? 2 : 3))
+})
 
 // Fallback ASCII block representation for terminals or fonts without Unicode 13 sextants
 export const TELETEXT_FALLBACK_BLOCKS: readonly string[] = [

@@ -10,7 +10,8 @@ import {
   toAnsiText,
   toHtml,
   toMarkdown,
-  toPlainText
+  toPlainText,
+  TELETEXT_MOSAICS
 } from './ascii'
 import { parseSauce } from './sauce'
 
@@ -274,3 +275,23 @@ describe('ASCII & ANSI engine', () => {
   })
 })
 
+
+describe('Teletext mosaic characters', () => {
+  it('all 64 shapes map to the right Unicode character', () => {
+    // Bits: 0 top-left, 1 top-right, 2 middle-left, 3 middle-right, 4 bottom-left, 5 bottom-right.
+    // Unicode's sextants (U+1FB00…U+1FB3B) run in mask order but leave out the
+    // shapes that already had characters: empty, left half (21), right half (42), full.
+    expect(TELETEXT_MOSAICS.length).toBe(64)
+    expect(TELETEXT_MOSAICS[0]).toBe(' ')
+    expect(TELETEXT_MOSAICS[21]).toBe('▌')
+    expect(TELETEXT_MOSAICS[42]).toBe('▐')
+    expect(TELETEXT_MOSAICS[63]).toBe('█')
+    const rest = Array.from({ length: 62 }, (_, i) => i + 1).filter((m) => m !== 21 && m !== 42)
+    rest.forEach((m, k) => expect(TELETEXT_MOSAICS[m], `mask ${m}`).toBe(String.fromCodePoint(0x1fb00 + k)))
+    // Spot checks against the Unicode names: SEXTANT-1 is the top-left alone,
+    // SEXTANT-35 is middle-left + bottom-left, SEXTANT-23456 is all but the top-left.
+    expect(TELETEXT_MOSAICS[1]).toBe('\u{1FB00}')
+    expect(TELETEXT_MOSAICS[20]).toBe('\u{1FB13}')
+    expect(TELETEXT_MOSAICS[62]).toBe('\u{1FB3B}')
+  })
+})
