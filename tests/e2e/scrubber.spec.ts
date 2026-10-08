@@ -159,3 +159,16 @@ test('the inspector words only what it checked, and copying coordinates never po
   await page.getByTestId('copy-gps-btn').click()
   await expect(page.getByTestId('scrub-status')).toContainText('0.000000, 0.000000')
 })
+
+test("a GIF opens, and the inspector says it can't read it rather than 'no location'", async ({ page }) => {
+  const gif = Buffer.from([
+    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0x80, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff,
+    0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b
+  ])
+  await page.locator('#file-input').setInputFiles({ name: 'dot.gif', mimeType: 'image/gif', buffer: gif })
+  await page.getByTestId('tab-scrub').click()
+  await expect(page.getByTestId('scrub-picture-info')).toContainText('dot.gif')
+  await expect(page.getByTestId('scrub-narrative')).toContainText("can't be read here")
+  await expect(page.getByTestId('scrub-narrative')).not.toContainText('no GPS')
+  await expect(page.getByTestId('scrub-table')).not.toContainText('None')
+})

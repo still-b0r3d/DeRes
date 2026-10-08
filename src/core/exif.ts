@@ -62,6 +62,10 @@ export function formatGpsDecimal(coords: GpsCoordinates): string {
 
 /** Generates a plain-English narrative summary of the image's metadata. */
 export function getMetadataNarrative(meta: ImageMetadata): string {
+  // GIF, BMP, TIFF and the like: nothing was checked, so claim nothing.
+  if (meta.format === 'unknown') {
+    return "This kind of file can't be read here, so its details (camera, date, location) are unknown."
+  }
   const parts: string[] = []
 
   // Device

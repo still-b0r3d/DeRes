@@ -296,6 +296,14 @@ export class ScrubStage {
   }
 
   private renderTable(meta: ImageMetadata): void {
+    if (meta.format === 'unknown') {
+      // Nothing was read, so no "None" that would read as "checked, none".
+      this.tableEl.replaceChildren(
+        h('thead', null, h('tr', null, h('th', null, 'Field'), h('th', null, 'Value'))),
+        h('tbody', null, h('tr', null, h('td', { class: 'field-name' }, 'Format'), h('td', { class: 'val-muted' }, "Can't read this kind of file")))
+      )
+      return
+    }
     const rows: [string, string][] = [
       ['Format', meta.format.toUpperCase()],
       ['Camera Make', meta.make || 'None'],
