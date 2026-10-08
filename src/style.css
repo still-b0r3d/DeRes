@@ -1642,6 +1642,104 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* EXIF Injector Controls */
+.injector-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.injector-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.injector-row label {
+  font-family: var(--brand-font);
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.injector-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.injector-input-row input {
+  flex: 1 1 auto;
+}
+
+.injector-input,
+.injector-select {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: var(--brand-font);
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.injector-input:focus,
+.injector-select:focus {
+  border-color: var(--cyan);
+  outline: none;
+}
+
+.injector-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.injector-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.injector-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.injector-prefill-btn {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+}
+
+.scrub-inject-btn {
+  width: 100%;
+  padding: 11px;
+  background: rgba(0, 255, 255, 0.08);
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  border-radius: 4px;
+  font-family: var(--brand-font);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: all 0.15s ease;
+}
+
+.scrub-inject-btn:hover:not(:disabled) {
+  background: rgba(0, 255, 255, 0.2);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+}
+
+.scrub-inject-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Dial-Up Baud Rate Playback Simulation */
 .baud-controls {
   display: flex;

@@ -184,3 +184,82 @@ test('on a phone viewport, the scrubber buttons can be reached and clicked', asy
   // This click will fail if .stage-col is sticky and overlays the controls on mobile
   await btn.click({ timeout: 5000 })
 })
+
+test('metadata inspector full tag tree view displays tags and filters by keyword', async ({ page }) => {
+  const photo = phoneStyleJpeg(await canvasJpeg(page, 32, 16), FAKE_PHONE)
+  await page.locator('#file-input').setInputFiles({ name: 'phone.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(photo) })
+  await page.getByTestId('tab-scrub').click()
+
+  const treeTab = page.getByTestId('scrub-tree-tab')
+  await expect(treeTab).toBeVisible()
+  await treeTab.click()
+
+  const filterInput = page.getByTestId('scrub-filter-input')
+  await expect(filterInput).toBeVisible()
+
+  const table = page.getByTestId('scrub-table')
+  await expect(table).toContainText('Orientation')
+
+  await filterInput.fill('FakeCam')
+  await expect(table).toContainText('FakeCam')
+})
+
+test('detects AI generation markers and renders the AI alert banner', async ({ page }) => {
+  // Construct a PNG with caBX chunk
+  const pngHeader = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+  const ihdr = [
+    0x00, 0x00, 0x00, 0x0d,
+    0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00,
+    0x90, 0x77, 0x53, 0xde
+  ]
+  const cabxChunk = [
+    0x00, 0x00, 0x00, 0x04,
+    0x63, 0x61, 0x42, 0x58, // 'caBX'
+    0x01, 0x02, 0x03, 0x04,
+    0x11, 0x22, 0x33, 0x44
+  ]
+  const idat = [
+    0x00, 0x00, 0x00, 0x02,
+    0x49, 0x44, 0x41, 0x54,
+    0x78, 0x9c,
+    0x05, 0xb9, 0x41, 0x02
+  ]
+  const iend = [
+    0x00, 0x00, 0x00, 0x00,
+    0x49, 0x45, 0x4e, 0x44,
+    0xae, 0x42, 0x60, 0x82
+  ]
+  const cabxPng = Buffer.from([...pngHeader, ...ihdr, ...cabxChunk, ...idat, ...iend])
+
+  await page.locator('#file-input').setInputFiles({ name: 'ai.png', mimeType: 'image/png', buffer: cabxPng })
+  await page.getByTestId('tab-scrub').click()
+
+  const alert = page.getByTestId('scrub-ai-alert')
+  await expect(alert).toBeVisible()
+  await expect(alert).toContainText('AI Generation Marker Found')
+  await expect(alert).toContainText('C2PA Content Credentials')
+})
+
+test('EXIF injector writes custom tags into a photo and downloads the modified file', async ({ page }) => {
+  const photo = phoneStyleJpeg(await canvasJpeg(page, 32, 16), FAKE_PHONE)
+  await page.locator('#file-input').setInputFiles({ name: 'original.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(photo) })
+  await page.getByTestId('tab-scrub').click()
+
+  // Open the Inject/Edit EXIF details accordion
+  const summary = page.locator('summary', { hasText: 'Inject / Edit EXIF' })
+  await summary.click()
+
+  // Fill custom creator & make
+  await page.getByTestId('injector-make').fill('Hasselblad')
+  await page.getByTestId('injector-artist').fill('still_b0r3d')
+
+  // Click Inject EXIF & Download
+  const { download: d, bytes } = await download(page, page.getByTestId('scrub-inject-btn'))
+  expect(d.suggestedFilename()).toBe('original-injected.jpg')
+
+  // Verify tags in the downloaded file
+  const meta = inspectMetadata(bytes)
+  expect(meta.make).toBe('Hasselblad')
+  expect(meta.artist).toBe('still_b0r3d')
+})

@@ -31,6 +31,7 @@ import {
   type ScrubOptions
 } from '../core/scrub'
 import { createZip } from '../core/zip'
+import { injectExif } from '../core/inject'
 import rukusUrl from '../../b0r3d-brand/rukus.png'
 import type { RenderedMessage } from '../worker/protocol'
 import { buildAsciiControls } from './ascii-controls'
@@ -583,7 +584,32 @@ export function startApp(): void {
         scrubControls.status(`ZIP failed: ${(err as Error).message}`)
       }
     },
-    picture: () => (scrubFile ? { name: scrubFile.name, size: scrubFile.bytes.length } : null)
+    picture: () => (scrubFile ? { name: scrubFile.name, size: scrubFile.bytes.length } : null),
+    currentMeta: () => (scrubFile ? scrubFile.meta : null),
+    injectAndDownload: (options) => {
+      if (!scrubFile) return
+      try {
+        scrubControls.status('Injecting EXIF metadata…')
+        const newBytes = injectExif(scrubFile.bytes, options)
+        const meta = inspectMetadata(newBytes)
+        setScrubFile({ bytes: newBytes, meta, url: scrubFile.url, name: scrubFile.name })
+        scrubStage.showMetadata(meta, scrubFile.url)
+        const ext = meta.format === 'jpeg' ? 'jpg' : meta.format
+        const filename = `${baseName(scrubFile.name)}-injected.${ext}`
+        const blob = new Blob([newBytes.buffer as ArrayBuffer], { type: MIME[meta.format] })
+        const url = URL.createObjectURL(blob)
+        const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
+        document.body.append(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        scrubControls.status(
+          `Injected ${meta.rawTagCount} EXIF tags and saved ${filename}.`
+        )
+      } catch (err) {
+        scrubControls.status(`Failed to inject: ${(err as Error).message}`)
+      }
+    }
   })
 
   scrubStage.onStatus = scrubControls.status
