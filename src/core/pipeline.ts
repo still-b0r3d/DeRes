@@ -49,6 +49,8 @@ export interface DeresSettings {
   customCount?: number
   /** For loaded custom palette files */
   customPalette?: readonly string[]
+  /** Dither coordinate offsets for animation cycles */
+  ditherOffset?: readonly [number, number]
 }
 
 export interface Rendered {
@@ -525,7 +527,9 @@ export class Deres {
         height,
         matcher: pal.matcher,
         mono: !!profile.mono,
-        planner: () => (pal.planner ??= new YliluomaPlanner(pal.matcher))
+        planner: () => (pal.planner ??= new YliluomaPlanner(pal.matcher)),
+        offsetX: s.ditherOffset?.[0],
+        offsetY: s.ditherOffset?.[1]
       },
       indices
     )

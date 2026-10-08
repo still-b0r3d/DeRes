@@ -50,6 +50,17 @@ export type ToWorker =
       withFx: boolean
       base: string
     }
+  | {
+      type: 'export-animated'
+      id: number
+      gen: number
+      settings: DeresSettings
+      format: 'apng' | 'gif'
+      animationStyle: 'screen-fx' | 'compare-wipe' | 'dither-shimmer'
+      multiplier: number
+      withFx: boolean
+      base: string
+    }
 
 export interface RenderedMessage {
   type: 'rendered'
@@ -76,4 +87,14 @@ export type FromWorker =
   | { type: 'exported'; id: number; png: ArrayBuffer; filename: string; width: number; height: number }
   | { type: 'exported-emulator'; id: number; data: ArrayBuffer; filename: string; mimeType: string }
   | { type: 'exported-wallpaper'; id: number; png: ArrayBuffer; filename: string; width: number; height: number }
+  | {
+      type: 'exported-animated'
+      id: number
+      data: ArrayBuffer
+      filename: string
+      mimeType: 'image/png' | 'image/gif'
+      width: number
+      height: number
+      frameCount: number
+    }
   | { type: 'error'; job?: number; id?: number; gen: number; message: string }

@@ -91,6 +91,32 @@ export class Engine {
     return new Promise((resolve, reject) => this.wallpaperExports.set(id, { resolve, reject }))
   }
 
+  private animatedExportId = 0
+  private readonly animatedExports = new Map<number, { resolve: (v: AnimatedExportResult) => void; reject: (e: Error) => void }>()
+
+  exportAnimated(
+    settings: DeresSettings,
+    format: 'apng' | 'gif',
+    animationStyle: 'screen-fx' | 'compare-wipe' | 'dither-shimmer',
+    multiplier: number,
+    withFx: boolean,
+    base: string
+  ): Promise<AnimatedExportResult> {
+    const id = ++this.animatedExportId
+    this.post({
+      type: 'export-animated',
+      id,
+      gen: this.gen,
+      settings,
+      format,
+      animationStyle,
+      multiplier,
+      withFx,
+      base
+    })
+    return new Promise((resolve, reject) => this.animatedExports.set(id, { resolve, reject }))
+  }
+
   private send(req: RenderRequest): void {
     this.busy = true
     this.onBusy(true)
@@ -130,6 +156,12 @@ export class Engine {
             this.wallpaperExports.delete(msg.id)
             return
           }
+          const animExp = this.animatedExports.get(msg.id)
+          if (animExp) {
+            animExp.reject(new Error(msg.message))
+            this.animatedExports.delete(msg.id)
+            return
+          }
         }
         if (msg.gen !== this.gen) return
         this.busy = false
@@ -157,6 +189,14 @@ export class Engine {
         }
         return
       }
+      case 'exported-animated': {
+        const item = this.animatedExports.get(msg.id)
+        if (item) {
+          item.resolve(msg)
+          this.animatedExports.delete(msg.id)
+        }
+        return
+      }
     }
   }
 }
@@ -172,4 +212,13 @@ export interface EmulatorExportResult {
   data: Uint8Array
   filename: string
   mimeType: string
+}
+
+export interface AnimatedExportResult {
+  data: ArrayBuffer
+  filename: string
+  mimeType: 'image/png' | 'image/gif'
+  width: number
+  height: number
+  frameCount: number
 }

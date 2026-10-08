@@ -1,3 +1,4 @@
+import { generateAnimatedExport } from '../core/animate'
 import { exportPng, exportWallpaper, wallpaperPresetById } from '../core/export'
 import { exportFilename } from '../core/filename'
 import { renderFxRgba } from '../core/fx'
@@ -12,6 +13,7 @@ import type { FromWorker, ToWorker } from './protocol'
 const deres = new Deres()
 let gen = 0
 let last: { key: string; rendered: Rendered } | null = null
+let sourceCopy: { width: number; height: number; rgba: Uint8Array } | null = null
 
 function post(msg: FromWorker, transfer: Transferable[] = []): void {
   self.postMessage(msg, { transfer })
@@ -31,7 +33,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
   if (msg.type === 'load') {
     gen = msg.gen
     last = null
-    const { hasAlpha } = deres.setSource(new Uint8Array(msg.rgba), msg.width, msg.height, msg.origW, msg.origH)
+    const rawRgba = new Uint8Array(msg.rgba)
+    sourceCopy = { width: msg.width, height: msg.height, rgba: rawRgba.slice() }
+    const { hasAlpha } = deres.setSource(rawRgba, msg.width, msg.height, msg.origW, msg.origH)
     post({ type: 'loaded', gen, hasAlpha })
     return
   }
@@ -157,6 +161,48 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
           height: out.height
         },
         [out.png.buffer]
+      )
+    } catch (err) {
+      post({ type: 'error', id: msg.id, gen, message: String((err as Error)?.message ?? err) })
+    }
+  }
+
+  if (msg.type === 'export-animated') {
+    try {
+      const s = msg.settings
+      const r = renderFor(s)
+      const tv = s.pixelShape === 'tv'
+      const res = await generateAnimatedExport(
+        r,
+        {
+          style: msg.animationStyle,
+          format: msg.format,
+          multiplier: msg.multiplier,
+          tv,
+          fx: msg.withFx ? s.fx : null,
+          sourceRgba: sourceCopy?.rgba,
+          sourceWidth: sourceCopy?.width,
+          sourceHeight: sourceCopy?.height
+        },
+        s,
+        (subSettings) => deres.render(subSettings)
+      )
+      const prof = profileById(s.profileId)?.id ?? 'deres'
+      const ext = msg.format === 'apng' ? 'png' : 'gif'
+      const suffix = msg.format === 'apng' ? 'animated' : 'loop'
+      const filename = `${msg.base}-${prof}-${msg.animationStyle}-${suffix}.${ext}`
+      post(
+        {
+          type: 'exported-animated',
+          id: msg.id,
+          data: res.data.buffer as ArrayBuffer,
+          filename,
+          mimeType: res.mimeType,
+          width: res.width,
+          height: res.height,
+          frameCount: res.frameCount
+        },
+        [res.data.buffer as ArrayBuffer]
       )
     } catch (err) {
       post({ type: 'error', id: msg.id, gen, message: String((err as Error)?.message ?? err) })

@@ -743,6 +743,40 @@ button:disabled {
   color: #ff7777;
 }
 
+/* Animated loop export actions */
+.anim-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 100%;
+}
+
+.anim-btn {
+  width: 100%;
+  padding: 8px 10px;
+  font-family: var(--brand-font);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  background: rgba(0, 255, 255, 0.08);
+  border: 1px solid var(--cyan);
+  border-radius: 5px;
+  color: var(--cyan);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.anim-btn:hover:not(:disabled) {
+  background: rgba(0, 255, 255, 0.2);
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(0, 255, 255, 0.35);
+}
+
+.anim-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Emulator export actions */
 .emu-actions {
   display: flex;

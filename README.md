@@ -13,11 +13,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.8.0, BBS Heritage, Teletext & Batch Tools (Commodore 64 PETSCII studio with .seq & .prg exports, Teletext/Ceefax 2×3 mosaic graphics with broadcast header & separated mosaics, dial-up baud playback simulation, and multi-photo batch EXIF scrubber with client-side ZIP bundling), is built. Not live yet.
+**Status:** v0.8.2, Animated PNG & GIF Exports (Zero-dependency in-browser APNG and GIF89a looping image encoders with Netscape 2.0 loop blocks, Screen FX CRT/VHS loop cycles, Before & After A/B compare wipe transitions, and Dither Shimmer phase rotations), is built. Not live yet.
 
 ---
 
-## What it does (v0.8.0)
+## What it does (v0.8.2)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try the sample (Rukus). It's decoded once into a
@@ -116,11 +116,18 @@ images.
   - **Teletext / Ceefax 2×3 Mosaics:** Sub-pixel mosaic character generator with 64 contiguous/separated block patterns, 8 broadcast colors, optional Ceefax broadcast header row (`P100 CEEFAX 100...`), and `.ttx` page export.
   - **Dial-Up Baud Rate Playback Simulation:** Vintage modem streaming playback simulation at 300, 1200, 2400, 9600, 14.4k, 28.8k baud, or Instant, featuring Play, Pause, Replay controls, streaming byte progress counter, and blinking teletype cursor `█`.
   - **Batch EXIF Scrubber & In-Browser ZIP Bundling:** Multi-photo drag-and-drop and file picking, interactive batch queue inspector with GPS and trailer detection badges, and 1-click "Download Clean ZIP" bundling all cleaned photos into standard `.zip` files entirely in browser memory with zero network requests.
+- **Animated PNG (APNG) & Looping GIF Exports (v0.8.2):**
+  - **Zero-dependency APNG encoder:** creates standard Animated PNGs with `acTL`, `fcTL`, `IDAT`, and `fdAT` chunk sequences, supporting infinite loops (`num_plays = 0`), indexed palettes, and 24-bit RGB with native browser zlib deflate compression.
+  - **Zero-dependency GIF89a encoder:** complete in-browser GIF encoder with Logical Screen Descriptor, Global/Local Color Tables, Netscape 2.0 loop extension block, Graphic Control Extensions with frame delays, and pure TypeScript LZW stream compression.
+  - **Screen FX loop:** cycles CRT scanline ripples, electron beam oscillations, composite chroma subcarrier phase rotations, and rolling VHS tracking glitches with dynamic tape head noise snow.
+  - **A/B compare wipe loop:** smooth looping split wipe transition between the original photo and the retro deres result with a crisp retro divider bar.
+  - **Dither shimmer loop:** shifts Bayer, PS1, and ordered dither matrix coordinates across 8 phase rotations for an authentic retro hardware shimmer.
+  - **Export actions:** 1-click "Download APNG" and "Download GIF" buttons directly in the Export section with animation style selector.
 - Settings are remembered on your device. The picture never is.
 
 ## Planned
 
-- **v0.9.0, Motion, sound & polish:** Animated PNG/GIF export, tactile UI sounds, full test verification.
+- **v0.9.0, Tactile sound & retro polish:** Web Audio tactile click/switch sounds, floppy disk drive head stepping feedback, and UI polish.
 - 1.0.0 is when all three tools are complete and ready for public launch.
 
 ---

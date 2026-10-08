@@ -1,7 +1,7 @@
 {
   "name": "img-b0r3d-org",
   "private": true,
-  "version": "0.8.0",
+  "version": "0.8.2",
   "type": "module",
   "packageManager": "pnpm@10.0.0",
   "engines": {

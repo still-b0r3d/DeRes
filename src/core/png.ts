@@ -6,7 +6,8 @@
 // out several times smaller. Nothing but the picture is written: no text,
 // no dates, no software name.
 
-const SIGNATURE = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10)
+export const PNG_SIGNATURE = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10)
+const SIGNATURE = PNG_SIGNATURE
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256)
@@ -73,7 +74,7 @@ async function unzlib(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBu
   return pipe(data, new DecompressionStream('deflate'))
 }
 
-function chunk(type: string, data: Uint8Array): Uint8Array<ArrayBuffer> {
+export function chunk(type: string, data: Uint8Array): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(12 + data.length)
   const view = new DataView(out.buffer)
   view.setUint32(0, data.length)
@@ -83,7 +84,7 @@ function chunk(type: string, data: Uint8Array): Uint8Array<ArrayBuffer> {
   return out
 }
 
-function header(width: number, height: number, depth: number, colourType: number): Uint8Array {
+export function header(width: number, height: number, depth: number, colourType: number): Uint8Array {
   if (!(width > 0 && height > 0)) throw new Error('A PNG needs a size')
   const ihdr = new Uint8Array(13)
   const view = new DataView(ihdr.buffer)
@@ -184,7 +185,7 @@ function paeth(a: number, b: number, c: number): number {
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c
 }
 
-function filterRow(type: number, cur: Uint8Array, prev: Uint8Array, out: Uint8Array, bpp: number): number {
+export function filterRow(type: number, cur: Uint8Array, prev: Uint8Array, out: Uint8Array, bpp: number): number {
   let sum = 0
   for (let i = 0; i < cur.length; i++) {
     const a = i >= bpp ? cur[i - bpp] : 0

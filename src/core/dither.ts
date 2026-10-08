@@ -51,6 +51,9 @@ export interface DitherInput {
   mono: boolean
   /** Made on first use and kept by the caller, one per palette. */
   planner: () => YliluomaPlanner
+  /** Dither coordinate offsets for animation phase cycles */
+  offsetX?: number
+  offsetY?: number
 }
 
 export function dither(id: DitherId, input: DitherInput, out: Uint8Array): void {
@@ -90,14 +93,18 @@ function nearestOnly({ rgb, width, height, matcher }: DitherInput, out: Uint8Arr
 function ordered(input: DitherInput, n: number, out: Uint8Array): void {
   if (input.mono) return orderedLevels(input, n, false, out)
   const { rgb, width, height, matcher } = input
+  const dx = (input.offsetX ?? 0) | 0
+  const dy = (input.offsetY ?? 0) | 0
   const mat = bayerMatrix(n)
   const nn = n * n
   const spread = matcher.spread * 255
   const byte = (v: number) => (v <= 0 ? 0 : v >= 255 ? 255 : (v + 0.5) | 0)
   for (let y = 0; y < height; y++) {
+    const my = ((y + dy) % n + n) % n
     for (let x = 0; x < width; x++) {
+      const mx = ((x + dx) % n + n) % n
       const i = y * width + x
-      const d = ((mat[(y % n) * n + (x % n)] + 0.5) / nn - 0.5) * spread
+      const d = ((mat[my * n + mx] + 0.5) / nn - 0.5) * spread
       out[i] = matcher.nearestByte(
         byte(toSrgb(rgb[i * 3]) * 255 + d),
         byte(toSrgb(rgb[i * 3 + 1]) * 255 + d),
@@ -113,6 +120,8 @@ function ordered(input: DitherInput, n: number, out: Uint8Array): void {
 // Game Boy Camera, in sRGB like its sensor's evenly spaced thresholds.
 function orderedLevels(input: DitherInput, n: number, perceptual: boolean, out: Uint8Array): void {
   const { rgb, width, height, matcher } = input
+  const dx = (input.offsetX ?? 0) | 0
+  const dy = (input.offsetY ?? 0) | 0
   const mat = bayerMatrix(n)
   const nn = n * n
   const order = [...Array(matcher.size).keys()].sort(
@@ -122,7 +131,9 @@ function orderedLevels(input: DitherInput, n: number, perceptual: boolean, out: 
   const levels = order.map((i) => curve(matcher.luma[i]))
   const last = levels.length - 1
   for (let y = 0; y < height; y++) {
+    const my = ((y + dy) % n + n) % n
     for (let x = 0; x < width; x++) {
+      const mx = ((x + dx) % n + n) % n
       const i = y * width + x
       const v = curve(rgb[i * 3])
       let k = 0
@@ -133,7 +144,7 @@ function orderedLevels(input: DitherInput, n: number, perceptual: boolean, out: 
       }
       const lo = levels[k]
       const f = v <= lo ? 0 : (v - lo) / (levels[k + 1] - lo)
-      const t = (mat[(y % n) * n + (x % n)] + 0.5) / nn
+      const t = (mat[my * n + mx] + 0.5) / nn
       out[i] = order[t < f ? k + 1 : k]
     }
   }
@@ -214,13 +225,17 @@ function spread(work: Float32Array, j: number, er: number, eg: number, eb: numbe
 
 function yliluoma(input: DitherInput, out: Uint8Array): void {
   const { rgb, width, height } = input
+  const dx = (input.offsetX ?? 0) | 0
+  const dy = (input.offsetY ?? 0) | 0
   const planner = input.planner()
   const mat = bayerMatrix(8)
   const scale = PLAN / 64
   for (let y = 0; y < height; y++) {
+    const my = ((y + dy) & 7)
     for (let x = 0; x < width; x++) {
+      const mx = ((x + dx) & 7)
       const i = y * width + x
-      const t = (mat[(y & 7) * 8 + (x & 7)] * scale) | 0
+      const t = (mat[my * 8 + mx] * scale) | 0
       out[i] = planner.pick(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], t)
     }
   }
@@ -244,12 +259,16 @@ export const PS1_DITHER_TABLE = [
 
 function ps1Dither(input: DitherInput, out: Uint8Array): void {
   const { rgb, width, height, matcher } = input
+  const dx = (input.offsetX ?? 0) | 0
+  const dy = (input.offsetY ?? 0) | 0
   const spread = matcher.spread * 255
   const byte = (v: number) => (v <= 0 ? 0 : v >= 255 ? 255 : (v + 0.5) | 0)
   for (let y = 0; y < height; y++) {
+    const my = ((y + dy) & 3)
     for (let x = 0; x < width; x++) {
+      const mx = ((x + dx) & 3)
       const i = y * width + x
-      const d = PS1_DITHER_TABLE[(y & 3) * 4 + (x & 3)]
+      const d = PS1_DITHER_TABLE[my * 4 + mx]
       const offset = (d / 8) * spread
       out[i] = matcher.nearestByte(
         byte(toSrgb(rgb[i * 3]) * 255 + offset),

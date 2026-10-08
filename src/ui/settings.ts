@@ -9,10 +9,12 @@ import { DEFAULT_PROFILE, profileById } from '../core/profiles'
 // embedded browsers), so every read and write is allowed to fail quietly.
 
 import { decodeSettings } from '../core/share'
+import type { AnimationStyle } from '../core/animate'
 
 export interface Settings extends DeresSettings {
   multiplier: number
   exportFx: boolean
+  animationStyle: AnimationStyle
 }
 
 const KEY = 'b0r3d-deres:settings'
@@ -31,6 +33,7 @@ export function defaultSettings(): Settings {
     pixelShape: 'raw',
     multiplier: 4,
     exportFx: false,
+    animationStyle: 'screen-fx',
     customCount: 16,
     customPalette: undefined
   }
@@ -91,6 +94,11 @@ export function loadSettings(): Settings {
     pixelShape: oneOf(loaded.pixelShape, ['raw', 'tv'] as const, d.pixelShape),
     multiplier: Math.round(num(loaded.multiplier, 1, 16, d.multiplier)),
     exportFx: loaded.exportFx === true,
+    animationStyle: oneOf(
+      loaded.animationStyle,
+      ['screen-fx', 'compare-wipe', 'dither-shimmer'] as const,
+      d.animationStyle
+    ),
     customCount,
     customPalette
   }

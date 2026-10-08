@@ -125,7 +125,8 @@ export function fxRenderer(
   src: FxSource,
   outW: number,
   outH: number,
-  fx: Fx
+  fx: Fx,
+  phase = 0
 ): (oy: number, row: Uint8Array) => void {
   const { width: w, height: h } = src
   const lin = new Float32Array(w * h * 3)
@@ -172,15 +173,17 @@ export function fxRenderer(
   return (oy, row) => {
     const ny = ((oy + 0.5) / outH) * 2 - 1
 
-    // VHS Tracking scanlines & head jitter band in bottom ~6% of scanlines
+    // VHS Tracking scanlines & head jitter band in bottom ~6% of scanlines (rolls when phase > 0)
     let vhsJitterX = 0
     let vhsHeadNoise = false
-    if (vhs && oy >= Math.floor(outH * 0.94)) {
-      const lineProgress = (oy - outH * 0.94) / (outH * 0.06)
-      const wave = Math.sin(oy * 0.5) * 8 * lineProgress
-      const noise = (fxHash(0, oy, 11) - 0.5) * 16 * trackingIntensity
+    const vhsBandRoll = phase > 0 ? phase * 0.15 : 0
+    const vhsBandThreshold = Math.floor(outH * Math.max(0.1, 0.94 - vhsBandRoll))
+    if (vhs && oy >= vhsBandThreshold && oy <= vhsBandThreshold + Math.floor(outH * 0.06)) {
+      const lineProgress = (oy - vhsBandThreshold) / (outH * 0.06)
+      const wave = Math.sin((oy + phase * 40) * 0.5) * 8 * lineProgress
+      const noise = (fxHash(0, oy, 11 + Math.floor(phase * 100)) - 0.5) * 16 * trackingIntensity
       vhsJitterX = (wave + noise) * sx * 0.5
-      vhsHeadNoise = fxHash(1, oy, 22) < 0.28 * trackingIntensity
+      vhsHeadNoise = fxHash(1, oy, 22 + Math.floor(phase * 100)) < 0.28 * trackingIntensity
     }
 
     // Reset composite chroma I/Q filters for the scanline
@@ -305,7 +308,7 @@ export function fxRenderer(
         const dY = curY - lastY
         lastY = curY
         compRing = compRing * 0.65 + dY * 0.35
-        const phaseI = compI + compRing * Math.sin(ox * 1.2)
+        const phaseI = compI + compRing * Math.sin(ox * 1.2 + (phase > 0 ? phase * Math.PI * 2 : 0))
 
         // Inverse YIQ to linear RGB
         c[0] = Math.max(0, curY + 0.956 * phaseI + 0.621 * compQ)
@@ -341,8 +344,8 @@ export function fxRenderer(
         c[2] = Math.max(0, curLum + chromaFiltered[2] * 0.6 + (lin[smearP + 2] - smearLum) * 0.4)
 
         // Analog tape head snow noise in bottom tracking band
-        if (vhsHeadNoise && fxHash(ox, oy, 33) < 0.45 * trackingIntensity) {
-          const noiseByte = fxHash(ox, oy, 44) > 0.5 ? 0.95 : 0.05
+        if (vhsHeadNoise && fxHash(ox, oy, 33 + Math.floor(phase * 100)) < 0.45 * trackingIntensity) {
+          const noiseByte = fxHash(ox, oy, 44 + Math.floor(phase * 100)) > 0.5 ? 0.95 : 0.05
           c[0] = c[1] = c[2] = noiseByte
         }
 
@@ -418,9 +421,9 @@ export function fxRenderer(
 }
 
 /** The screen-effect image as RGBA, for showing on a canvas. */
-export function renderFxRgba(src: FxSource, outW: number, outH: number, fx: Fx): Uint8ClampedArray {
+export function renderFxRgba(src: FxSource, outW: number, outH: number, fx: Fx, phase = 0): Uint8ClampedArray {
   const out = new Uint8ClampedArray(outW * outH * 4)
-  const render = fxRenderer(src, outW, outH, fx)
+  const render = fxRenderer(src, outW, outH, fx, phase)
   const row = new Uint8Array(outW * 3)
   for (let y = 0; y < outH; y++) {
     render(y, row)

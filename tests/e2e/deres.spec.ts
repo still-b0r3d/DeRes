@@ -55,7 +55,7 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
   const gbPal = profileById('gameboy')!.palette
   expect(new Set(await canvasColours(page))).toEqual(new Set(gbPal.kind === 'fixed' ? gbPal.colours : []))
-  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.8.0')
+  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.8.2')
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
@@ -813,6 +813,65 @@ test('v0.8: Batch EXIF scrubber displays file queue and downloads clean ZIP', as
     expect(zipBytes[2]).toBe(0x03)
     expect(zipBytes[3]).toBe(0x04)
   }
+})
+
+test('v0.8.2: exports looping Animated PNG (APNG) and Animated GIF (GIF89a)', async ({ page }) => {
+  await pick(page, 'gameboy')
+
+  // Animation mode segmented control is visible
+  const animStyleGroup = page.locator('.seg[aria-label="Animation loop"]')
+  await expect(animStyleGroup).toBeVisible()
+
+  // Default is screen-fx
+  await expect(animStyleGroup.locator('button[data-value="screen-fx"]')).toHaveAttribute('aria-pressed', 'true')
+
+  // Set size to 2x for fast export
+  await page.locator('.seg[aria-label="Size"] button[data-value="2"]').click()
+
+  // 1. Download APNG
+  const downloadApngPromise = page.waitForEvent('download')
+  await page.getByTestId('download-apng').click()
+  const apngDownload = await downloadApngPromise
+  expect(apngDownload.suggestedFilename()).toContain('animated.png')
+
+  const apngPath = await apngDownload.path()
+  if (apngPath) {
+    const bytes = new Uint8Array(readFileSync(apngPath))
+    // PNG signature
+    expect(bytes.subarray(0, 8)).toEqual(Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10))
+    // Contains 'acTL' chunk
+    const str = Buffer.from(bytes).toString('binary')
+    expect(str).toContain('acTL')
+    expect(str).toContain('fcTL')
+  }
+  await expect(page.locator('.status')).toContainText('Saved')
+
+  // 2. Download GIF
+  const downloadGifPromise = page.waitForEvent('download')
+  await page.getByTestId('download-gif').click()
+  const gifDownload = await downloadGifPromise
+  expect(gifDownload.suggestedFilename()).toContain('loop.gif')
+
+  const gifPath = await gifDownload.path()
+  if (gifPath) {
+    const bytes = new Uint8Array(readFileSync(gifPath))
+    // GIF89a header
+    expect(Buffer.from(bytes.subarray(0, 6)).toString('ascii')).toBe('GIF89a')
+    // Contains Netscape looping extension
+    const str = Buffer.from(bytes).toString('binary')
+    expect(str).toContain('NETSCAPE2.0')
+  }
+  await expect(page.locator('.status')).toContainText('Saved')
+
+  // 3. Switch to A/B Wipe animation mode and verify export
+  await animStyleGroup.locator('button[data-value="compare-wipe"]').click()
+  await expect(animStyleGroup.locator('button[data-value="compare-wipe"]')).toHaveAttribute('aria-pressed', 'true')
+
+  const downloadWipeGifPromise = page.waitForEvent('download')
+  await page.getByTestId('download-gif').click()
+  const wipeGifDownload = await downloadWipeGifPromise
+  expect(wipeGifDownload.suggestedFilename()).toContain('compare-wipe-loop.gif')
+  await expect(page.locator('.status')).toContainText('Saved')
 })
 
 

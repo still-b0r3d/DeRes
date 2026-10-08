@@ -19,6 +19,7 @@ export interface ControlsContext {
   openFile(): void
   loadSample(): void
   download(): void
+  downloadAnimated?: (format: 'apng' | 'gif') => void
   downloadEmulator?: (format: 'scr' | 'koa' | 'chr') => void
   downloadWallpaper?: (preset: 'phone' | 'win95' | 'desktop-1080p') => void
   surpriseMe?: () => void
@@ -331,6 +332,41 @@ export function buildControls(ctx: ControlsContext): {
   fxBox.addEventListener('change', () => set({ exportFx: fxBox.checked }))
   const fxLabel = h('label', { class: 'check', for: 'export-fx' }, fxBox, ' With the screen effect')
   const downloadBtn = h('button', { type: 'button', class: 'download', onclick: () => ctx.download() }, 'Download PNG')
+
+  const animStyle = segmented(
+    'Animation loop',
+    [
+      { value: 'screen-fx', text: 'Screen FX' },
+      { value: 'compare-wipe', text: 'A/B Wipe' },
+      { value: 'dither-shimmer', text: 'Shimmer' }
+    ] as const,
+    (v) => set({ animationStyle: v })
+  )
+  animStyle.el.classList.add('cols-3')
+  const animRow = h('div', { class: 'row anim-row' }, h('span', { class: 'row-label' }, 'Animation loop'), animStyle.el)
+
+  const downloadApngBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'anim-btn',
+      'data-testid': 'download-apng',
+      onclick: () => ctx.downloadAnimated?.('apng')
+    },
+    '🎬 Download APNG'
+  )
+  const downloadGifBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'anim-btn',
+      'data-testid': 'download-gif',
+      onclick: () => ctx.downloadAnimated?.('gif')
+    },
+    '🎞️ Download GIF'
+  )
+  const animActions = h('div', { class: 'anim-actions' }, downloadApngBtn, downloadGifBtn)
+
   const emuScrBtn = h(
     'button',
     {
@@ -409,7 +445,8 @@ export function buildControls(ctx: ControlsContext): {
     h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Size'), mult.el),
     sizeLine,
     fxLabel,
-    h('div', { class: 'export-actions' }, downloadBtn, emuActions, shareBtn),
+    animRow,
+    h('div', { class: 'export-actions' }, downloadBtn, animActions, emuActions, shareBtn),
     wallRow,
     statusLine
   )
@@ -508,6 +545,7 @@ export function buildControls(ctx: ControlsContext): {
       b.title = g ? `${w}×${hh}${tooBig ? ' (too big)' : ''}` : ''
     }
     mult.set(String(s.multiplier))
+    animStyle.set(s.animationStyle)
     const fxOn = s.fx.screen !== 'off'
     fxBox.checked = s.exportFx
     fxBox.disabled = !fxOn || s.multiplier < FX_MIN_MULTIPLIER
@@ -548,6 +586,8 @@ export function buildControls(ctx: ControlsContext): {
         ? `${w}×${hh} is too big. Pick a smaller size.`
         : `${w}×${hh} px · ${withFx ? 'full colour' : coloursLabel}`
       downloadBtn.disabled = !pic || tooBig
+      downloadApngBtn.disabled = !pic || tooBig
+      downloadGifBtn.disabled = !pic || tooBig
 
       wallPhoneBtn.disabled = !pic
       wallWin95Btn.disabled = !pic
@@ -564,6 +604,8 @@ export function buildControls(ctx: ControlsContext): {
     } else {
       sizeLine.textContent = ''
       downloadBtn.disabled = true
+      downloadApngBtn.disabled = true
+      downloadGifBtn.disabled = true
       wallPhoneBtn.disabled = true
       wallWin95Btn.disabled = true
       wall1080pBtn.disabled = true
