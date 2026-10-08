@@ -725,9 +725,10 @@ test('v0.8: PETSCII mode generates Commodore 64 art and downloads .seq and .prg'
   const prgPath = await prgDownload.path()
   if (prgPath) {
     const prgBytes = new Uint8Array(readFileSync(prgPath))
-    expect(prgBytes.length).toBe(2002) // $0400 load addr + 1000 screen + 1000 color
-    expect(prgBytes[0]).toBe(0x00)
-    expect(prgBytes[1]).toBe(0x04)
+    // A BASIC program at $0801 (10 SYS 2061) that shows the picture
+    expect(prgBytes.length).toBeGreaterThan(2 + 12 + 2000)
+    expect(prgBytes[0]).toBe(0x01)
+    expect(prgBytes[1]).toBe(0x08)
   }
 })
 

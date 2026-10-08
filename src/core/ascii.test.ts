@@ -18,6 +18,7 @@ import {
   TELETEXT_MOSAICS
 } from './ascii'
 import { parseSauce } from './sauce'
+import { loadPrg, run, sysAddress } from '../test/mini6502'
 
 describe('ASCII & ANSI engine', () => {
   it('calculates correct luminance for primary colors', () => {
@@ -249,12 +250,11 @@ describe('ASCII & ANSI engine', () => {
     expect([...seq.subarray(0, 2)]).toEqual([0x93, 0x8e])
     expect(seq).not.toContain(0x0d)
 
-    // Export .prg (2 + 1000 + 1000 = 2002 bytes)
+    // Export .prg: a BASIC program at $0801 that shows the picture
     const prg = exportPetsciiPrg(res)
-    expect(prg.length).toBe(2002)
-    // C64 screen RAM load address $0400 (0x00, 0x04)
-    expect(prg[0]).toBe(0x00)
-    expect(prg[1]).toBe(0x04)
+    expect(prg[0]).toBe(0x01)
+    expect(prg[1]).toBe(0x08)
+    expect(prg.length).toBeGreaterThan(2 + 12 + 2000)
   })
 
   it('generates Ceefax Teletext 2x3 mosaic art and exports page', () => {
@@ -406,5 +406,39 @@ describe('PETSCII .seq: a stream printed on a C64, so PETSCII codes', () => {
     const full: [string, number][] = Array.from({ length: 40 }, () => ['▒', 1])
     const seq = exportPetsciiSeq(art(40, Array.from({ length: 25 }, () => full)))
     expect(seq.length).toBe(3 + 999)
+  })
+})
+
+describe('PETSCII .prg: a program that shows the picture', () => {
+  it('loads at $0801, runs with RUN, puts the picture on screen in colour, waits for a key, then tidies up', () => {
+    const w = 120
+    const h = 90
+    const px = new Uint8ClampedArray(w * h * 4)
+    for (let i = 0; i < w * h; i++) px.set([(i * 37) % 256, (i * 91) % 256, (i * 53) % 256, 255], i * 4)
+    const res = generateAscii(px, w, h, { mode: 'petscii' })
+    const prg = exportPetsciiPrg(res)
+    const { screen, colour } = petsciiScreen(res)
+    const { mem, start } = loadPrg(prg)
+    expect(start).toBe(0x0801)
+
+    let keyChecks = 0
+    let shown = false
+    const printed: number[] = []
+    run(mem, sysAddress(mem), {
+      getin(m) {
+        if (++keyChecks < 3) return 0 // no key yet
+        // While it waits, the picture is on the screen, in its colours.
+        expect([...m.subarray(0x0400, 0x0400 + 1000)]).toEqual([...screen])
+        expect([...m.subarray(0xd800, 0xd800 + 1000)]).toEqual([...colour])
+        expect([m[0xd020], m[0xd021], m[0xd018]]).toEqual([0, 0, 0x15]) // black border and background, graphics set
+        shown = true
+        return 0x0d
+      },
+      chrout: (a) => printed.push(a)
+    })
+    expect(shown).toBe(true)
+    expect(keyChecks).toBe(3)
+    expect(printed).toEqual([0x93]) // clears the screen afterwards
+    expect([mem[0xd020], mem[0xd021]]).toEqual([14, 6]) // and puts back the C64's usual colours
   })
 })

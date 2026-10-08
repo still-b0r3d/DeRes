@@ -1010,22 +1010,63 @@ function screenCodeToPetscii(code: number): number {
 }
 
 /**
- * Exports PETSCII art as a C64 PRG file (load address $0400 screen RAM + $D800 color RAM).
+ * Exports PETSCII art as a C64 program that shows it: LOAD"FILE",8 then RUN.
+ * A one-line BASIC program (10 SYS 2061) starts a short routine that copies
+ * the picture into screen memory ($0400) and colour memory ($D800), sets a
+ * black border and background and the upper case + graphics set, waits for a
+ * key, then clears the screen and puts the usual colours back.
  */
 export function exportPetsciiPrg(result: AsciiResult): Uint8Array {
-  // Format:
-  // 2 bytes: Load address $0400 (0x00, 0x04)
-  // 1000 bytes: Screen RAM ($0400 - $07E7)
-  // 1000 bytes: Color RAM ($D800 - $DBE7)
-  const prg = new Uint8Array(2 + 1000 + 1000)
-
-  // Load address $0400
-  prg[0] = 0x00
-  prg[1] = 0x04
-
   const { screen, colour } = petsciiScreen(result)
-  prg.set(screen, 2)
-  prg.set(colour, 2 + 1000)
+  const BASIC_START = 0x0801
+  // Link to the next line ($080B), line 10, SYS, "2061", end of line, end of program.
+  const basic = [0x0b, 0x08, 0x0a, 0x00, 0x9e, 0x32, 0x30, 0x36, 0x31, 0x00, 0x00, 0x00]
+  const CODE = BASIC_START + basic.length // $080D = 2061
+
+  const routine = (data: number): number[] => {
+    const lo = (v: number) => v & 0xff
+    const hi = (v: number) => (v >> 8) & 0xff
+    const code: number[] = [
+      0xa9, 0x00, //             LDA #0        black
+      0x8d, 0x20, 0xd0, //       STA $D020     border
+      0x8d, 0x21, 0xd0, //       STA $D021     background
+      0xa9, 0x15, //             LDA #$15      screen at $0400, upper case + graphics
+      0x8d, 0x18, 0xd0, //       STA $D018
+      0xa2, 0x00 //              LDX #0
+    ]
+    const loop = CODE + code.length
+    // Four quarters of 250 bytes each, for the screen and the colours.
+    for (const [from, to] of [
+      [data, 0x0400],
+      [data + 1000, 0xd800]
+    ]) {
+      for (let q = 0; q < 4; q++) {
+        code.push(0xbd, lo(from + q * 250), hi(from + q * 250)) // LDA from,X
+        code.push(0x9d, lo(to + q * 250), hi(to + q * 250)) //     STA to,X
+      }
+    }
+    code.push(0xe8) //                    INX
+    code.push(0xe0, 250) //               CPX #250
+    code.push(0xd0, (loop - (CODE + code.length + 2)) & 0xff) // BNE loop
+    const wait = CODE + code.length
+    code.push(0x20, 0xe4, 0xff) //        JSR GETIN     a key?
+    code.push(0xc9, 0x00) //              CMP #0
+    code.push(0xf0, (wait - (CODE + code.length + 2)) & 0xff) // BEQ wait
+    code.push(0xa9, 0x93, 0x20, 0xd2, 0xff) // LDA #CLR, JSR CHROUT
+    code.push(0xa9, 0x0e, 0x8d, 0x20, 0xd0) // light blue border
+    code.push(0xa9, 0x06, 0x8d, 0x21, 0xd0) // blue background
+    code.push(0x60) //                    RTS           back to BASIC
+    return code
+  }
+  const codeLength = routine(0).length
+  const code = routine(CODE + codeLength)
+
+  const prg = new Uint8Array(2 + basic.length + code.length + 2000)
+  prg.set([BASIC_START & 0xff, BASIC_START >> 8], 0)
+  prg.set(basic, 2)
+  prg.set(code, 2 + basic.length)
+  prg.set(screen, 2 + basic.length + code.length)
+  prg.set(colour, 2 + basic.length + code.length + 1000)
   return prg
 }
 

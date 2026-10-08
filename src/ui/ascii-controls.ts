@@ -294,7 +294,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
       'data-testid': 'ascii-download-prg',
       onclick: () => ctx.downloadPetsciiPrg()
     },
-    'Download .PRG (C64 Screen RAM)'
+    'Download .PRG (runs on a C64)'
   )
 
   const downloadTeletextBtn = h(
