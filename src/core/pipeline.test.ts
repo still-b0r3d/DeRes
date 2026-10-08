@@ -224,3 +224,20 @@ describe('how many colours a machine gets', () => {
     expect(used('snes', 8)).toBeLessThanOrEqual(8)
   })
 })
+
+describe('a grabbed or loaded palette', () => {
+  const grabbed = ['#ff0000', '#00ff00', '#0000ff']
+  const hexes = (pal: Uint8Array) =>
+    Array.from({ length: pal.length / 3 }, (_, i) => '#' + [...pal.subarray(i * 3, i * 3 + 3)].map((v) => v.toString(16).padStart(2, '0')).join(''))
+
+  it('is used by the Custom machine', () => {
+    const r = loaded().render(settings({ profileId: 'custom', dither: 'none', customPalette: grabbed }))
+    expect(hexes(r.palette)).toEqual(grabbed)
+  })
+
+  it.each(['genesis', 'vga', 'atari-st', 'amstrad-cpc-0'])('is not used by %s', (id) => {
+    const r = loaded().render(settings({ profileId: id, dither: 'none', customPalette: grabbed }))
+    expect(hexes(r.palette)).not.toEqual(grabbed)
+    expect(r.palette.length / 3).toBeGreaterThan(3)
+  })
+})

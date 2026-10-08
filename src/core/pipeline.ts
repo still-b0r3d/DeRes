@@ -516,7 +516,8 @@ export class Deres {
       pal = this.palette(profile)
     } else {
       let display: Uint8Array
-      if (s.customPalette && s.customPalette.length > 0) {
+      // A grabbed or loaded palette belongs to the Custom machine only.
+      if (profile.palette.kind === 'custom' && s.customPalette && s.customPalette.length > 0) {
         display = Uint8Array.from(s.customPalette.map(hexToRgb).flat())
       } else if (profile.palette.kind === 'pool') {
         const count = colourCount(profile, s.customCount)!

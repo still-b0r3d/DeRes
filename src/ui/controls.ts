@@ -575,8 +575,7 @@ export function buildControls(ctx: ControlsContext): {
       } else if (p.palette.kind === 'fixed') {
         coloursLabel = `${p.palette.colours.length}-colour palette`
       } else if (p.palette.kind === 'range') {
-        const count = s.customPalette?.length ?? colourCount(p, s.customCount)
-        coloursLabel = `${count}-colour palette`
+        coloursLabel = `${colourCount(p, s.customCount)}-colour palette`
       } else {
         const count = s.customPalette?.length ?? colourCount(p, s.customCount) ?? 16
         coloursLabel = `${count}-colour palette`

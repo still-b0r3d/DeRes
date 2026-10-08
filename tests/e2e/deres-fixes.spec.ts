@@ -48,3 +48,20 @@ test('a visitor with the old saved 16 is not capped at 16 any more', async ({ pa
   await ready(page, '256×224')
   expect((await colours(page))[1]).toBeGreaterThan(16)
 })
+
+test('a grabbed palette stays with the Custom machine', async ({ page }) => {
+  await pick(page, 'genesis')
+  await page.locator('#custom-count').fill('6')
+  await expect(readout(page)).toContainText(/of [2-6] colours used/)
+  const grab = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Grab palette' }).click()
+  await grab
+  // Grabbing switches to Custom with those 6 colours.
+  await expect(page.locator('.card[data-profile="custom"]')).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(async () => (await colours(page))[1]).toBe(6)
+  // Other machines pick their own colours again.
+  await pick(page, 'vga')
+  await expect.poll(async () => (await colours(page))[1]).toBeGreaterThan(6)
+  await pick(page, 'atari-st')
+  await expect.poll(async () => (await colours(page))[1]).toBeGreaterThan(6)
+})
