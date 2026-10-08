@@ -54,7 +54,9 @@ export function encodeSettings(settings: Settings): string {
       fx.curve,
       fx.bloom,
       fx.grid,
-      fx.ghost
+      fx.ghost,
+      fx.vhsTracking,
+      fx.vhsOsd
     ]
   }
 
@@ -71,9 +73,11 @@ export function encodeSettings(settings: Settings): string {
 }
 
 /**
- * Decodes a URL hash into a Partial<Settings>. Returns null if invalid.
+ * Decodes a URL hash into settings fields, as written (unchecked: run them
+ * through checkSettings, as settingsFromHash does). Returns null if the hash
+ * can't be read at all.
  */
-export function decodeSettings(hash: string): Partial<Settings> | null {
+export function decodeSettings(hash: string): Record<string, unknown> | null {
   if (!hash) return null
   const cleaned = hash.replace(/^#/, '').trim()
   if (!cleaned) return null
@@ -91,40 +95,33 @@ export function decodeSettings(hash: string): Partial<Settings> | null {
     const raw = JSON.parse(fromBase64Url(b64))
     if (!raw || typeof raw !== 'object') return null
 
-    const out: Partial<Settings> = {}
-    if (typeof raw.p === 'string') out.profileId = raw.p
-    if (['fill', 'fit', 'stretch'].includes(raw.f)) out.fit = raw.f
-    if (['native', 'custom'].includes(raw.r)) out.resolution = raw.r
-    if (typeof raw.b === 'number') out.block = raw.b
-    if (['white', 'black'].includes(raw.bg)) out.background = raw.bg
-    if (typeof raw.d === 'string') out.dither = raw.d as Settings['dither']
-    if (['raw', 'tv'].includes(raw.ps)) out.pixelShape = raw.ps
-    if (typeof raw.m === 'number') out.multiplier = raw.m
+    const out: Record<string, unknown> = {}
+    const set = (key: string, value: unknown) => {
+      if (value !== undefined) out[key] = value
+    }
+    set('profileId', raw.p)
+    set('fit', raw.f)
+    set('resolution', raw.r)
+    set('block', raw.b)
+    set('background', raw.bg)
+    set('dither', raw.d)
+    set('pixelShape', raw.ps)
+    set('multiplier', raw.m)
     if (typeof raw.ef === 'number' || typeof raw.ef === 'boolean') out.exportFx = !!raw.ef
 
-    if (Array.isArray(raw.a) && raw.a.length === 4) {
-      out.adjust = {
-        brightness: Number(raw.a[0]) || 0,
-        contrast: Number(raw.a[1]) || 1,
-        saturation: Number(raw.a[2]) || 1,
-        gamma: Number(raw.a[3]) || 1
-      }
+    if (Array.isArray(raw.a)) {
+      const [brightness, contrast, saturation, gamma] = raw.a
+      out.adjust = { brightness, contrast, saturation, gamma }
     }
 
-    if (Array.isArray(raw.fx) && raw.fx.length === 7) {
-      out.fx = {
-        screen: raw.fx[0],
-        mask: raw.fx[1],
-        scanlines: Number(raw.fx[2]) || 0,
-        curve: Number(raw.fx[3]) || 0,
-        bloom: Number(raw.fx[4]) || 0,
-        grid: Number(raw.fx[5]) || 0,
-        ghost: Number(raw.fx[6]) || 0
-      }
+    // 7 entries before v0.8.3; the VHS tracking and OSD came after.
+    if (Array.isArray(raw.fx)) {
+      const [screen, mask, scanlines, curve, bloom, grid, ghost, vhsTracking, vhsOsd] = raw.fx
+      out.fx = { screen, mask, scanlines, curve, bloom, grid, ghost, vhsTracking, vhsOsd }
     }
 
-    if (typeof raw.cc === 'number') out.customCount = raw.cc
-    if (Array.isArray(raw.cp)) out.customPalette = raw.cp.filter((c: unknown) => typeof c === 'string')
+    set('customCount', raw.cc)
+    set('customPalette', raw.cp)
 
     return out
   } catch {

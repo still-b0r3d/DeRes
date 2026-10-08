@@ -21,7 +21,7 @@ import { colourCount, type DeresSettings } from '../core/pipeline'
 import { PROFILES, profileById } from '../core/profiles'
 import type { DitherId } from '../core/dither'
 import { quantizeRgb } from '../core/quantize'
-import { decodeSettings, encodeSettings } from '../core/share'
+import { encodeSettings } from '../core/share'
 import { inspectMetadata, type ImageMetadata } from '../core/exif'
 import {
   createScrubBatchItem,
@@ -41,7 +41,7 @@ import { ScrubStage } from './scrub-stage'
 import { h, show } from './dom'
 import { Engine } from './engine'
 import { decodeToWorkingCopy, DecodeError, DECODE_MESSAGES, imageFromTransfer, type WorkingCopy } from './loader'
-import { loadSettings, saveSettings, type Settings } from './settings'
+import { loadSettings, saveSettings, settingsFromHash, type Settings } from './settings'
 import { Stage } from './stage'
 
 // Wires the page together: one loaded picture, the image worker, the preview
@@ -916,9 +916,9 @@ export function startApp(): void {
   })
 
   window.addEventListener('hashchange', () => {
-    const fromHash = decodeSettings(window.location.hash)
+    const fromHash = settingsFromHash(window.location.hash, settings)
     if (fromHash) {
-      settings = { ...settings, ...fromHash }
+      settings = fromHash
       controls.sync()
       render()
     }

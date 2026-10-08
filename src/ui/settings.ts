@@ -40,85 +40,102 @@ export function defaultSettings(): Settings {
   }
 }
 
+/** The export sizes offered (× the machine's resolution). */
+export const MULTIPLIERS = [1, 2, 3, 4, 6, 8, 12, 16] as const
+
 const num = (v: unknown, lo: number, hi: number, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback
-const oneOf = <T extends string>(v: unknown, options: readonly T[], fallback: T): T =>
+const oneOf = <T extends string | number>(v: unknown, options: readonly T[], fallback: T): T =>
   options.includes(v as T) ? (v as T) : fallback
+const HEX = /^#[0-9a-f]{6}$/i
+
+/**
+ * Settings checked field by field: anything missing or odd keeps base's
+ * value. Saved settings and share links both come through here, so a link
+ * from a newer version (an unknown machine, say) can never break the page.
+ */
+export function checkSettings(loaded: Record<string, unknown>, base: Settings): Settings {
+  const a = (loaded.adjust && typeof loaded.adjust === 'object' ? loaded.adjust : {}) as Record<string, unknown>
+  const f = (loaded.fx && typeof loaded.fx === 'object' ? loaded.fx : {}) as Record<string, unknown>
+  const fx: Fx = {
+    screen: oneOf(
+      f.screen,
+      ['off', 'crt', 'lcd', 'vhs', 'composite', 'p1-green', 'p3-amber', 'p4-white'] as const,
+      base.fx.screen
+    ),
+    mask: oneOf(f.mask, ['none', 'shadow', 'grille'] as const, base.fx.mask),
+    scanlines: num(f.scanlines, 0, 1, base.fx.scanlines),
+    curve: num(f.curve, 0, 1, base.fx.curve),
+    bloom: num(f.bloom, 0, 1, base.fx.bloom),
+    grid: num(f.grid, 0, 1, base.fx.grid),
+    ghost: num(f.ghost, 0, 1, base.fx.ghost),
+    vhsTracking: num(f.vhsTracking, 0, 1, base.fx.vhsTracking ?? 0.8),
+    vhsOsd: typeof f.vhsOsd === 'boolean' ? f.vhsOsd : base.fx.vhsOsd !== false
+  }
+  const profileId = typeof loaded.profileId === 'string' && profileById(loaded.profileId) ? loaded.profileId : base.profileId
+  const ditherFallback = profileId === base.profileId ? base.dither : profileById(profileId)!.dither
+  // Palette indices are 8-bit: never more than 256 colours.
+  let customPalette = base.customPalette
+  if (Array.isArray(loaded.customPalette)) {
+    const colours = loaded.customPalette.filter((c): c is string => typeof c === 'string' && HEX.test(c)).slice(0, 256)
+    customPalette = colours.length > 0 ? colours : undefined
+  }
+
+  return {
+    profileId,
+    fit: oneOf(loaded.fit, ['fill', 'fit', 'stretch'] as const, base.fit),
+    resolution: oneOf(loaded.resolution, ['native', 'custom'] as const, base.resolution),
+    block: Math.round(num(loaded.block, 2, 32, base.block)),
+    background: oneOf(loaded.background, ['white', 'black'] as const, base.background),
+    adjust: {
+      brightness: num(a.brightness, -0.5, 0.5, base.adjust.brightness),
+      contrast: num(a.contrast, 0, 2, base.adjust.contrast),
+      saturation: num(a.saturation, 0, 2, base.adjust.saturation),
+      gamma: num(a.gamma, 0.4, 2.5, base.adjust.gamma)
+    },
+    dither: oneOf(loaded.dither, DITHERS.map((x) => x.id) as DitherId[], ditherFallback),
+    fx,
+    pixelShape: oneOf(loaded.pixelShape, ['raw', 'tv'] as const, base.pixelShape),
+    multiplier: oneOf(loaded.multiplier, MULTIPLIERS, base.multiplier as (typeof MULTIPLIERS)[number]),
+    exportFx: typeof loaded.exportFx === 'boolean' ? loaded.exportFx : base.exportFx,
+    animationStyle: oneOf(
+      loaded.animationStyle,
+      ['screen-fx', 'compare-wipe', 'dither-shimmer'] as const,
+      base.animationStyle
+    ),
+    customCount:
+      typeof loaded.customCount === 'number' && Number.isFinite(loaded.customCount)
+        ? Math.round(num(loaded.customCount, 2, 256, 16))
+        : base.customCount,
+    customPalette
+  }
+}
+
+/** The settings in a share link, on top of base; null if the link can't be read. */
+export function settingsFromHash(hash: string, base: Settings): Settings | null {
+  const raw = decodeSettings(hash)
+  return raw ? checkSettings(raw, base) : null
+}
 
 /** Settings from storage, checked field by field (anything odd falls back). */
 export function loadSettings(): Settings {
-  const d = defaultSettings()
-  let raw: Record<string, unknown> | null = null
+  let raw: unknown = null
   try {
     raw = JSON.parse(localStorage.getItem(KEY) || 'null')
   } catch {
     raw = null
   }
-  const loaded = raw && typeof raw === 'object' ? raw : {}
-  const a = (loaded.adjust ?? {}) as Record<string, unknown>
-  const f = (loaded.fx ?? {}) as Record<string, unknown>
-  const fx: Fx = {
-    screen: oneOf(
-      f.screen,
-      ['off', 'crt', 'lcd', 'vhs', 'composite', 'p1-green', 'p3-amber', 'p4-white'] as const,
-      d.fx.screen
-    ),
-    mask: oneOf(f.mask, ['none', 'shadow', 'grille'] as const, d.fx.mask),
-    scanlines: num(f.scanlines, 0, 1, d.fx.scanlines),
-    curve: num(f.curve, 0, 1, d.fx.curve),
-    bloom: num(f.bloom, 0, 1, d.fx.bloom),
-    grid: num(f.grid, 0, 1, d.fx.grid),
-    ghost: num(f.ghost, 0, 1, d.fx.ghost),
-    vhsTracking: num(f.vhsTracking, 0, 1, d.fx.vhsTracking ?? 0.8),
-    vhsOsd: f.vhsOsd !== false
-  }
-  const profileId = profileById(String(loaded.profileId)) ? String(loaded.profileId) : d.profileId
+  const stored = checkSettings(raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}, defaultSettings())
   // The colours slider resets whenever a machine is picked, so a saved value
   // is only kept for the Custom machine. (Before v0.8.3 every visitor had 16
   // saved, which capped every range machine at 16.)
-  const customCount =
-    profileId === 'custom' && typeof loaded.customCount === 'number'
-      ? Math.round(num(loaded.customCount, 2, 256, 16))
-      : d.customCount
-  const customPalette = Array.isArray(loaded.customPalette)
-    ? (loaded.customPalette.filter((c) => typeof c === 'string') as string[])
-    : undefined
-
-  const base: Settings = {
-    profileId,
-    fit: oneOf(loaded.fit, ['fill', 'fit', 'stretch'] as const, d.fit),
-    resolution: oneOf(loaded.resolution, ['native', 'custom'] as const, d.resolution),
-    block: Math.round(num(loaded.block, 2, 32, d.block)),
-    background: oneOf(loaded.background, ['white', 'black'] as const, d.background),
-    adjust: {
-      brightness: num(a.brightness, -0.5, 0.5, 0),
-      contrast: num(a.contrast, 0, 2, 1),
-      saturation: num(a.saturation, 0, 2, 1),
-      gamma: num(a.gamma, 0.4, 2.5, 1)
-    },
-    dither: oneOf(loaded.dither, DITHERS.map((x) => x.id) as DitherId[], profileById(profileId)!.dither),
-    fx,
-    pixelShape: oneOf(loaded.pixelShape, ['raw', 'tv'] as const, d.pixelShape),
-    multiplier: Math.round(num(loaded.multiplier, 1, 16, d.multiplier)),
-    exportFx: loaded.exportFx === true,
-    animationStyle: oneOf(
-      loaded.animationStyle,
-      ['screen-fx', 'compare-wipe', 'dither-shimmer'] as const,
-      d.animationStyle
-    ),
-    customCount,
-    customPalette
-  }
+  if (stored.profileId !== 'custom') stored.customCount = undefined
 
   // If a share link with hash settings was opened, it takes precedence
   if (typeof window !== 'undefined' && window.location.hash) {
-    const fromHash = decodeSettings(window.location.hash)
-    if (fromHash) {
-      return { ...base, ...fromHash }
-    }
+    return settingsFromHash(window.location.hash, stored) ?? stored
   }
-
-  return base
+  return stored
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined

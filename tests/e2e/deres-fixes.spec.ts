@@ -65,3 +65,16 @@ test('a grabbed palette stays with the Custom machine', async ({ page }) => {
   await pick(page, 'atari-st')
   await expect.poll(async () => (await colours(page))[1]).toBeGreaterThan(6)
 })
+
+test("a share link naming a machine this version doesn't have still opens the page", async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  const raw = { p: 'future-machine', d: 'quantum', b: 0, m: 9999, cc: 100000, fx: ['hologram'] }
+  await page.goto(`/#s=${Buffer.from(JSON.stringify(raw)).toString('base64url')}`)
+  await ready(page)
+  await expect(page.locator('.card[data-profile="gameboy"]')).toHaveAttribute('aria-pressed', 'true')
+  // A good link opened afterwards (the hash changes) is applied.
+  await page.evaluate((h) => (window.location.hash = h), `#s=${Buffer.from(JSON.stringify({ p: 'vga' })).toString('base64url')}`)
+  await ready(page, '320×200')
+  expect(errors).toEqual([])
+})

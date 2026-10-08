@@ -6,7 +6,7 @@ import { colourCount, exportSize, MAX_EXPORT_PIXELS, maxColourCount, paletteByte
 import { PROFILES, profileById, representativePalette } from '../core/profiles'
 import type { HardwareFitReport } from '../core/tiles'
 import { h, segmented, show, slider } from './dom'
-import type { Settings } from './settings'
+import { MULTIPLIERS, type Settings } from './settings'
 
 // The control column, in pipeline order: Image -> Hardware -> Adjust ->
 // Dither -> Screen -> Export. Every control writes through ctx.set() and is
@@ -31,7 +31,7 @@ export interface ControlsContext {
   geometry(): Geometry | null
 }
 
-export const MULTIPLIERS = [1, 2, 3, 4, 6, 8, 12, 16] as const
+export { MULTIPLIERS }
 
 function section(title: string, open: boolean, ...body: (Node | null)[]): HTMLDetailsElement {
   return h(
