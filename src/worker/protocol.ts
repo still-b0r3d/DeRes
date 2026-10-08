@@ -72,7 +72,8 @@ export interface RenderedMessage {
   rgba: ArrayBuffer
   fx: { width: number; height: number; rgba: ArrayBuffer } | null
   used: number
-  colours: number
+  /** How many colours the machine's list holds; null when it has no list. */
+  colours: number | null
   par: readonly [number, number]
   src: Rect
   dst: Rect

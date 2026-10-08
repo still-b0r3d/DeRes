@@ -650,7 +650,8 @@ export function startApp(): void {
     if (m.tileFit) {
       tileText = ` · ${m.tileFit.summary}`
     }
-    readout.textContent = `${m.used} of ${m.colours} colours used · ${m.width}×${m.height} · ${shape}${tileText}`
+    const coloursText = m.colours === null ? `${m.used} colours used` : `${m.used} of ${m.colours} colours used`
+    readout.textContent = `${coloursText} · ${m.width}×${m.height} · ${shape}${tileText}`
     readout.dataset.ms = String(m.ms)
   }
   engine.onError = (message) => stage.problem(`Something went wrong: ${message}`)

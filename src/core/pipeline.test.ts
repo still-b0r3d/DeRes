@@ -4,7 +4,7 @@ import { hexToRgb } from './color'
 import { exportPng, FX_MIN_MULTIPLIER } from './export'
 import { DEFAULT_FX } from './fx'
 import { DITHERS } from './dither'
-import { colourCount, Deres, ditherApplies, ditherNote, exportSize, MAX_EXPORT_PIXELS, paletteBytes, type DeresSettings } from './pipeline'
+import { colourCount, colourTotal, Deres, ditherApplies, ditherNote, exportSize, MAX_EXPORT_PIXELS, paletteBytes, type DeresSettings } from './pipeline'
 import { decodePng } from './png'
 import { PROFILES, profileById } from './profiles'
 import { C64_PALETTE, SPECTRUM_BRIGHT, SPECTRUM_NORMAL, spectrumBitmapOffset } from './cell'
@@ -412,6 +412,28 @@ describe('"fit" bars on the per-cell machines', () => {
     for (let i = 0; i < r.width * r.height; i++) {
       const k = r.indices[i]
       expect([r.rgb[i * 3], r.rgb[i * 3 + 1], r.rgb[i * 3 + 2]]).toEqual([r.palette[k * 3], r.palette[k * 3 + 1], r.palette[k * 3 + 2]])
+    }
+  })
+})
+
+describe('colourTotal (the "of N" in the readout)', () => {
+  it('is the palette size for machines with a colour list, and none for the rest', () => {
+    const noList = new Set(['direct', 'ham', 'n64', 'analog'])
+    for (const p of PROFILES) {
+      const t = colourTotal(p, new Uint8Array(3 * 7))
+      if (noList.has(p.palette.kind)) expect(t, p.id).toBeNull()
+      else expect(t, p.id).toBe(7)
+    }
+  })
+
+  it('never says fewer colours were available than were used', () => {
+    const d = new Deres()
+    d.setSource(testPicture(64, 48), 64, 48, 64, 48)
+    for (const id of ['ps1', 'n64', 'amiga-ham6', 'snes', 'gameboy']) {
+      const p = profileById(id)!
+      const r = d.render(settings({ profileId: id }))
+      const total = colourTotal(p, r.palette)
+      if (total !== null) expect(r.used, id).toBeLessThanOrEqual(total)
     }
   })
 })

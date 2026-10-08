@@ -157,3 +157,12 @@ test('animations stop at a size a phone can hold, and say how far along they are
   expect(seen.some((t) => /frame 1 of \d+/.test(t))).toBe(true)
   expect(seen.some((t) => /frame (\d+) of \1\b/.test(t))).toBe(true)
 })
+
+test('machines with no colour list say how many colours, not "of" a made-up total', async ({ page }) => {
+  for (const id of ['ps1', 'n64', 'amiga-ham6']) {
+    await pick(page, id)
+    await expect(readout(page)).toHaveText(/^\d+ colours used · /)
+  }
+  await pick(page, 'snes')
+  await expect(readout(page)).toHaveText(/^\d+ of \d+ colours used · /)
+})

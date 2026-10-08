@@ -116,6 +116,17 @@ export function colourCount(profile: Profile, customCount?: number): number | nu
 }
 
 /**
+ * The "of N" in "N of M colours used": how many colours the machine's list
+ * holds. Null for machines with no list (15-bit direct colour, HAM, the N64
+ * filter, the analog looks), whose palette is just the first colours seen.
+ */
+export function colourTotal(profile: Profile, palette: Uint8Array): number | null {
+  const k = profile.palette.kind
+  if (k === 'direct' || k === 'ham' || k === 'n64' || k === 'analog') return null
+  return palette.length / 3
+}
+
+/**
  * Whether a dither choice changes the picture on a machine. Machines with
  * their own colour rules (per-cell clash, HAM, the N64 filter, the analog
  * looks) never dither; the PlayStation has only its own hardware dither.

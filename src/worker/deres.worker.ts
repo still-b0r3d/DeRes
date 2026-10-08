@@ -2,7 +2,7 @@ import { generateAnimatedExport } from '../core/animate'
 import { exportPng, exportWallpaper, wallpaperPresetById } from '../core/export'
 import { exportFilename } from '../core/filename'
 import { renderFxRgba } from '../core/fx'
-import { Deres, exportSize, type DeresSettings, type Rendered } from '../core/pipeline'
+import { colourTotal, Deres, exportSize, type DeresSettings, type Rendered } from '../core/pipeline'
 import { profileById } from '../core/profiles'
 import type { FromWorker, ToWorker } from './protocol'
 
@@ -70,7 +70,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
           rgba: rgba.buffer,
           fx,
           used: r.used,
-          colours: r.palette.length / 3,
+          colours: prof ? colourTotal(prof, r.palette) : r.palette.length / 3,
           par: r.geometry.par,
           src: r.geometry.src,
           dst: r.geometry.dst,
