@@ -181,11 +181,8 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
       downloadZipBtn.disabled = false
       downloadZipBtn.textContent = `Download Clean ZIP (${items.length} photos)`
       show(clearBatchBtn, true)
-    } else if (pic || items.length === 1) {
-      const size = pic?.size ?? items[0].size
-      const name = pic?.name ?? items[0].name
-      const sizeKb = (size / 1024).toFixed(1)
-      pictureInfo.textContent = `${name} · ${sizeKb} KB`
+    } else if (pic) {
+      pictureInfo.textContent = `${pic.name} · ${(pic.size / 1024).toFixed(1)} KB`
       show(downloadSingleBtn, true)
       downloadSingleBtn.disabled = false
       show(downloadZipBtn, false)

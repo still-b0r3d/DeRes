@@ -54,6 +54,23 @@ interface Picture {
   hasAlpha: boolean
 }
 
+/** The file the scrubber works on outside batch mode, as opened (the raw bytes). */
+interface ScrubFile {
+  bytes: Uint8Array
+  meta: ImageMetadata
+  /** For the preview; null when this browser can't show the picture. */
+  url: string | null
+  name: string
+}
+
+const MIME: Record<ImageMetadata['format'], string> = {
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  heic: 'image/heic',
+  unknown: 'application/octet-stream'
+}
+
 const ASCII_STORAGE_KEY = 'b0r3d_ascii_settings'
 
 function loadAsciiSettings(): AsciiSettings {
@@ -81,30 +98,32 @@ export function startApp(): void {
   let scrubOptions: ScrubOptions = { mode: 'all', preserveOrientation: true }
   let picture: Picture | null = null
   let currentAsciiResult: AsciiResult | null = null
-  let rawImageBytes: Uint8Array | null = null
-  let rawImageMeta: ImageMetadata | null = null
-  let rawImageUrl: string | null = null
-  let rawImageSize = 0
+  // The scrubber: one file (the last one opened), or a batch when several
+  // photos were picked or dropped together. The sample never joins a batch,
+  // and any new pick, drop or paste replaces the batch.
+  let scrubFile: ScrubFile | null = null
   let batchItems: ScrubBatchItem[] = []
   let activeBatchIndex = 0
+  let batchPreviewUrl: string | null = null
   let opening = 0
 
   function selectBatchIndex(idx: number): void {
     if (idx < 0 || idx >= batchItems.length) return
     activeBatchIndex = idx
-    const item = batchItems[idx]
-    rawImageBytes = item.rawBytes
-    rawImageSize = item.size
-    rawImageMeta = item.meta
-    if (rawImageUrl) URL.revokeObjectURL(rawImageUrl)
-    const mime =
-      item.meta.format === 'jpeg' ? 'image/jpeg' : item.meta.format === 'png' ? 'image/png' : 'image/webp'
-    const blob = new Blob([item.rawBytes.buffer as ArrayBuffer], { type: mime })
-    rawImageUrl = URL.createObjectURL(blob)
+    showScrub()
+  }
 
+  /** Puts the scrubber's current file or batch on screen. */
+  function showScrub(): void {
+    if (batchPreviewUrl) URL.revokeObjectURL(batchPreviewUrl)
+    batchPreviewUrl = null
     scrubStage.showBatch(batchItems, activeBatchIndex, selectBatchIndex)
-    if (rawImageMeta && rawImageUrl) {
-      scrubStage.showMetadata(rawImageMeta, rawImageUrl)
+    if (batchItems.length > 1) {
+      const item = batchItems[activeBatchIndex]
+      batchPreviewUrl = URL.createObjectURL(new Blob([item.rawBytes.buffer as ArrayBuffer], { type: MIME[item.meta.format] }))
+      scrubStage.showMetadata(item.meta, batchPreviewUrl)
+    } else if (scrubFile) {
+      scrubStage.showMetadata(scrubFile.meta, scrubFile.url)
     }
     scrubControls.sync()
   }
@@ -114,20 +133,17 @@ export function startApp(): void {
     if (list.length === 0) return
 
     if (list.length > 1) {
+      const items: ScrubBatchItem[] = []
       for (const file of list) {
         try {
-          const buf = await file.arrayBuffer()
-          const bytes = new Uint8Array(buf)
-          const item = createScrubBatchItem(bytes, file.name)
-          batchItems.push(item)
+          items.push(createScrubBatchItem(new Uint8Array(await file.arrayBuffer()), file.name))
         } catch {
           // ignore unreadable
         }
       }
-      activeBatchIndex = Math.max(0, batchItems.length - list.length)
-      selectBatchIndex(activeBatchIndex)
-      await open(list[0], list[0].name)
-      scrubControls.sync()
+      batchItems = items
+      activeBatchIndex = 0
+      await open(list[0], list[0].name, true)
     } else {
       await open(list[0], list[0].name)
     }
@@ -509,20 +525,17 @@ export function startApp(): void {
     clearBatch: () => {
       batchItems = []
       activeBatchIndex = 0
-      scrubControls.sync()
-      scrubStage.showBatch(batchItems, -1, selectBatchIndex)
+      showScrub()
     },
     scrubAndDownload: () => {
-      if (!rawImageBytes || !picture) return
+      if (!scrubFile) return
       try {
         scrubControls.status('Scrubbing metadata…')
-        const result = scrubImage(rawImageBytes, scrubOptions)
+        const result = scrubImage(scrubFile.bytes, scrubOptions)
         scrubStage.showSelfCheck(result.report)
         const ext = result.format === 'jpeg' ? 'jpg' : result.format
-        const mimeType =
-          result.format === 'jpeg' ? 'image/jpeg' : result.format === 'png' ? 'image/png' : 'image/webp'
-        const filename = `${picture.base}-clean.${ext}`
-        const blob = new Blob([result.data.buffer as ArrayBuffer], { type: mimeType })
+        const filename = `${baseName(scrubFile.name)}-clean.${ext}`
+        const blob = new Blob([result.data.buffer as ArrayBuffer], { type: MIME[result.format] })
         const url = URL.createObjectURL(blob)
         const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
         document.body.append(a)
@@ -567,7 +580,7 @@ export function startApp(): void {
         scrubControls.status(`ZIP failed: ${(err as Error).message}`)
       }
     },
-    picture: () => (picture ? { name: picture.name, size: rawImageSize } : null)
+    picture: () => (scrubFile ? { name: scrubFile.name, size: scrubFile.bytes.length } : null)
   })
 
   const deresControlsSlot = controls.el
@@ -608,11 +621,7 @@ export function startApp(): void {
       asciiControls.sync()
       renderAscii()
     } else if (tool === 'scrub') {
-      scrubControls.sync()
-      scrubStage.showBatch(batchItems, activeBatchIndex, selectBatchIndex)
-      if (rawImageMeta && rawImageUrl) {
-        scrubStage.showMetadata(rawImageMeta, rawImageUrl)
-      }
+      showScrub()
     } else {
       controls.sync()
       render()
@@ -650,8 +659,18 @@ export function startApp(): void {
     if (settings.fx.screen !== 'off') render()
   }
 
-  async function open(blob: Blob, name: string): Promise<void> {
+  function setScrubFile(file: ScrubFile): void {
+    if (scrubFile?.url) URL.revokeObjectURL(scrubFile.url)
+    scrubFile = file
+  }
+
+  /** Opens one picture. A batch (several files picked together) passes inBatch for its first file. */
+  async function open(blob: Blob, name: string, inBatch = false): Promise<void> {
     const ticket = ++opening
+    if (!inBatch) {
+      batchItems = []
+      activeBatchIndex = 0
+    }
     if (!picture) {
       stage.message('Opening…')
       asciiStage.message('Opening…')
@@ -660,20 +679,11 @@ export function startApp(): void {
       readout.textContent = 'Opening…'
     }
 
+    let bytes: Uint8Array | null = null
     try {
-      const arrayBuf = await blob.arrayBuffer()
-      rawImageBytes = new Uint8Array(arrayBuf)
-      rawImageSize = blob.size
-      rawImageMeta = inspectMetadata(rawImageBytes)
-      if (rawImageUrl) URL.revokeObjectURL(rawImageUrl)
-      rawImageUrl = URL.createObjectURL(blob)
-
-      if (batchItems.length <= 1) {
-        batchItems = [createScrubBatchItem(rawImageBytes, name)]
-        activeBatchIndex = 0
-      }
+      bytes = new Uint8Array(await blob.arrayBuffer())
     } catch {
-      // ignore
+      // The decode below reports it.
     }
 
     let copy: WorkingCopy
@@ -687,26 +697,23 @@ export function startApp(): void {
         asciiStage.message('Choose a photo to start.')
         scrubStage.message('Choose a photo to start.')
       }
+      showScrub()
       stage.problem(text)
       asciiStage.problem(text)
       scrubStage.problem(text)
       controls.sync()
       asciiControls.sync()
-      scrubControls.sync()
       return
     }
     if (ticket !== opening) return
     const hasAlpha = await engine.load(copy)
     if (ticket !== opening) return
     picture = { copy, name, base: baseName(name), hasAlpha }
+    if (bytes) setScrubFile({ bytes, meta: inspectMetadata(bytes), url: URL.createObjectURL(blob), name })
     stage.setSource(copy.canvas)
     controls.sync()
     asciiControls.sync()
-    scrubControls.sync()
-    if (rawImageMeta && rawImageUrl) {
-      scrubStage.showBatch(batchItems, activeBatchIndex, selectBatchIndex)
-      scrubStage.showMetadata(rawImageMeta, rawImageUrl)
-    }
+    showScrub()
     if (activeTool === 'ascii') {
       renderAscii()
     } else if (activeTool === 'scrub') {

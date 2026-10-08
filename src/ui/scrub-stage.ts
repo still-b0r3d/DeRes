@@ -22,6 +22,7 @@ export class ScrubStage {
   private readonly batchSummaryEl: HTMLElement
   private readonly batchTableEl: HTMLTableElement
   private readonly previewImg: HTMLImageElement
+  private readonly previewWrap: HTMLElement
   private readonly narrativeEl: HTMLElement
   private readonly gpsAlertEl: HTMLElement
   private readonly gpsCoordsEl: HTMLElement
@@ -56,6 +57,7 @@ export class ScrubStage {
       alt: 'Loaded photo preview',
       'data-testid': 'scrub-preview-img'
     })
+    this.previewWrap = h('div', { class: 'scrub-preview-wrap' }, this.previewImg)
 
     // Narrative
     this.narrativeEl = h('div', {
@@ -137,7 +139,7 @@ export class ScrubStage {
       'div',
       { class: 'scrub-content', hidden: true },
       this.batchPanelEl,
-      h('div', { class: 'scrub-preview-wrap' }, this.previewImg),
+      this.previewWrap,
       this.checkBannerEl,
       this.narrativeEl,
       this.gpsAlertEl,
@@ -220,13 +222,16 @@ export class ScrubStage {
     )
   }
 
-  showMetadata(meta: ImageMetadata, imageUrl: string): void {
+  /** Shows a file's metadata; imageUrl is null when this browser can't show the picture. */
+  showMetadata(meta: ImageMetadata, imageUrl: string | null): void {
     this.currentMeta = meta
     show(this.statusMsg, false)
     show(this.contentContainer, true)
 
     // Preview
-    this.previewImg.src = imageUrl
+    show(this.previewWrap, imageUrl !== null)
+    if (imageUrl) this.previewImg.src = imageUrl
+    else this.previewImg.removeAttribute('src')
 
     // Reset check banner
     show(this.checkBannerEl, false)

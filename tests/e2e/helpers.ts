@@ -63,6 +63,24 @@ export async function download(page: Page, button: Locator): Promise<{ download:
   return { download: d, bytes: new Uint8Array(readFileSync(path!)) }
 }
 
+/** The file names in a ZIP, from its central directory. */
+export function zipNames(zip: Uint8Array): string[] {
+  const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength)
+  const eocd = zip.length - 22
+  expect(view.getUint32(eocd, true)).toBe(0x06054b50)
+  const count = view.getUint16(eocd + 10, true)
+  let p = view.getUint32(eocd + 16, true)
+  const names: string[] = []
+  for (let i = 0; i < count; i++) {
+    expect(view.getUint32(p, true)).toBe(0x02014b50)
+    const n = view.getUint16(p + 28, true)
+    const extra = view.getUint16(p + 30, true) + view.getUint16(p + 32, true)
+    names.push(new TextDecoder().decode(zip.subarray(p + 46, p + 46 + n)))
+    p += 46 + n + extra
+  }
+  return names
+}
+
 /** Opens the page fresh, with nothing remembered, and waits for the sample. */
 export async function freshPage(page: Page) {
   await page.goto('/')
