@@ -3,7 +3,8 @@ import { NEUTRAL } from './adjust'
 import { hexToRgb } from './color'
 import { exportPng, FX_MIN_MULTIPLIER } from './export'
 import { DEFAULT_FX } from './fx'
-import { colourCount, Deres, exportSize, MAX_EXPORT_PIXELS, paletteBytes, type DeresSettings } from './pipeline'
+import { DITHERS } from './dither'
+import { colourCount, Deres, ditherApplies, ditherNote, exportSize, MAX_EXPORT_PIXELS, paletteBytes, type DeresSettings } from './pipeline'
 import { decodePng } from './png'
 import { PROFILES, profileById } from './profiles'
 
@@ -292,3 +293,34 @@ describe('.chr tile exports', () => {
   })
 })
 
+
+describe('which dithers a machine can use', () => {
+  const ownRules = PROFILES.filter((p) => ['cell', 'ham', 'n64', 'analog'].includes(p.palette.kind)).map((p) => p.id)
+
+  it.each(ownRules)('%s makes its own colour choices, so no dither changes it', (id) => {
+    const d = loaded()
+    const base = d.render(settings({ profileId: id, dither: 'none' })).rgb
+    for (const dither of ['floyd', 'bayer4', 'atkinson'] as const) {
+      expect(Buffer.from(d.render(settings({ profileId: id, dither })).rgb).equals(Buffer.from(base))).toBe(true)
+    }
+    for (const x of DITHERS) expect(ditherApplies(profileById(id)!, x.id)).toBe(false)
+    expect(ditherNote(profileById(id)!)).toBeTruthy()
+  })
+
+  it('PlayStation: only none and its own hardware dither', () => {
+    const ps1 = profileById('ps1')!
+    expect(DITHERS.filter((x) => ditherApplies(ps1, x.id)).map((x) => x.id)).toEqual(['none', 'ps1'])
+    const d = loaded()
+    const none = d.render(settings({ profileId: 'ps1', dither: 'none' })).rgb
+    expect(Buffer.from(d.render(settings({ profileId: 'ps1', dither: 'floyd' })).rgb).equals(Buffer.from(none))).toBe(true)
+    expect(ditherNote(ps1)).toBeTruthy()
+  })
+
+  it('palette machines can use every general dither', () => {
+    for (const id of ['gameboy', 'c64-hires', 'vga', 'amstrad-cpc-0', 'custom']) {
+      const p = profileById(id)!
+      for (const x of DITHERS.filter((x) => !x.native)) expect(ditherApplies(p, x.id)).toBe(true)
+      expect(ditherNote(p)).toBeNull()
+    }
+  })
+})

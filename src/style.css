@@ -622,7 +622,7 @@ button:disabled {
   border-radius: 4px;
 }
 
-.dither:hover {
+.dither:hover:not(:disabled) {
   border-color: var(--muted);
 }
 

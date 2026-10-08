@@ -115,6 +115,27 @@ export function colourCount(profile: Profile, customCount?: number): number | nu
   return Math.min(max, Math.max(2, want))
 }
 
+/**
+ * Whether a dither choice changes the picture on a machine. Machines with
+ * their own colour rules (per-cell clash, HAM, the N64 filter, the analog
+ * looks) never dither; the PlayStation has only its own hardware dither.
+ */
+export function ditherApplies(profile: Profile, id: DitherId): boolean {
+  const kind = profile.palette.kind
+  if (kind === 'cell' || kind === 'ham' || kind === 'n64' || kind === 'analog') return false
+  if (kind === 'direct') return id === 'none' || id === 'ps1'
+  return true
+}
+
+/** One line saying why some dithers are greyed out on a machine, or null. */
+export function ditherNote(profile: Profile): string | null {
+  const kind = profile.palette.kind
+  if (kind === 'cell') return 'This machine picks its colours cell by cell, so dithering doesn’t apply.'
+  if (kind === 'ham' || kind === 'n64' || kind === 'analog') return 'This look makes its own colours, so dithering doesn’t apply.'
+  if (kind === 'direct') return 'The PlayStation has only its own hardware dither (or none).'
+  return null
+}
+
 export function paletteBytes(profile: Profile, customPalette?: readonly string[]): Uint8Array {
   const hexes =
     profile.palette.kind === 'custom' && customPalette && customPalette.length > 0

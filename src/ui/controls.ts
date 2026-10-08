@@ -2,7 +2,7 @@ import { NEUTRAL } from '../core/adjust'
 import { DITHERS } from '../core/dither'
 import { FX_MIN_MULTIPLIER } from '../core/export'
 import type { Geometry } from '../core/geometry'
-import { colourCount, exportSize, MAX_EXPORT_PIXELS, maxColourCount, paletteBytes } from '../core/pipeline'
+import { colourCount, ditherApplies, ditherNote, exportSize, MAX_EXPORT_PIXELS, maxColourCount, paletteBytes } from '../core/pipeline'
 import { PROFILES, profileById, representativePalette } from '../core/profiles'
 import type { HardwareFitReport } from '../core/tiles'
 import { h, segmented, show, slider } from './dom'
@@ -234,7 +234,8 @@ export function buildControls(ctx: ControlsContext): {
     ditherButtons.set(d.id, b)
     ditherList.append(b)
   }
-  const ditherSec = section('Dither', true, ditherList)
+  const ditherNoteEl = h('p', { class: 'hint', 'data-testid': 'dither-note', hidden: true })
+  const ditherSec = section('Dither', true, ditherNoteEl, ditherList)
 
   // Screen
   const fxPatch = (patch: Partial<Settings['fx']>) => set({ fx: { ...ctx.get().fx, ...patch } })
@@ -510,8 +511,13 @@ export function buildControls(ctx: ControlsContext): {
     for (const d of DITHERS) {
       const b = ditherButtons.get(d.id)!
       show(b, !d.native || p.nativeDither === d.id)
-      b.setAttribute('aria-pressed', String(s.dither === d.id))
+      // Greyed out where it would change nothing on this machine.
+      b.disabled = !ditherApplies(p, d.id)
+      b.setAttribute('aria-pressed', String(s.dither === d.id && !b.disabled))
     }
+    const dNote = ditherNote(p)
+    ditherNoteEl.textContent = dNote ?? ''
+    show(ditherNoteEl, dNote !== null)
 
     screen.set(s.fx.screen)
     const hasCrt =

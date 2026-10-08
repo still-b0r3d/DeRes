@@ -108,3 +108,22 @@ test('.chr: NES tiles on NES (attributes), none on the plain NES look, and it sa
   await pick(page, 'gameboy')
   await expect(chr).toHaveText('Download .chr (Game Boy tiles)')
 })
+
+test("dithers that change nothing on a machine are greyed out, with a note why", async ({ page }) => {
+  const btn = (id: string) => page.locator(`.dither[data-dither="${id}"]`)
+  const note = page.getByTestId('dither-note')
+
+  await pick(page, 'zx-spectrum')
+  for (const id of ['none', 'bayer4', 'floyd', 'yliluoma']) await expect(btn(id)).toBeDisabled()
+  await expect(note).toContainText('cell by cell')
+
+  await pick(page, 'ps1')
+  await expect(btn('none')).toBeEnabled()
+  await expect(btn('ps1')).toBeEnabled()
+  await expect(btn('floyd')).toBeDisabled()
+  await expect(note).toContainText('PlayStation')
+
+  await pick(page, 'gameboy')
+  for (const id of ['none', 'bayer4', 'floyd', 'yliluoma']) await expect(btn(id)).toBeEnabled()
+  await expect(note).toBeHidden()
+})
