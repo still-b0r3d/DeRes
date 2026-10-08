@@ -450,7 +450,7 @@ export function startApp(): void {
         a.click()
         a.remove()
         setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        asciiControls.status(`Saved ${picture.base}.prg (2,002 bytes Commodore 64 binary).`)
+        asciiControls.status(`Saved ${picture.base}.prg (${bytes.length.toLocaleString()} bytes: on a C64, LOAD it and type RUN).`)
       } catch (err) {
         asciiControls.status(`Couldn't export .prg: ${(err as Error).message}`)
       }

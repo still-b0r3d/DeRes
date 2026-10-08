@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { freshPage } from './helpers'
+import { download, freshPage } from './helpers'
 
 // ASCII / ANSI studio fixes from the 2026-10-07 review.
 
@@ -17,4 +17,10 @@ test('PETSCII is always a 40×25 C64 screen, and says so', async ({ page }) => {
   await page.getByRole('button', { name: 'Half-block (▀)' }).click()
   await expect(page.getByTestId('ascii-c64-note')).toBeHidden()
   await expect(page.getByRole('button', { name: '80 cols (BBS)' })).toBeVisible()
+})
+
+test('the .prg status line gives its real size', async ({ page }) => {
+  await page.getByRole('button', { name: 'PETSCII (C64)' }).click()
+  const { bytes } = await download(page, page.getByTestId('ascii-download-prg'))
+  await expect(page.getByTestId('ascii-status')).toContainText(`${bytes.length.toLocaleString('en-US')} bytes`)
 })
