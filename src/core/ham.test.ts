@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { processAmigaHam6 } from './ham'
-import { linearToByte, srgbToLinear } from './color'
+import { BYTE_TO_LINEAR, linearToByte } from './color'
 
 describe('Amiga HAM6 processing', () => {
   it('correctly holds and modifies channels across a scanline', () => {
@@ -10,9 +10,9 @@ describe('Amiga HAM6 processing', () => {
 
     // Smooth gradient across 4 pixels
     for (let x = 0; x < 4; x++) {
-      rgb[x * 3] = srgbToLinear(x * 60)
-      rgb[x * 3 + 1] = srgbToLinear(x * 40)
-      rgb[x * 3 + 2] = srgbToLinear(x * 80)
+      rgb[x * 3] = BYTE_TO_LINEAR[x * 60]
+      rgb[x * 3 + 1] = BYTE_TO_LINEAR[x * 40]
+      rgb[x * 3 + 2] = BYTE_TO_LINEAR[x * 80]
     }
 
     const res = processAmigaHam6(rgb, w, h)

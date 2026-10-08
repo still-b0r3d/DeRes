@@ -1,4 +1,4 @@
-import { linearToByte, srgbToLinear } from './color'
+import { BYTE_TO_LINEAR, linearToByte } from './color'
 import { snapToBits } from './quantize'
 
 // Nintendo 64 hardware emulation:
@@ -53,9 +53,9 @@ export function processN64(
     const g5 = snapToBits(g8, 5)
     const b5 = snapToBits(b8, 5)
 
-    qRgb[i * 3] = srgbToLinear(r5)
-    qRgb[i * 3 + 1] = srgbToLinear(g5)
-    qRgb[i * 3 + 2] = srgbToLinear(b5)
+    qRgb[i * 3] = BYTE_TO_LINEAR[r5]
+    qRgb[i * 3 + 1] = BYTE_TO_LINEAR[g5]
+    qRgb[i * 3 + 2] = BYTE_TO_LINEAR[b5]
   }
 
   // Step 2: RDP 3-point triangular filter + VI blur

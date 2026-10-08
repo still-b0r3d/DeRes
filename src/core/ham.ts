@@ -1,4 +1,4 @@
-import { srgbToLinear, linearToByte } from './color'
+import { BYTE_TO_LINEAR, linearToByte } from './color'
 import { quantizeRgb } from './quantize'
 
 // Amiga HAM6 (Hold-And-Modify) simulation.
@@ -139,9 +139,9 @@ export function processAmigaHam6(
 
       seenColours.add((curR4 << 8) | (curG4 << 4) | curB4)
 
-      outRgb[i] = srgbToLinear(r8)
-      outRgb[i + 1] = srgbToLinear(g8)
-      outRgb[i + 2] = srgbToLinear(b8)
+      outRgb[i] = BYTE_TO_LINEAR[r8]
+      outRgb[i + 1] = BYTE_TO_LINEAR[g8]
+      outRgb[i + 2] = BYTE_TO_LINEAR[b8]
     }
   }
 

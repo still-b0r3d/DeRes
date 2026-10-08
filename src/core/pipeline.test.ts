@@ -324,3 +324,31 @@ describe('which dithers a machine can use', () => {
     }
   })
 })
+
+describe('machines with their own colour rules show their real colours', () => {
+  const cellIds = PROFILES.filter((p) => p.palette.kind === 'cell').map((p) => p.id)
+
+  it.each(cellIds)('%s: every pixel shows exactly the colour its index names', (id) => {
+    const r = loaded().render(settings({ profileId: id, dither: 'none' }))
+    for (let i = 0; i < r.width * r.height; i++) {
+      const k = r.indices[i]
+      expect([r.rgb[i * 3], r.rgb[i * 3 + 1], r.rgb[i * 3 + 2]]).toEqual([r.palette[k * 3], r.palette[k * 3 + 1], r.palette[k * 3 + 2]])
+    }
+    expect(r.used).toBeGreaterThan(2)
+  })
+
+  it.each(['amiga-ham6', 'n64'])('%s: a mid-grey photo stays mid-grey, and a colourful one stays colourful', (id) => {
+    const d = new Deres()
+    const grey = new Uint8ClampedArray(64 * 64 * 4).fill(128)
+    for (let i = 3; i < grey.length; i += 4) grey[i] = 255
+    d.setSource(grey, 64, 64, 64, 64)
+    const g = d.render(settings({ profileId: id, dither: 'none' }))
+    const mean = g.rgb.reduce((s, v) => s + v, 0) / g.rgb.length
+    expect(mean).toBeGreaterThan(96)
+    expect(mean).toBeLessThan(160)
+    const c = loaded().render(settings({ profileId: id, dither: 'none' }))
+    const seen = new Set<number>()
+    for (let i = 0; i < c.width * c.height; i++) seen.add((c.rgb[i * 3] << 16) | (c.rgb[i * 3 + 1] << 8) | c.rgb[i * 3 + 2])
+    expect(seen.size).toBeGreaterThan(16)
+  })
+})

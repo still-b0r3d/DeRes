@@ -1,4 +1,4 @@
-import { hexToRgb, srgbToLinear, linearToByte } from './color'
+import { BYTE_TO_LINEAR, hexToRgb, linearToByte } from './color'
 import { snapToBits } from './quantize'
 
 // Per-cell graphics constraints for authentic vintage hardware:
@@ -159,14 +159,14 @@ export function processSpectrum(
           if (isInk) {
             byteVal |= 1 << (7 - px)
             indices[pIndex] = bestBright ? (bestInk === 0 ? 0 : bestInk + 7) : bestInk
-            outRgb[idx] = srgbToLinear(ir)
-            outRgb[idx + 1] = srgbToLinear(ig)
-            outRgb[idx + 2] = srgbToLinear(ib)
+            outRgb[idx] = BYTE_TO_LINEAR[ir]
+            outRgb[idx + 1] = BYTE_TO_LINEAR[ig]
+            outRgb[idx + 2] = BYTE_TO_LINEAR[ib]
           } else {
             indices[pIndex] = bestBright ? (bestPaper === 0 ? 0 : bestPaper + 7) : bestPaper
-            outRgb[idx] = srgbToLinear(pr)
-            outRgb[idx + 1] = srgbToLinear(pg)
-            outRgb[idx + 2] = srgbToLinear(pb)
+            outRgb[idx] = BYTE_TO_LINEAR[pr]
+            outRgb[idx + 1] = BYTE_TO_LINEAR[pg]
+            outRgb[idx + 2] = BYTE_TO_LINEAR[pb]
           }
         }
 
@@ -320,9 +320,9 @@ export function processC64Multicolour(
           byteVal |= (bestPattern & 3) << ((3 - px) * 2)
           indices[pIndex] = cellPalette[bestPattern]
           const [cr, cg, cb] = cellRgb[bestPattern]
-          outRgb[idx] = srgbToLinear(cr)
-          outRgb[idx + 1] = srgbToLinear(cg)
-          outRgb[idx + 2] = srgbToLinear(cb)
+          outRgb[idx] = BYTE_TO_LINEAR[cr]
+          outRgb[idx + 1] = BYTE_TO_LINEAR[cg]
+          outRgb[idx + 2] = BYTE_TO_LINEAR[cb]
         }
 
         const bitmapOffset = 2 + (cellIdx * 8 + py)
@@ -467,9 +467,9 @@ export function processNesAttributes(linearRgb: Float32Array, width: number, hei
           indices[pIdx] = activePal[bestC]
           colourNumbers[pIdx] = bestC
           const [cr, cg, cb] = activeRgb[bestC]
-          outRgb[i] = srgbToLinear(cr)
-          outRgb[i + 1] = srgbToLinear(cg)
-          outRgb[i + 2] = srgbToLinear(cb)
+          outRgb[i] = BYTE_TO_LINEAR[cr]
+          outRgb[i + 1] = BYTE_TO_LINEAR[cg]
+          outRgb[i + 2] = BYTE_TO_LINEAR[cb]
         }
       }
     }
@@ -579,9 +579,9 @@ export function processApple2Hires(
         }
 
         indices[pIdx] = chosenIdx
-        outRgb[i] = srgbToLinear(cr)
-        outRgb[i + 1] = srgbToLinear(cg)
-        outRgb[i + 2] = srgbToLinear(cb)
+        outRgb[i] = BYTE_TO_LINEAR[cr]
+        outRgb[i + 1] = BYTE_TO_LINEAR[cg]
+        outRgb[i + 2] = BYTE_TO_LINEAR[cb]
       }
     }
   }
@@ -688,9 +688,9 @@ export function processMsxScreen2(
         const [cr, cg, cb] = d1 <= d2 ? [r1, g1, b1] : [r2, g2, b2]
 
         indices[pIdx] = chosen
-        outRgb[i] = srgbToLinear(cr)
-        outRgb[i + 1] = srgbToLinear(cg)
-        outRgb[i + 2] = srgbToLinear(cb)
+        outRgb[i] = BYTE_TO_LINEAR[cr]
+        outRgb[i + 1] = BYTE_TO_LINEAR[cg]
+        outRgb[i + 2] = BYTE_TO_LINEAR[cb]
       }
     }
   }
@@ -886,9 +886,9 @@ export function processGbcTiles(
 
           indices[pIdx] = bestK * 4 + bestC
           const [cr, cg, cb] = activePal[bestC]
-          outRgb[i] = srgbToLinear(cr)
-          outRgb[i + 1] = srgbToLinear(cg)
-          outRgb[i + 2] = srgbToLinear(cb)
+          outRgb[i] = BYTE_TO_LINEAR[cr]
+          outRgb[i + 1] = BYTE_TO_LINEAR[cg]
+          outRgb[i + 2] = BYTE_TO_LINEAR[cb]
         }
       }
     }
