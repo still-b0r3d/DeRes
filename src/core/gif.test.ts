@@ -284,3 +284,39 @@ describe('gif encoder', () => {
     expect(() => encodeGif([{ width: 2, height: 2, indices: new Uint8Array(4) }])).toThrow('GIF requires a color palette')
   })
 })
+
+describe('RGB GIF colour lookup', () => {
+  it('gives exactly the nearest palette colour for every pixel (the cache changes nothing)', () => {
+    const palette = new Uint8Array(Array.from({ length: 16 * 3 }, (_, i) => (i * 53) % 256))
+    const w = 37
+    const h = 23
+    const frames = [0, 1, 2].map((f) => {
+      const rgb = new Uint8Array(w * h * 3)
+      // Repeating colours (the cache is used) and one-offs.
+      for (let i = 0; i < rgb.length; i++) rgb[i] = i % 5 === 0 ? (i * 31 + f * 7) % 256 : (Math.floor(i / 9) * 17) % 256
+      return { width: w, height: h, delayMs: 100, rgb }
+    })
+    const nearest = (r: number, g: number, b: number) => {
+      let best = 0
+      let bestD = Infinity
+      for (let i = 0; i < 16; i++) {
+        const d = (r - palette[i * 3]) ** 2 + (g - palette[i * 3 + 1]) ** 2 + (b - palette[i * 3 + 2]) ** 2
+        if (d < bestD) {
+          bestD = d
+          best = i
+        }
+      }
+      return best
+    }
+    const expected = encodeGif(
+      frames.map((f) => ({
+        width: w,
+        height: h,
+        delayMs: 100,
+        indices: Uint8Array.from({ length: w * h }, (_, p) => nearest(f.rgb[p * 3], f.rgb[p * 3 + 1], f.rgb[p * 3 + 2]))
+      })),
+      { loop: 0, palette }
+    )
+    expect(Buffer.from(encodeRgbGif(frames, { loop: 0, palette })).equals(Buffer.from(expected))).toBe(true)
+  })
+})

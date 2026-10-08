@@ -291,7 +291,10 @@ export function encodeRgbGif(
     palB[i] = palette[i * 3 + 2]
   }
 
-  // Map RGB pixels of each frame to nearest palette index
+  // Map RGB pixels of each frame to nearest palette index. Each distinct
+  // colour is searched for once and remembered: animation frames repeat the
+  // same colours a great deal, and the search covers up to 256 entries.
+  const nearest = new Map<number, number>()
   const indexedFrames: GifFrame[] = []
   for (const f of frames) {
     const pixelCount = f.width * f.height
@@ -301,6 +304,12 @@ export function encodeRgbGif(
       const r = f.rgb[p * 3]
       const g = f.rgb[p * 3 + 1]
       const b = f.rgb[p * 3 + 2]
+      const key = (r << 16) | (g << 8) | b
+      const known = nearest.get(key)
+      if (known !== undefined) {
+        indices[p] = known
+        continue
+      }
 
       let bestIdx = 0
       let bestDist = Infinity
@@ -315,6 +324,7 @@ export function encodeRgbGif(
           if (dist === 0) break
         }
       }
+      nearest.set(key, bestIdx)
       indices[p] = bestIdx
     }
 
