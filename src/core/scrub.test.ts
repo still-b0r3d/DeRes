@@ -482,3 +482,44 @@ describe('small scrubber fixes', () => {
     expect(zipEntries.map((e) => e.name)).toEqual(['a-clean.jpg', 'a-clean-2.jpg', 'A-clean-3.jpg', 'a-clean-4.jpg', 'b-clean.jpg'])
   })
 })
+
+describe('progressive JPEGs: metadata between the scans', () => {
+  const sos = [0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]
+  const dht = [0xff, 0xc4, 0x00, 0x04, 0x00, 0x00]
+  const com = [0xff, 0xfe, 0x00, 0x07, 0x68, 0x69, 0x64, 0x64, 0x6e] // "hiddn"
+  const scan1 = [0x12, 0xff, 0x00, 0x34, 0xff, 0xd0, 0x56] // with a stuffed FF and a restart marker
+  const scan2 = [0x78, 0x9a]
+  const src = () =>
+    new Uint8Array([
+      0xff, 0xd8,
+      0xff, 0xdb, 0x00, 0x04, 0x00, 0x01, // DQT
+      0xff, 0xc2, 0x00, 0x05, 0x08, 0x00, 0x01, // SOF2 (progressive)
+      ...dht, ...sos, ...scan1,
+      ...fakeExifApp1(FAKE_PHONE), ...com, // tucked in between the scans
+      ...dht, ...sos, ...scan2,
+      0xff, 0xd9, 1, 2, 3
+    ])
+
+  it('the inspector sees it', () => {
+    expect(inspectMetadata(src()).gps).toBeDefined()
+  })
+
+  it('the scrubber removes it and keeps every scan', () => {
+    const out = scrubJpeg(src())
+    const meta = inspectMetadata(out)
+    expect(meta.gps).toBeUndefined()
+    expect(meta.make).toBeUndefined()
+    expect(meta.trailerBytes).toBe(0)
+    expect(Buffer.from(out).includes(Buffer.from('hiddn'))).toBe(false)
+    expect([...out]).toEqual([
+      0xff, 0xd8, ...buildMinimalOrientationApp1(6).subarray(0, 0), // (no orientation: the Exif came after the scan)
+      0xff, 0xdb, 0x00, 0x04, 0x00, 0x01,
+      0xff, 0xc2, 0x00, 0x05, 0x08, 0x00, 0x01,
+      ...dht, ...sos, ...scan1,
+      ...dht, ...sos, ...scan2,
+      0xff, 0xd9
+    ])
+    const r = verifyScrubbed(inspectMetadata(src()), src().length, out)
+    expect(r.isClean).toBe(true)
+  })
+})

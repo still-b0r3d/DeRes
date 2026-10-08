@@ -224,6 +224,28 @@ function wipeGpsFromTiff(data: Uint8Array, tiffStart: number): void {
   }
 }
 
+/** Where a JPEG's first scan (SOS) starts, or its length if it has none. */
+function jpegFirstScan(data: Uint8Array): number {
+  let pos = 2
+  while (pos + 4 <= data.length) {
+    if (data[pos] !== 0xff) return data.length
+    const marker = data[pos + 1]
+    if (marker === 0xff) {
+      pos++
+      continue
+    }
+    if (marker === 0xda) return pos
+    if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) {
+      pos += 2
+      continue
+    }
+    const len = (data[pos + 2] << 8) | data[pos + 3]
+    if (len < 2) return data.length
+    pos += 2 + len
+  }
+  return data.length
+}
+
 /**
  * Strips metadata from JPEG buffers at the byte level.
  */
@@ -235,7 +257,10 @@ export function scrubJpeg(data: Uint8Array, options?: ScrubOptions): Uint8Array 
   const mode = options?.mode ?? 'all'
   const preserveOrientation = options?.preserveOrientation ?? true
 
-  const originalMeta = inspectMetadata(data)
+  // The orientation to keep is the one viewers act on: metadata before the
+  // picture data. (A tag tucked in after it, which they never read, would
+  // otherwise turn the clean copy round.)
+  const originalMeta = inspectMetadata(data.subarray(0, jpegFirstScan(data)))
   const parts: Uint8Array[] = []
   let totalLen = 0
 
@@ -274,30 +299,25 @@ export function scrubJpeg(data: Uint8Array, options?: ScrubOptions): Uint8Array 
 
   while (pos < data.length) {
     if (inScan) {
-      // Searching for EOI (FF D9) in entropy scan
-      let eoiPos = -1
-      for (let i = pos; i < data.length - 1; i++) {
-        if (data[i] === 0xff) {
-          const next = data[i + 1]
-          if (next === 0xd9) {
-            eoiPos = i
-            break
-          }
-          if (next !== 0x00 && (next < 0xd0 || next > 0xd7)) {
-            // Unexpected marker inside scan, or second scan in progressive JPEG
-            // Continue scanning until EOI
-          }
-        }
+      // Copy the entropy-coded data up to the next marker (a stuffed FF 00
+      // and the restart markers FF D0..D7 belong to it), then go back to
+      // walking segments: a progressive JPEG has more tables and scans
+      // after this, and metadata tucked in between must be dropped too.
+      let end = pos
+      while (end < data.length - 1) {
+        const next = data[end + 1]
+        if (data[end] === 0xff && next !== 0x00 && (next < 0xd0 || next > 0xd7)) break
+        end++
       }
-
-      if (eoiPos !== -1) {
-        // Append scan data up to and including FF D9 (EOI), truncating anything after
-        appendChunk(data.subarray(pos, eoiPos + 2))
-      } else {
+      if (end >= data.length - 1) {
         // Malformed without explicit EOI; append remaining
         appendChunk(data.subarray(pos))
+        break
       }
-      break
+      appendChunk(data.subarray(pos, end))
+      pos = end
+      inScan = false
+      continue
     }
 
     if (data[pos] !== 0xff) {
