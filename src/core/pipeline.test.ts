@@ -7,6 +7,7 @@ import { DITHERS } from './dither'
 import { colourCount, Deres, ditherApplies, ditherNote, exportSize, MAX_EXPORT_PIXELS, paletteBytes, type DeresSettings } from './pipeline'
 import { decodePng } from './png'
 import { PROFILES, profileById } from './profiles'
+import { C64_PALETTE, SPECTRUM_BRIGHT, SPECTRUM_NORMAL, spectrumBitmapOffset } from './cell'
 
 // A made-up test picture (no photos in this repo): a hue sweep left to right,
 // dark to light top to bottom, with a transparent corner.
@@ -350,5 +351,67 @@ describe('machines with their own colour rules show their real colours', () => {
     const seen = new Set<number>()
     for (let i = 0; i < c.width * c.height; i++) seen.add((c.rgb[i * 3] << 16) | (c.rgb[i * 3 + 1] << 8) | c.rgb[i * 3 + 2])
     expect(seen.size).toBeGreaterThan(16)
+  })
+})
+
+describe('"fit" bars: the .scr and .koa files match the preview', () => {
+  /** The picture a .scr shows, r, g, b per pixel (256×192). */
+  function scrPixels(scr: Uint8Array): number[] {
+    const out: number[] = []
+    for (let y = 0; y < 192; y++) {
+      for (let cx = 0; cx < 32; cx++) {
+        const bits = scr[spectrumBitmapOffset(cx, y)]
+        const attr = scr[6144 + (y >> 3) * 32 + cx]
+        const pal = attr & 0x40 ? SPECTRUM_BRIGHT : SPECTRUM_NORMAL
+        for (let px = 0; px < 8; px++) out.push(...hexToRgb(pal[(bits >> (7 - px)) & 1 ? attr & 7 : (attr >> 3) & 7]))
+      }
+    }
+    return out
+  }
+  /** The picture a Koala file shows, r, g, b per (double-wide) pixel (160×200). */
+  function koaPixels(koa: Uint8Array): number[] {
+    const out = new Array<number>(160 * 200 * 3).fill(0)
+    for (let cell = 0; cell < 1000; cell++) {
+      const cols = [koa[10002], koa[8002 + cell] >> 4, koa[8002 + cell] & 15, koa[9002 + cell] & 15]
+      for (let py = 0; py < 8; py++) {
+        const byte = koa[2 + cell * 8 + py]
+        for (let px = 0; px < 4; px++) {
+          const x = (cell % 40) * 4 + px
+          const y = Math.floor(cell / 40) * 8 + py
+          const [cr, cg, cb] = hexToRgb(C64_PALETTE[cols[(byte >> ((3 - px) * 2)) & 3]])
+          out[(y * 160 + x) * 3] = cr
+          out[(y * 160 + x) * 3 + 1] = cg
+          out[(y * 160 + x) * 3 + 2] = cb
+        }
+      }
+    }
+    return out
+  }
+
+  it.each([
+    ['zx-spectrum', scrPixels],
+    ['c64-mc', koaPixels]
+  ] as const)('%s', (id, decode) => {
+    // A wide photo, so "fit" adds bars, and brighter, so un-black bars would show.
+    const d = new Deres()
+    d.setSource(testPicture(400, 160), 400, 160, 400, 160)
+    const r = d.render(settings({ profileId: id, fit: 'fit', dither: 'none', adjust: { ...NEUTRAL, brightness: 0.3 } }))
+    expect(r.geometry.dst.y).toBeGreaterThan(0)
+    const file = decode(r.emulatorData!.data)
+    const firstDiff = file.findIndex((v, i) => v !== r.rgb[i])
+    const at = firstDiff < 0 ? null : { x: Math.floor(firstDiff / 3) % r.width, y: Math.floor(firstDiff / 3 / r.width) }
+    expect(at).toBeNull()
+  })
+})
+
+describe('"fit" bars on the per-cell machines', () => {
+  it.each(PROFILES.filter((p) => p.palette.kind === 'cell').map((p) => p.id))('%s: bar pixels show the colour their index names too', (id) => {
+    const d = new Deres()
+    d.setSource(testPicture(400, 160), 400, 160, 400, 160)
+    const r = d.render(settings({ profileId: id, fit: 'fit', dither: 'none', adjust: { ...NEUTRAL, brightness: 0.3 } }))
+    for (let i = 0; i < r.width * r.height; i++) {
+      const k = r.indices[i]
+      expect([r.rgb[i * 3], r.rgb[i * 3 + 1], r.rgb[i * 3 + 2]]).toEqual([r.palette[k * 3], r.palette[k * 3 + 1], r.palette[k * 3 + 2]])
+    }
   })
 })

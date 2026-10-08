@@ -221,6 +221,15 @@ export class Deres {
       toGrey(rgb)
       if (profile.edgeBoost) edgeBoost(rgb, width, height, profile.edgeBoost)
     }
+    // "Fit" bars go in pure black (the adjustments above would have tinted
+    // them), so a machine's own file (.scr, .koa, .chr) holds them as shown.
+    if (bars) {
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) rgb.fill(0, (y * width + x) * 3, (y * width + x) * 3 + 3)
+        }
+      }
+    }
 
     // Direct PlayStation 15-bit hardware dither
     if (profile.palette.kind === 'direct' && (s.dither === 'ps1' || profile.dither === 'ps1')) {
@@ -330,20 +339,8 @@ export class Deres {
         cellLinearRgb = a2.rgb
       }
 
-      if (bars) {
-        for (let y = 0; y < height; y++) {
-          for (let x = 0; x < width; x++) {
-            if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) {
-              const i = y * width + x
-              cellIndices[i] = 0
-              cellLinearRgb[i * 3] = 0
-              cellLinearRgb[i * 3 + 1] = 0
-              cellLinearRgb[i * 3 + 2] = 0
-            }
-          }
-        }
-      }
-
+      // No repainting of the bars here: they went in black, and the machine's
+      // file must show exactly what the preview shows.
       const out = new Uint8Array(width * height * 3)
       for (let i = 0; i < width * height * 3; i++) {
         out[i] = linearToByte(cellLinearRgb[i])
