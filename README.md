@@ -108,7 +108,6 @@ images.
   - **Amstrad CPC (Modes 0 & 1):** Mode 0 (160×200, 16 from 27 colors, 2:1 aspect) and Mode 1 (320×200, 4 from 27 colors, 1:1 aspect) using the 27 hardware color gate array pool.
   - **MSX Screen 2:** 256×192, max 2 colors per 8×1 horizontal pixel slice from 15 fixed TMS9918 colors.
   - **CGA Composite artifact mode:** 320×200, 16 NTSC composite artifact colors produced by color burst subcarrier crosstalk.
-  - **Digipal LCD Pet:** 32×32 virtual pet reflective LCD matrix with rounded dot pixels and subtle ghosting.
   - **Crisp wallpaper export presets:** 1-click centered integer exports for Phone Lockscreen (1080×2400), b0r3d 95 Desktop (1024×768), and Full HD Desktop (1920×1080).
   - **"Surprise me" randomizer:** `🎲 Surprise me` button shuffling a random retro profile, dither, pre-filter recipe, and screen effect.
 - **BBS Heritage, Teletext & Batch Tools (v0.8.0):**
@@ -204,7 +203,6 @@ their colours and every emulator's numbers differ a little.
 | Amstrad CPC | 27-colour hardware gate array palette (16 for Mode 0, 4 for Mode 1) |
 | MSX Screen 2 | 15 TMS9918 fixed colours (2 per 8×1 horizontal pixel slice) |
 | CGA Composite | 16 NTSC composite artifact colours from color burst crosstalk |
-| Digipal LCD Pet | 2-level virtual pet reflective LCD matrix with ghosting |
 | Custom | User-defined palette file or quantized from picture |
 
 ## Credits

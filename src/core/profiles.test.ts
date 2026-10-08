@@ -56,7 +56,7 @@ describe('hardware profiles', () => {
     expect(size('amstrad-cpc-1')).toEqual([320, 200, 32])
     expect(size('msx-screen2')).toEqual([256, 192, 32])
     expect(size('cga-composite')).toEqual([320, 200, 16])
-    expect(size('digipal')).toEqual([32, 32, 2])
+    expect(profileById('digipal')).toBeUndefined()
   })
 
   it('includes the b0r3d colours', () => {

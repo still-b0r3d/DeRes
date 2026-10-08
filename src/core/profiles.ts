@@ -19,7 +19,7 @@ import { snapToBits } from './quantize'
 // v0.3 adds per-cell modes (Spectrum, C64 MC, NES attributes, Apple II hi-res),
 // Amiga HAM6, N64 3-point blur, and emulator export formats.
 // v0.6 adds analog, print & video aesthetics.
-// v0.7 adds extended hardware & handhelds (Nokia 3310, GBC, Virtual Boy, Atari ST, Amstrad CPC, MSX, CGA composite, Digipal).
+// v0.7 adds extended hardware & handhelds (Nokia 3310, GBC, Virtual Boy, Atari ST, Amstrad CPC, MSX, CGA composite).
 // Sources are listed in the README.
 
 export interface FixedPalette {
@@ -811,19 +811,6 @@ export const PROFILES: readonly Profile[] = [
     limits: { maxColours: 16 },
     dither: 'floyd',
     screen: 'crt'
-  },
-  {
-    id: 'digipal',
-    name: 'Digipal LCD Pet',
-    origin: 'Virtual Pet · 1996',
-    about: '32×32 virtual pet LCD with rounded dot matrix pixels and subtle ghosting.',
-    width: 32,
-    height: 32,
-    par: [1, 1],
-    palette: fixed(['#1b2216', '#b8c599']),
-    mono: true,
-    dither: 'bayer4',
-    screen: 'lcd'
   },
   {
     id: 'custom',

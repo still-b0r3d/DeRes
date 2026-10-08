@@ -669,14 +669,6 @@ test('v0.7: Extended hardware & handheld profiles render correctly', async ({ pa
   // CGA Composite
   await pick(page, 'cga-composite')
   await expect(readout(page)).toContainText('320×200')
-
-  // Digipal LCD Pet
-  await pick(page, 'digipal')
-  await expect(readout(page)).toContainText('32×32')
-  const digiColours = await canvasColours(page)
-  for (const c of digiColours) {
-    expect(['#1b2216', '#b8c599']).toContain(c)
-  }
 })
 
 test('v0.7: Wallpaper presets download at expected dimensions', async ({ page }) => {

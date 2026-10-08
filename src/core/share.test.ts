@@ -97,3 +97,10 @@ describe('share links are checked like saved settings', () => {
     expect(back.fx).toEqual(s.fx)
   })
 })
+
+describe('the made-up Digipal machine is gone', () => {
+  it('is not offered, and an old link or saved setting naming it falls back', () => {
+    const base = defaultSettings()
+    expect(settingsFromHash(link({ p: 'digipal' }), base)!.profileId).toBe(base.profileId)
+  })
+})
