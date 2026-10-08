@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { profileById } from '../../src/core/profiles'
-import { freshPage, readout, ready } from './helpers'
+import { download, freshPage, readout, ready } from './helpers'
 
 // DeRes fixes from the 2026-10-07 review.
 
@@ -77,4 +77,18 @@ test("a share link naming a machine this version doesn't have still opens the pa
   await page.evaluate((h) => (window.location.hash = h), `#s=${Buffer.from(JSON.stringify({ p: 'vga' })).toString('base64url')}`)
   await ready(page, '320×200')
   expect(errors).toEqual([])
+})
+
+test('the .scr and .koa downloads work every time, not just the first', async ({ page }) => {
+  for (const [id, fmt, size] of [
+    ['zx-spectrum', 'scr', 6912],
+    ['c64-mc', 'koa', 10003]
+  ] as const) {
+    await pick(page, id)
+    const first = (await download(page, page.getByTestId(`download-${fmt}`))).bytes
+    const second = (await download(page, page.getByTestId(`download-${fmt}`))).bytes
+    expect(first.length).toBe(size)
+    expect(second.length).toBe(size)
+    expect(Buffer.from(second).equals(Buffer.from(first))).toBe(true)
+  }
 })

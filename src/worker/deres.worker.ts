@@ -121,7 +121,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       if (format === 'chr') {
         data = encodeGbChr(r.indices, r.width, r.height, true)
       } else if (r.emulatorData && r.emulatorData.format === format) {
-        data = r.emulatorData.data
+        // A copy: the original belongs to the cached render, and handing its
+        // buffer over would leave it empty for the next download.
+        data = r.emulatorData.data.slice()
       } else {
         throw new Error(`Profile ${s.profileId} does not support export format .${format}`)
       }
