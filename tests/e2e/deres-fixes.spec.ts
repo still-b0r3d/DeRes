@@ -127,3 +127,33 @@ test("dithers that change nothing on a machine are greyed out, with a note why",
   for (const id of ['none', 'bayer4', 'floyd', 'yliluoma']) await expect(btn(id)).toBeEnabled()
   await expect(note).toBeHidden()
 })
+
+test('animations stop at a size a phone can hold, and say how far along they are', async ({ page }) => {
+  const size = (m: number) => page.locator(`.seg[aria-label="Size"] button[data-value="${m}"]`)
+  await pick(page, 'vga')
+
+  // 8× VGA is 2560×1600: fine as a PNG, too big for 16 frames in memory.
+  await size(8).click()
+  await expect(page.getByRole('button', { name: 'Download PNG' })).toBeEnabled()
+  await expect(page.getByTestId('download-gif')).toBeDisabled()
+  await expect(page.getByTestId('download-apng')).toBeDisabled()
+  await expect(page.getByTestId('export-size')).toContainText('too big for an animation')
+
+  // 2× fits; every status line on the way is kept to check the progress.
+  await size(2).click()
+  await expect(page.getByTestId('download-gif')).toBeEnabled()
+  await expect(page.getByTestId('export-size')).not.toContainText('animation')
+  await page.evaluate(() => {
+    const w = window as unknown as { seen: string[] }
+    w.seen = []
+    const el = document.querySelector('.status')!
+    new MutationObserver(() => w.seen.push(el.textContent ?? '')).observe(el, { childList: true, characterData: true, subtree: true })
+  })
+  const gif = page.waitForEvent('download')
+  await page.getByTestId('download-gif').click()
+  await gif
+  await expect(page.locator('.status')).toContainText('Saved')
+  const seen = await page.evaluate(() => (window as unknown as { seen: string[] }).seen)
+  expect(seen.some((t) => /frame 1 of \d+/.test(t))).toBe(true)
+  expect(seen.some((t) => /frame (\d+) of \1\b/.test(t))).toBe(true)
+})

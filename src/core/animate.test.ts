@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateAnimatedExport } from './animate'
+import { generateAnimatedExport, MAX_ANIMATION_PIXELS } from './animate'
 import { DEFAULT_FX } from './fx'
 import type { DeresSettings, Rendered } from './pipeline'
 import { decodePng } from './png'
@@ -122,5 +122,25 @@ describe('animate core', () => {
     expect(gif.format).toBe('gif')
     expect(gif.frameCount).toBe(4)
     expect(String.fromCharCode(...gif.data.subarray(0, 6))).toBe('GIF89a')
+  })
+
+  it('refuses animations bigger than a phone can hold, and says so', async () => {
+    // 8×8 at 128× is 1024×1024 (just fits); at 129× it is past the limit.
+    expect(MAX_ANIMATION_PIXELS).toBe(1024 * 1024)
+    const opts = { style: 'screen-fx' as const, format: 'gif' as const, tv: false, fx: null, frameCount: 2 }
+    await expect(generateAnimatedExport(dummyRendered, { ...opts, multiplier: 129 }, dummySettings)).rejects.toThrow(/too big for an animation/)
+    await expect(generateAnimatedExport(dummyRendered, { ...opts, multiplier: 128 }, dummySettings)).resolves.toBeDefined()
+  })
+
+  it.each(['screen-fx', 'compare-wipe', 'dither-shimmer'] as const)('%s reports its progress frame by frame', async (style) => {
+    const seen: [number, number][] = []
+    const res = await generateAnimatedExport(
+      dummyRendered,
+      { style, format: 'gif', multiplier: 2, tv: false, fx: null, onProgress: (done, total) => seen.push([done, total]) },
+      dummySettings
+    )
+    expect(seen.length).toBe(res.frameCount)
+    expect(seen.map(([d]) => d)).toEqual(Array.from({ length: res.frameCount }, (_, i) => i + 1))
+    expect(seen.every(([, t]) => t === res.frameCount)).toBe(true)
   })
 })

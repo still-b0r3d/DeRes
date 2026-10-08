@@ -161,7 +161,7 @@ test('"as on a TV" stretches the export to the pixel shape', async ({ page }) =>
   await pick(page, 'cga-1')
   await page.locator('.seg[aria-label="Pixel shape"] button[data-value="tv"]').click()
   await page.locator('.seg[aria-label="Size"] button[data-value="6"]').click()
-  await expect(page.getByTestId('export-size')).toHaveText('1600×1200 px · 4-colour palette')
+  await expect(page.getByTestId('export-size')).toHaveText('1600×1200 px · 4-colour palette · too big for an animation')
   const pending = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download PNG' }).click()
   expect((await pending).suggestedFilename()).toBe('rukus-cga-1-320x200-6x-tv.png')

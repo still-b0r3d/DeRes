@@ -22,7 +22,16 @@ export interface AnimatedExportOptions {
   sourceRgba?: Uint8Array | Uint8ClampedArray
   sourceWidth?: number
   sourceHeight?: number
+  /** Called after each frame is made: frames done so far, and how many in all. */
+  onProgress?: (done: number, total: number) => void
 }
+
+/**
+ * The largest animation, in pixels per frame. Every frame is held in memory
+ * (up to 16 of them), so this is far below the single PNG's limit: a phone
+ * has to cope with it.
+ */
+export const MAX_ANIMATION_PIXELS = 1024 * 1024
 
 export interface AnimatedExportResult {
   data: Uint8Array<ArrayBuffer>
@@ -123,7 +132,10 @@ export async function generateAnimatedExport(
 ): Promise<AnimatedExportResult> {
   const m = Math.max(1, Math.floor(options.multiplier))
   const [width, height] = exportSize(r.width, r.height, r.geometry.par, m, options.tv)
-  if (width * height > MAX_EXPORT_PIXELS) throw new Error('That export would be too big')
+  if (width * height > MAX_EXPORT_PIXELS || width * height > MAX_ANIMATION_PIXELS) {
+    throw new Error('That size is too big for an animation. Pick a smaller size.')
+  }
+  const progress = (done: number, total: number) => options.onProgress?.(done, total)
 
   const isApng = options.format === 'apng'
 
@@ -156,6 +168,7 @@ export async function generateAnimatedExport(
         frameData.set(row, y * width * 3)
       }
       rgbFrames.push(frameData)
+      progress(f + 1, frameCount)
     }
 
     if (isApng) {
@@ -250,6 +263,7 @@ export async function generateAnimatedExport(
         }
       }
       rgbFrames.push(frameData)
+      progress(f + 1, frameCount)
     }
 
     if (isApng) {
@@ -298,6 +312,7 @@ export async function generateAnimatedExport(
         frameData.set(row, y * width * 3)
       }
       rgbFrames.push(frameData)
+      progress(f + 1, frameCount)
     }
 
     if (isApng) {
@@ -315,7 +330,7 @@ export async function generateAnimatedExport(
   const isIndexedPossible = r.palette.length / 3 <= 256 && r.palette.length > 0
   const indexedFrames: Uint8Array[] = []
 
-  for (let f = 0; f < frameCount; f++) {
+  for (let f = 0; isIndexedPossible && f < frameCount; f++) {
     const offset = ditherPhases[f % ditherPhases.length]
     const frameRender = renderDeres
       ? renderDeres({ ...settings, ditherOffset: offset })
@@ -329,6 +344,7 @@ export async function generateAnimatedExport(
       height
     )
     indexedFrames.push(scaledIndices)
+    progress(f + 1, frameCount)
   }
 
   if (isIndexedPossible) {
@@ -361,6 +377,7 @@ export async function generateAnimatedExport(
       ? renderDeres({ ...settings, ditherOffset: offset })
       : r
     rgbFrames.push(upscaleRgb(frameRender.rgb, frameRender.width, frameRender.height, width, height))
+    progress(f + 1, frameCount)
   }
 
   if (isApng) {

@@ -92,7 +92,10 @@ export class Engine {
   }
 
   private animatedExportId = 0
-  private readonly animatedExports = new Map<number, { resolve: (v: AnimatedExportResult) => void; reject: (e: Error) => void }>()
+  private readonly animatedExports = new Map<
+    number,
+    { resolve: (v: AnimatedExportResult) => void; reject: (e: Error) => void; onProgress?: (done: number, total: number) => void }
+  >()
 
   exportAnimated(
     settings: DeresSettings,
@@ -100,7 +103,8 @@ export class Engine {
     animationStyle: 'screen-fx' | 'compare-wipe' | 'dither-shimmer',
     multiplier: number,
     withFx: boolean,
-    base: string
+    base: string,
+    onProgress?: (done: number, total: number) => void
   ): Promise<AnimatedExportResult> {
     const id = ++this.animatedExportId
     this.post({
@@ -114,7 +118,7 @@ export class Engine {
       withFx,
       base
     })
-    return new Promise((resolve, reject) => this.animatedExports.set(id, { resolve, reject }))
+    return new Promise((resolve, reject) => this.animatedExports.set(id, { resolve, reject, onProgress }))
   }
 
   private send(req: RenderRequest): void {
@@ -189,6 +193,9 @@ export class Engine {
         }
         return
       }
+      case 'progress':
+        this.animatedExports.get(msg.id)?.onProgress?.(msg.done, msg.total)
+        return
       case 'exported-animated': {
         const item = this.animatedExports.get(msg.id)
         if (item) {

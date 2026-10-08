@@ -773,7 +773,8 @@ export function startApp(): void {
         : settings.animationStyle === 'compare-wipe'
           ? 'Before & After wipe'
           : 'Dither shimmer'
-    controls.status(`Making ${styleName} ${format.toUpperCase()}…`)
+    const making = `Making ${styleName} ${format.toUpperCase()}…`
+    controls.status(making)
     try {
       const fxOk = settings.exportFx && settings.fx.screen !== 'off'
       const res = await engine.exportAnimated(
@@ -782,7 +783,8 @@ export function startApp(): void {
         settings.animationStyle,
         settings.multiplier,
         fxOk,
-        picture.base
+        picture.base,
+        (done, total) => controls.status(`${making} frame ${done} of ${total}${done === total ? ', putting them together' : ''}`)
       )
       const blob = new Blob([res.data], { type: res.mimeType })
       const url = URL.createObjectURL(blob)

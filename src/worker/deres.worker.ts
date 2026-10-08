@@ -182,7 +182,8 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
           fx: msg.withFx ? s.fx : null,
           sourceRgba: sourceCopy?.rgba,
           sourceWidth: sourceCopy?.width,
-          sourceHeight: sourceCopy?.height
+          sourceHeight: sourceCopy?.height,
+          onProgress: (done, total) => post({ type: 'progress', id: msg.id, done, total })
         },
         s,
         (subSettings) => deres.render(subSettings)

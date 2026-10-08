@@ -2,6 +2,7 @@ import { NEUTRAL } from '../core/adjust'
 import { DITHERS } from '../core/dither'
 import { FX_MIN_MULTIPLIER } from '../core/export'
 import type { Geometry } from '../core/geometry'
+import { MAX_ANIMATION_PIXELS } from '../core/animate'
 import { colourCount, ditherApplies, ditherNote, exportSize, MAX_EXPORT_PIXELS, maxColourCount, paletteBytes } from '../core/pipeline'
 import { PROFILES, profileById, representativePalette } from '../core/profiles'
 import type { HardwareFitReport } from '../core/tiles'
@@ -589,12 +590,17 @@ export function buildControls(ctx: ControlsContext): {
         coloursLabel = `${count}-colour palette`
       }
       const tooBig = w * hh > MAX_EXPORT_PIXELS
+      // Every frame of an animation is held at once, so they stop sooner.
+      const animTooBig = w * hh > MAX_ANIMATION_PIXELS
       sizeLine.textContent = tooBig
         ? `${w}×${hh} is too big. Pick a smaller size.`
-        : `${w}×${hh} px · ${withFx ? 'full colour' : coloursLabel}`
+        : `${w}×${hh} px · ${withFx ? 'full colour' : coloursLabel}${animTooBig ? ' · too big for an animation' : ''}`
       downloadBtn.disabled = !pic || tooBig
-      downloadApngBtn.disabled = !pic || tooBig
-      downloadGifBtn.disabled = !pic || tooBig
+      downloadApngBtn.disabled = !pic || animTooBig
+      downloadGifBtn.disabled = !pic || animTooBig
+      const animTitle = animTooBig ? 'Too big for an animation: pick a smaller size' : ''
+      downloadApngBtn.title = animTitle
+      downloadGifBtn.title = animTitle
 
       wallPhoneBtn.disabled = !pic
       wallWin95Btn.disabled = !pic
