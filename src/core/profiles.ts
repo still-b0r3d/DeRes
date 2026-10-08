@@ -105,6 +105,8 @@ export interface Profile {
   par: readonly [number, number]
   palette: PaletteSpec
   limits?: HardwareLimits
+  /** One line under the export buttons, e.g. why a file type is missing. */
+  exportNote?: string
   /**
    * Grey levels: the picture is turned to grey and spread over the levels,
    * darkest to lightest, whatever their tint (the Game Boy's greens).
@@ -407,7 +409,10 @@ export const PROFILES: readonly Profile[] = [
     height: 240,
     par: [8, 7],
     palette: fixed(NES),
-    limits: { maxTiles: 256, maxColours: 25, emulatorFormats: ['chr'] },
+    // No .chr: this look puts any NES colour on any pixel, which NES tiles
+    // (4 colours per 16×16 area) can't hold.
+    limits: { maxTiles: 256, maxColours: 25 },
+    exportNote: "No .chr here: this look uses any colour anywhere, which a real NES can't show. NES (attributes) makes one.",
     dither: 'floyd',
     screen: 'crt'
   },

@@ -351,15 +351,24 @@ export const NES_PALETTE: readonly string[] = [
 
 const NES_RGB = NES_PALETTE.map(hexToRgb)
 
+export interface NesAttributesResult {
+  /** NES palette number (0..53) per pixel. */
+  indices: Uint8Array
+  rgb: Float32Array
+  /** Per pixel, its 2-bit colour number in its block's sub-palette (0 = backdrop): what the CHR holds. */
+  colourNumbers: Uint8Array
+  /** The sub-palette (0..3) each 16×16 block uses, in reading order. */
+  blockPalettes: Uint8Array
+  /** The 4 sub-palettes as NES palette numbers; entry 0 of each is the shared backdrop. */
+  subPalettes: number[][]
+}
+
 /**
  * Applies NES attribute constraints: 16×16 blocks, 4 sub-palettes of 3 colours + 1 shared backdrop.
  */
-export function processNesAttributes(
-  linearRgb: Float32Array,
-  width: number,
-  height: number
-): { indices: Uint8Array; rgb: Float32Array } {
+export function processNesAttributes(linearRgb: Float32Array, width: number, height: number): NesAttributesResult {
   const indices = new Uint8Array(width * height)
+  const colourNumbers = new Uint8Array(width * height)
   const outRgb = new Float32Array(width * height * 3)
 
   const srgbBytes = new Uint8Array(width * height * 3)
@@ -386,6 +395,7 @@ export function processNesAttributes(
 
   const blocksX = Math.ceil(width / 16)
   const blocksY = Math.ceil(height / 16)
+  const blockPalettes = new Uint8Array(blocksX * blocksY)
 
   for (let by = 0; by < blocksY; by++) {
     for (let bx = 0; bx < blocksX; bx++) {
@@ -424,6 +434,7 @@ export function processNesAttributes(
         }
       }
 
+      blockPalettes[by * blocksX + bx] = bestPal
       const activePal = subPalettes[bestPal]
       const activeRgb = activePal.map((idx) => NES_RGB[idx])
 
@@ -454,6 +465,7 @@ export function processNesAttributes(
           }
 
           indices[pIdx] = activePal[bestC]
+          colourNumbers[pIdx] = bestC
           const [cr, cg, cb] = activeRgb[bestC]
           outRgb[i] = srgbToLinear(cr)
           outRgb[i + 1] = srgbToLinear(cg)
@@ -463,7 +475,7 @@ export function processNesAttributes(
     }
   }
 
-  return { indices, rgb: outRgb }
+  return { indices, rgb: outRgb, colourNumbers, blockPalettes, subPalettes }
 }
 
 // --- Apple II Hi-Res ---

@@ -4,7 +4,6 @@ import { exportFilename } from '../core/filename'
 import { renderFxRgba } from '../core/fx'
 import { Deres, exportSize, type DeresSettings, type Rendered } from '../core/pipeline'
 import { profileById } from '../core/profiles'
-import { encodeGbChr } from '../core/tiles'
 import type { FromWorker, ToWorker } from './protocol'
 
 // The image worker. It keeps the working copy, so the page's slider moves
@@ -118,9 +117,8 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       const prof = profileById(s.profileId)
       let data: Uint8Array
       const format = msg.format
-      if (format === 'chr') {
-        data = encodeGbChr(r.indices, r.width, r.height, true)
-      } else if (r.emulatorData && r.emulatorData.format === format) {
+      // The pipeline makes each machine's own file (Game Boy or NES tiles, .scr, .koa).
+      if (r.emulatorData && r.emulatorData.format === format) {
         // A copy: the original belongs to the cached render, and handing its
         // buffer over would leave it empty for the next download.
         data = r.emulatorData.data.slice()

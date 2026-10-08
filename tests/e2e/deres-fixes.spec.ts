@@ -92,3 +92,19 @@ test('the .scr and .koa downloads work every time, not just the first', async ({
     expect(Buffer.from(second).equals(Buffer.from(first))).toBe(true)
   }
 })
+
+test('.chr: NES tiles on NES (attributes), none on the plain NES look, and it says why', async ({ page }) => {
+  await pick(page, 'nes-attr')
+  const chr = page.getByTestId('download-chr')
+  await expect(chr).toHaveText('Download .chr (NES tiles)')
+  const { bytes } = await download(page, chr)
+  expect(bytes.length % 16).toBe(0)
+  await expect(page.getByTestId('export-note')).toBeHidden()
+
+  await pick(page, 'nes')
+  await expect(chr).toBeHidden()
+  await expect(page.getByTestId('export-note')).toContainText('NES (attributes) makes one')
+
+  await pick(page, 'gameboy')
+  await expect(chr).toHaveText('Download .chr (Game Boy tiles)')
+})

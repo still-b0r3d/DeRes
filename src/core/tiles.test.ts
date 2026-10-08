@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { analyzeTileFit, encodeGbChr, encodeGbTile } from './tiles'
+import { analyzeTileFit, encodeGbChr, encodeGbTile, encodeNesChr } from './tiles'
 
 describe('tile analysis and Game Boy CHR encoding', () => {
   it('counts unique tiles and flags VRAM limits', () => {
@@ -51,5 +51,26 @@ describe('tile analysis and Game Boy CHR encoding', () => {
 
     const chrRaw = encodeGbChr(indices, w, h, false)
     expect(chrRaw.length).toBe(32) // Both tiles kept
+  })
+})
+
+describe('NES CHR encoding', () => {
+  it('each tile is 8 bytes of low bits (plane 0), then 8 bytes of high bits (plane 1)', () => {
+    const nums = new Uint8Array(64)
+    nums.set([0, 1, 2, 3, 0, 1, 2, 3], 0) // row 0
+    nums[63] = 3 // row 7, last pixel
+    const chr = encodeNesChr(nums, 8, 8)
+    expect(chr.length).toBe(16)
+    expect(chr[0]).toBe(0b01010101) // row 0, plane 0
+    expect(chr[8]).toBe(0b00110011) // row 0, plane 1
+    expect(chr[7]).toBe(0b00000001) // row 7, plane 0
+    expect(chr[15]).toBe(0b00000001) // row 7, plane 1
+    expect([...chr.subarray(1, 7)]).toEqual([0, 0, 0, 0, 0, 0])
+  })
+
+  it('keeps one copy of identical tiles', () => {
+    const nums = new Uint8Array(16 * 8).fill(2)
+    expect(encodeNesChr(nums, 16, 8).length).toBe(16)
+    expect(encodeNesChr(nums, 16, 8, false).length).toBe(32)
   })
 })

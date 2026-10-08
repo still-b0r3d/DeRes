@@ -398,6 +398,7 @@ export function buildControls(ctx: ControlsContext): {
     'Download .chr (Game Boy tiles)'
   )
   const emuActions = h('div', { class: 'emu-actions', hidden: true }, emuScrBtn, emuKoaBtn, emuChrBtn)
+  const exportNote = h('p', { class: 'hint export-note', 'data-testid': 'export-note', hidden: true })
   const shareBtn = h('button', { type: 'button', class: 'share-link', onclick: () => ctx.shareLink() }, 'Copy share link')
 
   const wallPhoneBtn = h(
@@ -447,6 +448,7 @@ export function buildControls(ctx: ControlsContext): {
     fxLabel,
     animRow,
     h('div', { class: 'export-actions' }, downloadBtn, animActions, emuActions, shareBtn),
+    exportNote,
     wallRow,
     statusLine
   )
@@ -597,6 +599,10 @@ export function buildControls(ctx: ControlsContext): {
       show(emuKoaBtn, fmts.includes('koa'))
       show(emuChrBtn, fmts.includes('chr'))
       show(emuActions, fmts.length > 0)
+      emuChrBtn.textContent =
+        p.palette.kind === 'cell' && p.palette.mode === 'nes-attr' ? 'Download .chr (NES tiles)' : 'Download .chr (Game Boy tiles)'
+      exportNote.textContent = p.exportNote ?? ''
+      show(exportNote, !!p.exportNote)
       emuScrBtn.disabled = !pic
       emuKoaBtn.disabled = !pic
       emuChrBtn.disabled = !pic

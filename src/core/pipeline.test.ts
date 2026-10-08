@@ -241,3 +241,54 @@ describe('a grabbed or loaded palette', () => {
     expect(r.palette.length / 3).toBeGreaterThan(3)
   })
 })
+
+describe('.chr tile exports', () => {
+  /** The 64 pixel values of tile t: Game Boy (rows of low/high byte pairs) or NES (8 low bytes, then 8 high). */
+  const tile = (chr: Uint8Array, t: number, nes: boolean) =>
+    Array.from({ length: 64 }, (_, i) => {
+      const row = i >> 3
+      const bit = 7 - (i & 7)
+      const lo = chr[t * 16 + (nes ? row : row * 2)]
+      const hi = chr[t * 16 + (nes ? row + 8 : row * 2 + 1)]
+      return ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1)
+    })
+  const firstTile = (indices: Uint8Array, width: number) =>
+    Array.from({ length: 64 }, (_, i) => indices[(i >> 3) * width + (i & 7)])
+
+  it.each(['gameboy', 'gameboy-pocket', 'gameboy-camera'])('%s: colour 0 is the lightest, as the hardware shows it', (id) => {
+    const r = loaded().render(settings({ profileId: id, dither: 'none' }))
+    expect(r.emulatorData?.format).toBe('chr')
+    // Indices count darkest first (0 = darkest); the Game Boy counts lightest first.
+    expect(tile(r.emulatorData!.data, 0, false)).toEqual(firstTile(r.indices, r.width).map((v) => 3 - v))
+  })
+
+  it("Game Boy Color: each pixel's number within its tile's palette", () => {
+    const r = loaded().render(settings({ profileId: 'gbc', dither: 'none' }))
+    expect(tile(r.emulatorData!.data, 0, false)).toEqual(firstTile(r.indices, r.width).map((v) => v & 3))
+  })
+
+  it("NES (attributes): real NES tiles, one number per colour of the tile's sub-palette", () => {
+    // A busy, opaque picture, so the first tile holds several colours.
+    const d = new Deres()
+    const px = new Uint8ClampedArray(256 * 240 * 4)
+    for (let i = 0; i < 256 * 240; i++) px.set([(i * 37) % 256, (i * 91) % 256, (i * 53) % 256, 255], i * 4)
+    d.setSource(px, 256, 240, 256, 240)
+    const r = d.render(settings({ profileId: 'nes-attr', dither: 'none' }))
+    const chr = r.emulatorData!.data
+    expect(chr.length % 16).toBe(0)
+    // Tile 0 is always first in the file. Within it, the same NES colour must
+    // always get the same number, and different colours different numbers.
+    const nums = tile(chr, 0, true)
+    const colours = firstTile(r.indices, r.width)
+    expect(new Set(colours).size).toBeGreaterThan(2)
+    expect(new Set(colours.map((c, i) => `${c}:${nums[i]}`)).size).toBe(new Set(colours).size)
+    expect(new Set(nums).size).toBe(new Set(colours).size)
+  })
+
+  it('the plain NES look (any colour anywhere) offers no .chr: a real NES could not show it', () => {
+    expect(profileById('nes')!.limits?.emulatorFormats ?? []).not.toContain('chr')
+    expect(profileById('nes')!.exportNote).toMatch(/NES \(attributes\)/)
+    expect(loaded().render(settings({ profileId: 'nes' })).emulatorData).toBeUndefined()
+  })
+})
+

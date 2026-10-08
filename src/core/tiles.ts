@@ -141,3 +141,41 @@ export function encodeGbChr(
   }
   return result
 }
+
+/**
+ * Encodes an image's 8×8 tiles as a NES CHR (pattern table) sheet. Each
+ * pixel is its 2-bit colour number inside its tile's sub-palette (0 is the
+ * backdrop). Per tile: 8 bytes of low bits (plane 0, one per row), then 8
+ * bytes of high bits (plane 1); bit 7 is the leftmost pixel. Identical tiles
+ * are kept once, in reading order, unless deduplicate is false.
+ */
+export function encodeNesChr(colourNumbers: Uint8Array, width: number, height: number, deduplicate = true): Uint8Array {
+  const tilesX = Math.floor(width / 8)
+  const tilesY = Math.floor(height / 8)
+  const tiles: Uint8Array[] = []
+  const seen = new Set<string>()
+  for (let ty = 0; ty < tilesY; ty++) {
+    for (let tx = 0; tx < tilesX; tx++) {
+      const tile = new Uint8Array(16)
+      for (let row = 0; row < 8; row++) {
+        let lo = 0
+        let hi = 0
+        for (let col = 0; col < 8; col++) {
+          const v = colourNumbers[(ty * 8 + row) * width + tx * 8 + col] & 3
+          if (v & 1) lo |= 0x80 >> col
+          if (v & 2) hi |= 0x80 >> col
+        }
+        tile[row] = lo
+        tile[row + 8] = hi
+      }
+      const key = tile.join(',')
+      if (!deduplicate || !seen.has(key)) {
+        seen.add(key)
+        tiles.push(tile)
+      }
+    }
+  }
+  const out = new Uint8Array(tiles.length * 16)
+  tiles.forEach((t, i) => out.set(t, i * 16))
+  return out
+}

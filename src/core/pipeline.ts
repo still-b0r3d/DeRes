@@ -17,7 +17,7 @@ import { processN64 } from './n64'
 import { DEFAULT_PROFILE, profileById, representativePalette, type Profile } from './profiles'
 import { quantizeRgb, snapToBits, quantizeFromPool } from './quantize'
 import { resampleArea } from './resample'
-import { analyzeTileFit, encodeGbChr, type HardwareFitReport } from './tiles'
+import { analyzeTileFit, encodeGbChr, encodeNesChr, type HardwareFitReport } from './tiles'
 import { YliluomaPlanner } from './yliluoma'
 import {
   processEarlyCcd,
@@ -286,7 +286,8 @@ export class Deres {
         cellIndices = na.indices
         cellLinearRgb = na.rgb
         if (profile.limits?.emulatorFormats?.includes('chr')) {
-          emuData = encodeGbChr(cellIndices, width, height)
+          // NES tiles hold each pixel's number in its sub-palette, not the colour.
+          emuData = encodeNesChr(na.colourNumbers, width, height)
           emuFormat = 'chr'
         }
       } else if (mode === 'msx-screen2') {
@@ -581,9 +582,13 @@ export class Deres {
     const tileFit = profile.limits ? analyzeTileFit(indices, width, height, profile.limits) : undefined
     let emu: { format: 'scr' | 'koa' | 'chr'; data: Uint8Array; defaultName: string } | undefined
     if (profile.limits?.emulatorFormats?.includes('chr')) {
+      // Grey-level indices count darkest first; a Game Boy's colour 0 is the
+      // lightest (with the usual palette register), so they are turned round.
+      const n = pal.display.length / 3
+      const numbers = profile.mono ? indices.map((v) => n - 1 - v) : indices
       emu = {
         format: 'chr',
-        data: encodeGbChr(indices, width, height),
+        data: encodeGbChr(numbers, width, height),
         defaultName: `${profile.id}.chr`
       }
     }

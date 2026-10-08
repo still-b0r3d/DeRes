@@ -186,3 +186,31 @@ describe('cell mode processing', () => {
     }
   })
 })
+
+describe('NES attributes keep each pixel\'s place in its sub-palette', () => {
+  it('colour numbers point into the block\'s sub-palette, and 0 is the shared backdrop', () => {
+    const w = 64
+    const h = 48
+    const rgb = new Float32Array(w * h * 3)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 3
+        rgb[i] = x / w
+        rgb[i + 1] = y / h
+        rgb[i + 2] = ((x + y) % 7) / 7
+      }
+    }
+    const res = processNesAttributes(rgb, w, h)
+    const across = Math.ceil(w / 16)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x
+        const pal = res.subPalettes[res.blockPalettes[(y >> 4) * across + (x >> 4)]]
+        expect(res.colourNumbers[i]).toBeLessThan(4)
+        expect(pal[res.colourNumbers[i]]).toBe(res.indices[i])
+      }
+    }
+    const backdrop = res.subPalettes[0][0]
+    for (const pal of res.subPalettes) expect(pal[0]).toBe(backdrop)
+  })
+})
