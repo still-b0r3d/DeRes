@@ -113,12 +113,19 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     h('span', null, '2:1 cell aspect ratio (terminal character compensation)')
   )
 
+  const columnsRow = h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Columns'), columnsPresets.el)
+  const c64Note = h(
+    'p',
+    { class: 'hint', 'data-testid': 'ascii-c64-note', hidden: true },
+    'A C64 screen is 40 columns by 25 rows, so PETSCII always fits the picture into that.'
+  )
   const layoutSec = section(
     'Mode & Columns',
     true,
     h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Style'), mode.el),
-    h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Columns'), columnsPresets.el),
+    columnsRow,
     columnsSlider.el,
+    c64Note,
     aspectRow
   )
 
@@ -358,6 +365,10 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
       columnsPresets.set('custom')
     }
     columnsSlider.set(s.columns)
+    // PETSCII is always a 40×25 C64 screen.
+    show(columnsRow, s.mode !== 'petscii')
+    show(columnsSlider.el, s.mode !== 'petscii')
+    show(c64Note, s.mode === 'petscii')
     aspectCheckbox.checked = s.twoToOneAspect
 
     rampPresets.set(s.rampPreset)

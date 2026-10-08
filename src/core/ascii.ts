@@ -196,6 +196,27 @@ export const PETSCII_SCREEN_CODES: Record<string, number> = {
   '●': 0x51 // PETSCII $D1
 }
 
+export const C64_COLUMNS = 40
+export const C64_ROWS = 25
+
+/**
+ * PETSCII art laid out on a C64 screen: 1000 screen codes and 1000 colours
+ * (40×25, row by row), the art centred left to right, spaces around it.
+ */
+export function petsciiScreen(result: AsciiResult): { screen: Uint8Array; colour: Uint8Array } {
+  const screen = new Uint8Array(C64_COLUMNS * C64_ROWS).fill(0x20)
+  const colour = new Uint8Array(C64_COLUMNS * C64_ROWS).fill(1)
+  const pad = Math.max(0, Math.floor((C64_COLUMNS - result.width) / 2))
+  for (let r = 0; r < Math.min(C64_ROWS, result.height); r++) {
+    for (let c = 0; c < Math.min(C64_COLUMNS - pad, result.width); c++) {
+      const cell = result.cells[r][c]
+      screen[r * C64_COLUMNS + pad + c] = PETSCII_SCREEN_CODES[cell.char] ?? 0x20
+      colour[r * C64_COLUMNS + pad + c] = (cell.c64Color ?? 1) & 0x0f
+    }
+  }
+  return { screen, colour }
+}
+
 // C64 color control codes for PETSCII .seq stream (0..15)
 export const PETSCII_COLOR_CODES: readonly number[] = [
   0x90, // 0: Black
@@ -453,7 +474,15 @@ export function generateAscii(
   }
 
   if (s.mode === 'petscii') {
-    const rows = Math.max(1, Math.round((cols * srcH) / (srcW * aspectMultiplier)))
+    // A C64 screen is 40×25 characters, whatever the columns setting says: a
+    // wide picture fills the 40 columns, a tall one is 25 rows high and
+    // narrower (the exports centre it).
+    let cols = C64_COLUMNS
+    let rows = Math.max(1, Math.round((cols * srcH) / (srcW * aspectMultiplier)))
+    if (rows > C64_ROWS) {
+      rows = C64_ROWS
+      cols = Math.max(1, Math.min(C64_COLUMNS, Math.round((rows * srcW * aspectMultiplier) / srcH)))
+    }
     const cellWInSrc = srcW / cols
     const cellHInSrc = srcH / rows
 
@@ -968,19 +997,9 @@ export function exportPetsciiPrg(result: AsciiResult): Uint8Array {
   prg[0] = 0x00
   prg[1] = 0x04
 
-  let cellIdx = 0
-  for (let r = 0; r < result.height && cellIdx < 1000; r++) {
-    const row = result.cells[r]
-    for (let c = 0; c < result.width && cellIdx < 1000; c++) {
-      const cell = row[c]
-      const sc = PETSCII_SCREEN_CODES[cell.char] ?? 0x20
-      const col = (cell.c64Color ?? 1) & 0x0f
-      prg[2 + cellIdx] = sc
-      prg[2 + 1000 + cellIdx] = col
-      cellIdx++
-    }
-  }
-
+  const { screen, colour } = petsciiScreen(result)
+  prg.set(screen, 2)
+  prg.set(colour, 2 + 1000)
   return prg
 }
 

@@ -12,6 +12,7 @@ import {
   toMarkdown,
   toPlainText,
   PETSCII_SCREEN_CODES,
+  petsciiScreen,
   TELETEXT_MOSAICS
 } from './ascii'
 import { parseSauce } from './sauce'
@@ -235,7 +236,7 @@ describe('ASCII & ANSI engine', () => {
       colorMode: 'c64'
     })
 
-    expect(res.width).toBe(4)
+    expect(res.width).toBe(40) // a C64 screen is 40 columns, whatever columns says
     expect(res.settings.mode).toBe('petscii')
     expect(res.cells.length).toBeGreaterThan(0)
 
@@ -334,5 +335,35 @@ describe('PETSCII screen codes', () => {
     for (let i = 0; i < w * h; i++) px.set([(i * 37) % 256, (i * 91) % 256, (i * 53) % 256, 255], i * 4)
     const res = generateAscii(px, w, h, { mode: 'petscii', columns: 32 })
     for (const row of res.cells) for (const cell of row) expect(PETSCII_SCREEN_CODES[cell.char], cell.char).toBeDefined()
+  })
+})
+
+describe('PETSCII is a C64 screen: 40 columns, at most 25 rows', () => {
+  const pic = (w: number, h: number) => {
+    const px = new Uint8ClampedArray(w * h * 4)
+    for (let i = 0; i < w * h; i++) px.set([(i * 37) % 256, (i * 91) % 256, (i * 53) % 256, 255], i * 4)
+    return px
+  }
+
+  it('a wide picture fills the 40 columns, whatever the columns setting says', () => {
+    for (const columns of [20, 80, 132]) {
+      const r = generateAscii(pic(400, 300), 400, 300, { mode: 'petscii', columns })
+      expect([r.width, r.height]).toEqual([40, 15])
+    }
+  })
+
+  it('a tall picture is 25 rows high, narrower, and centred on the screen', () => {
+    const r = generateAscii(pic(100, 400), 100, 400, { mode: 'petscii', columns: 80 })
+    expect([r.width, r.height]).toEqual([13, 25])
+    const { screen, colour } = petsciiScreen(r)
+    expect(screen.length).toBe(1000)
+    expect(colour.length).toBe(1000)
+    const pad = 13
+    for (let row = 0; row < 25; row++) {
+      for (let x = 0; x < 40; x++) {
+        const cell = x >= pad && x < pad + 13 ? r.cells[row][x - pad] : null
+        expect(screen[row * 40 + x], `row ${row}, column ${x}`).toBe(cell ? PETSCII_SCREEN_CODES[cell.char] : 0x20)
+      }
+    }
   })
 })
