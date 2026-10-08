@@ -13,11 +13,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.8.2 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v0.8.3 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.8.2)
+## What it does (v0.8.3)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try the sample (Rukus). It's decoded once into a
@@ -242,6 +242,7 @@ version and the build (the commit it was built from).
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.8.3 | 2026-10-07 | Fix release from the 2026-10-07 review. Scrubber: phone photos keep their rotation, honest Verified Clean badge, batch only holds the photos picked together, HEIC/AVIF inspection, damaged files can't freeze the page, WebP trailers and progressive-JPEG metadata removed. DeRes: each machine its own colour count, grabbed palettes stay with Custom, safe share links, repeat .scr/.koa downloads, real NES .chr, 8 machines' colours fixed, NES sub-palettes from the picture, files match the preview with bars, unusable dithers greyed out, the made-up Digipal machine removed. ASCII: correct Teletext blocks and C64 screen codes, 40×25 PETSCII, working .seq and a .prg that shows the picture, blank .ans author, Teletext saved as .txt. Animations: size limit, progress, faster GIFs. |
 | 0.8.2 | 2026-10-07 | First live release. Animated PNG and looping GIF exports (Screen FX loop, A/B wipe, dither shimmer). |
 | 0.8.0 | 2026-10-07 | BBS heritage, Teletext & batch tools: PETSCII mode with .seq and .prg exports, Teletext mosaics with .ttx export, dial-up baud playback, batch EXIF scrubber with ZIP download. |
 | 0.7.0 | 2026-10-07 | Extended hardware & handhelds: Nokia 3310, GBC per-tile mode & .chr export, Virtual Boy crimson, Atari ST, Amstrad CPC Modes 0 & 1, MSX Screen 2, CGA composite artifact mode, Digipal LCD pet, integer wallpaper presets (Phone, Win95, 1080p), and "Surprise me" randomizer. |
