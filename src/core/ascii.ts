@@ -964,23 +964,49 @@ export function toAnsiBytes(result: AsciiResult, sauceInfo?: SauceInfo): Uint8Ar
  * Exports PETSCII art as a Commodore .seq byte stream with C64 color control codes.
  */
 export function exportPetsciiSeq(result: AsciiResult): Uint8Array {
-  const bytes: number[] = []
+  // A .seq is printed character by character (through the C64's CHROUT), so
+  // it holds PETSCII codes, not screen codes: reversed shapes are "reverse
+  // on" + the plain shape, and the cursor wraps by itself after column 40.
+  const { screen, colour } = petsciiScreen(result)
+  const rows = Math.min(C64_ROWS, result.height)
+  const bytes: number[] = [0x93, 0x8e] // clear screen, upper case + graphics set
   let lastCol = -1
+  let reverse = false
 
-  for (const row of result.cells) {
-    for (const cell of row) {
-      const col = cell.c64Color ?? 1
-      if (col !== lastCol) {
-        bytes.push(PETSCII_COLOR_CODES[col] ?? 0x05)
-        lastCol = col
+  for (let r = 0; r < rows; r++) {
+    // Up to the last character that shows (trailing plain spaces are left out).
+    let end = C64_COLUMNS
+    while (end > 0 && screen[r * C64_COLUMNS + end - 1] === 0x20) end--
+    // Printing the very last cell of a full screen would scroll it up a line.
+    if (r === C64_ROWS - 1 && end === C64_COLUMNS) end--
+    for (let c = 0; c < end; c++) {
+      const code = screen[r * C64_COLUMNS + c]
+      const rev = code >= 0x80
+      if (code !== 0x20 && colour[r * C64_COLUMNS + c] !== lastCol) {
+        lastCol = colour[r * C64_COLUMNS + c]
+        bytes.push(PETSCII_COLOR_CODES[lastCol] ?? 0x05)
       }
-      const code = PETSCII_SCREEN_CODES[cell.char] ?? 0x20
-      bytes.push(code)
+      if (rev !== reverse) {
+        bytes.push(rev ? 0x12 : 0x92)
+        reverse = rev
+      }
+      bytes.push(screenCodeToPetscii(code & 0x7f))
     }
-    bytes.push(0x0d) // PETSCII Return
+    if (end < C64_COLUMNS && r < rows - 1) {
+      bytes.push(0x0d) // return; it also turns reverse off
+      reverse = false
+    }
   }
 
   return new Uint8Array(bytes)
+}
+
+/** The PETSCII code that prints a (non-reversed) screen code, uppercase/graphics set. */
+function screenCodeToPetscii(code: number): number {
+  if (code < 0x20) return code + 0x40 // @ A-Z [ £ ] ↑ ←
+  if (code < 0x40) return code // space, digits, punctuation
+  if (code < 0x60) return code + 0x80 // graphics: PETSCII $C0-$DF
+  return code + 0x40 // graphics: PETSCII $A0-$BF
 }
 
 /**

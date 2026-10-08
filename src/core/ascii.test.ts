@@ -13,6 +13,8 @@ import {
   toPlainText,
   PETSCII_SCREEN_CODES,
   petsciiScreen,
+  DEFAULT_ASCII_SETTINGS,
+  type AsciiResult,
   TELETEXT_MOSAICS
 } from './ascii'
 import { parseSauce } from './sauce'
@@ -243,8 +245,9 @@ describe('ASCII & ANSI engine', () => {
     // Export .seq
     const seq = exportPetsciiSeq(res)
     expect(seq.length).toBeGreaterThan(0)
-    // Check PETSCII carriage return (0x0D)
-    expect(seq).toContain(0x0d)
+    // Starts by clearing the screen; full 40-character rows need no return
+    expect([...seq.subarray(0, 2)]).toEqual([0x93, 0x8e])
+    expect(seq).not.toContain(0x0d)
 
     // Export .prg (2 + 1000 + 1000 = 2002 bytes)
     const prg = exportPetsciiPrg(res)
@@ -365,5 +368,43 @@ describe('PETSCII is a C64 screen: 40 columns, at most 25 rows', () => {
         expect(screen[row * 40 + x], `row ${row}, column ${x}`).toBe(cell ? PETSCII_SCREEN_CODES[cell.char] : 0x20)
       }
     }
+  })
+})
+
+describe('PETSCII .seq: a stream printed on a C64, so PETSCII codes', () => {
+  /** A made-up PETSCII result: rows of [char, C64 colour] pairs, padded to width with spaces. */
+  const art = (width: number, rows: [string, number][][]): AsciiResult => ({
+    width,
+    height: rows.length,
+    settings: { ...DEFAULT_ASCII_SETTINGS, mode: 'petscii' },
+    colorCount: 0,
+    cells: rows.map((row) =>
+      Array.from({ length: width }, (_, c) => ({ char: row[c]?.[0] ?? ' ', fg: [255, 255, 255], bg: [0, 0, 0], c64Color: row[c]?.[1] ?? 1 }))
+    )
+  })
+
+  it('clears the screen, picks the graphics set, and uses reverse on/off for reversed shapes', () => {
+    const seq = exportPetsciiSeq(art(40, [[['█', 1], ['▌', 2]], [['▀', 1]]]))
+    expect([...seq]).toEqual([
+      0x93, 0x8e, // clear screen, upper case + graphics
+      0x05, 0x12, 0x20, // white, reverse on, space = █
+      0x1c, 0x92, 0xa1, // red, reverse off, PETSCII $A1 = ▌
+      0x0d, // the rest of the row is blank: return (which also ends reverse)
+      0x05, 0x12, 0xa2 // white, reverse on, PETSCII $A2 (▄) reversed = ▀
+    ])
+  })
+
+  it('a full 40-character row wraps by itself: no return after it', () => {
+    const full: [string, number][] = Array.from({ length: 40 }, () => ['▒', 1])
+    const seq = exportPetsciiSeq(art(40, [full, [['▒', 1]]]))
+    // clear, set, colour, 40 × $A6, then the next row straight away
+    expect([...seq.subarray(0, 3 + 40 + 1)]).toEqual([0x93, 0x8e, 0x05, ...new Array(40).fill(0xa6), 0xa6])
+    expect(seq.includes(0x0d)).toBe(false)
+  })
+
+  it("a full 25-row screen leaves out its last character, so printing it doesn't scroll the picture up", () => {
+    const full: [string, number][] = Array.from({ length: 40 }, () => ['▒', 1])
+    const seq = exportPetsciiSeq(art(40, Array.from({ length: 25 }, () => full)))
+    expect(seq.length).toBe(3 + 999)
   })
 })
