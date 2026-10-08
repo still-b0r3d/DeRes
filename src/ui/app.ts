@@ -584,6 +584,8 @@ export function startApp(): void {
     picture: () => (scrubFile ? { name: scrubFile.name, size: scrubFile.bytes.length } : null)
   })
 
+  scrubStage.onStatus = scrubControls.status
+
   const deresControlsSlot = controls.el
   const asciiControlsSlot = asciiControls.el
   const scrubControlsSlot = scrubControls.el

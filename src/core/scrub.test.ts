@@ -226,11 +226,11 @@ describe('exif & metadata scrubber', () => {
     // Build a TIFF block that has Make, Model, and a GPS SubIFD
     // TIFF header: II, 42, offset 8
     // IFD0: 3 entries:
-    // 1) Tag 0x010f (Make): "Acme" (stored at offset 46)
+    // 1) Tag 0x010f (Make): "Acme" (stored at offset 50, after IFD0 and its next-IFD link)
     // 2) Tag 0x0112 (Orientation): 3
-    // 3) Tag 0x8825 (GPSInfo): offset 54
-    // GPS IFD (at offset 54): 1 entry
-    // Tag 0x0002 (GPSLatitude): value offset 72
+    // 3) Tag 0x8825 (GPSInfo): offset 56
+    // GPS IFD (at offset 56): 1 entry
+    // Tag 0x0002 (GPSLatitude): value offset 74
     const seg = new Uint8Array(120)
     seg[0] = 0xff
     seg[1] = 0xe1
@@ -248,11 +248,11 @@ describe('exif & metadata scrubber', () => {
     const ifd0 = to + 8
     seg[ifd0] = 0x03; seg[ifd0 + 1] = 0x00 // 3 tags
 
-    // Entry 1: Make 0x010f, ASCII (2), count 5, offset 46
+    // Entry 1: Make 0x010f, ASCII (2), count 5, offset 50
     const e1 = ifd0 + 2
     seg[e1] = 0x0f; seg[e1 + 1] = 0x01; seg[e1 + 2] = 0x02; seg[e1 + 3] = 0x00
     seg[e1 + 4] = 0x05; seg[e1 + 5] = 0x00; seg[e1 + 6] = 0x00; seg[e1 + 7] = 0x00
-    seg[e1 + 8] = 46; seg[e1 + 9] = 0x00; seg[e1 + 10] = 0x00; seg[e1 + 11] = 0x00
+    seg[e1 + 8] = 50; seg[e1 + 9] = 0x00; seg[e1 + 10] = 0x00; seg[e1 + 11] = 0x00
 
     // Entry 2: Orientation 0x0112, SHORT (3), count 1, value 3
     const e2 = e1 + 12
@@ -260,24 +260,24 @@ describe('exif & metadata scrubber', () => {
     seg[e2 + 4] = 0x01; seg[e2 + 5] = 0x00; seg[e2 + 6] = 0x00; seg[e2 + 7] = 0x00
     seg[e2 + 8] = 0x03; seg[e2 + 9] = 0x00; seg[e2 + 10] = 0x00; seg[e2 + 11] = 0x00
 
-    // Entry 3: GPSInfo 0x8825, LONG (4), count 1, offset 54
+    // Entry 3: GPSInfo 0x8825, LONG (4), count 1, offset 56
     const e3 = e2 + 12
     seg[e3] = 0x25; seg[e3 + 1] = 0x88; seg[e3 + 2] = 0x04; seg[e3 + 3] = 0x00
     seg[e3 + 4] = 0x01; seg[e3 + 5] = 0x00; seg[e3 + 6] = 0x00; seg[e3 + 7] = 0x00
-    seg[e3 + 8] = 54; seg[e3 + 9] = 0x00; seg[e3 + 10] = 0x00; seg[e3 + 11] = 0x00
+    seg[e3 + 8] = 56; seg[e3 + 9] = 0x00; seg[e3 + 10] = 0x00; seg[e3 + 11] = 0x00
 
-    // String "Acme\0" at to + 46 = 56
-    const strOff = to + 46
+    // String "Acme\0" at to + 50 = 60
+    const strOff = to + 50
     seg[strOff] = 0x41; seg[strOff + 1] = 0x63; seg[strOff + 2] = 0x6d; seg[strOff + 3] = 0x65; seg[strOff + 4] = 0x00
 
-    // GPS IFD at to + 54 = 64
-    const gpsIfd = to + 54
+    // GPS IFD at to + 56 = 66
+    const gpsIfd = to + 56
     seg[gpsIfd] = 0x01; seg[gpsIfd + 1] = 0x00 // 1 tag
     const g1 = gpsIfd + 2
-    // Tag 0x0002 (GPSLatitude), RATIONAL (5), count 3, offset 72
+    // Tag 0x0002 (GPSLatitude), RATIONAL (5), count 3, offset 74
     seg[g1] = 0x02; seg[g1 + 1] = 0x00; seg[g1 + 2] = 0x05; seg[g1 + 3] = 0x00
     seg[g1 + 4] = 0x03; seg[g1 + 5] = 0x00; seg[g1 + 6] = 0x00; seg[g1 + 7] = 0x00
-    seg[g1 + 8] = 72; seg[g1 + 9] = 0x00; seg[g1 + 10] = 0x00; seg[g1 + 11] = 0x00
+    seg[g1 + 8] = 74; seg[g1 + 9] = 0x00; seg[g1 + 10] = 0x00; seg[g1 + 11] = 0x00
 
     const jpeg = new Uint8Array([
       0xff, 0xd8,
@@ -454,3 +454,31 @@ describe('exif & metadata scrubber', () => {
   })
 })
 
+
+describe('small scrubber fixes', () => {
+  it('location-only mode removes the GPS entry from IFD0 cleanly', () => {
+    const thumb = new Uint8Array([0xff, 0xd8, 0xff, 0xd9])
+    const src = new Uint8Array([0xff, 0xd8, ...fakeExifApp1({ ...FAKE_PHONE, thumbnail: thumb }), ...tinyJpegBody()])
+    const out = scrubJpeg(src, { mode: 'location_only' })
+    // The TIFF block starts after SOI (2), the APP1 header (4) and "Exif\0\0" (6).
+    const t = 12
+    const v = new DataView(out.buffer, out.byteOffset)
+    const ifd0 = t + v.getUint32(t + 4, true)
+    const count = v.getUint16(ifd0, true)
+    const tags = Array.from({ length: count }, (_, i) => v.getUint16(ifd0 + 2 + i * 12, true))
+    // Make, Model, Orientation, DateTime: GPS (0x8825) gone, no empty tag-0 entry, still in order.
+    expect(tags).toEqual([0x010f, 0x0110, 0x0112, 0x0132])
+    const meta = inspectMetadata(out)
+    expect(meta.gps).toBeUndefined()
+    expect(meta.make).toBe('FakeCam')
+    // The link to IFD1 (the thumbnail) moved with the entries and still works.
+    expect(meta.hasThumbnail).toBe(true)
+  })
+
+  it('a batch never gives two files the same name in the ZIP', () => {
+    const jpeg = () => new Uint8Array([0xff, 0xd8, ...tinyJpegBody()])
+    const items = ['a.jpg', 'a.jpg', 'A.JPG', 'a.jpeg', 'b.jpg'].map((n) => createScrubBatchItem(jpeg(), n))
+    const { zipEntries } = scrubBatch(items)
+    expect(zipEntries.map((e) => e.name)).toEqual(['a-clean.jpg', 'a-clean-2.jpg', 'A-clean-3.jpg', 'a-clean-4.jpg', 'b-clean.jpg'])
+  })
+})

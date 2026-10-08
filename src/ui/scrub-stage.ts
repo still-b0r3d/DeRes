@@ -38,6 +38,8 @@ export class ScrubStage {
   private readonly checkStatsEl: HTMLElement
   private readonly tableEl: HTMLTableElement
   private currentMeta: ImageMetadata | null = null
+  /** Shows a line in the scrubber's status (set by the app). */
+  onStatus: (text: string) => void = () => {}
 
   constructor() {
     this.statusMsg = h('p', { class: 'stage-msg' }, 'Choose a photo to inspect and scrub its metadata.')
@@ -111,7 +113,7 @@ export class ScrubStage {
       h(
         'p',
         { class: 'scrub-alert-body' },
-        'This file contains an embedded preview thumbnail. In many camera apps, thumbnails retain the uncropped original photo even if you cropped it!'
+        'This file contains an embedded preview thumbnail. If the photo was cropped or edited, the thumbnail may still show the original.'
       ),
       h('div', { class: 'scrub-thumb-container' }, this.thumbImg)
     )
@@ -311,8 +313,8 @@ export class ScrubStage {
       ['Focal Length', meta.focalLength ? `${meta.focalLength} mm` : 'None'],
       ['Software', meta.software || 'None'],
       ['Artist / Copyright', [meta.artist, meta.copyright].filter(Boolean).join(' / ') || 'None'],
-      ['Colour Profile', meta.hasIccProfile ? 'ICC Profile present (Display P3 / sRGB)' : 'None'],
-      ['Embedded Thumbnail', meta.hasThumbnail ? 'Yes (uncropped original)' : 'No'],
+      ['Colour Profile', meta.hasIccProfile ? 'Colour profile present' : 'None'],
+      ['Embedded Thumbnail', meta.hasThumbnail ? 'Yes (may show the uncropped original)' : 'No'],
       ['Trailing Bytes', meta.trailerBytes > 0 ? `${meta.trailerBytes.toLocaleString()} bytes` : '0 bytes'],
       ['Total Raw Tags', `${meta.rawTagCount} metadata fields`]
     ]
@@ -345,9 +347,7 @@ export class ScrubStage {
           this.copyGpsBtn.textContent = orig
         }, 2000)
       },
-      () => {
-        prompt('Copy coordinates:', text)
-      }
+      () => this.onStatus(`Couldn't copy. The coordinates are ${text}`)
     )
   }
 }

@@ -206,9 +206,21 @@ function wipeGpsFromTiff(data: Uint8Array, tiffStart: number): void {
     }
   }
 
-  // Clear the 0x8825 tag entry in IFD0
+  // Remove the 0x8825 entry from IFD0: move the later entries and the
+  // next-IFD link up by one entry, lower the count, and zero the freed space.
   if (gpsEntryOffset > 0) {
-    data.fill(0, tiffStart + gpsEntryOffset, tiffStart + gpsEntryOffset + 12)
+    const entryAt = tiffStart + gpsEntryOffset
+    const linkEnd = tiffStart + ifd0Offset + 2 + numEntries * 12 + 4
+    if (linkEnd <= data.length) {
+      data.copyWithin(entryAt, entryAt + 12, linkEnd)
+      data.fill(0, linkEnd - 12, linkEnd)
+      const n = numEntries - 1
+      const countAt = tiffStart + ifd0Offset
+      data[countAt] = isLe ? n & 0xff : n >> 8
+      data[countAt + 1] = isLe ? n >> 8 : n & 0xff
+    } else {
+      data.fill(0, entryAt, Math.min(entryAt + 12, data.length))
+    }
   }
 }
 
@@ -755,6 +767,9 @@ export function scrubBatch(
   options?: ScrubOptions
 ): { items: ScrubBatchItem[]; zipEntries: { name: string; data: Uint8Array }[] } {
   const zipEntries: { name: string; data: Uint8Array }[] = []
+  // Names already in the ZIP, lower-cased: unzipping on Windows or a Mac
+  // treats A.jpg and a.jpg as the same file.
+  const used = new Set<string>()
   for (const item of items) {
     try {
       const res = scrubImage(item.rawBytes, options)
@@ -762,7 +777,10 @@ export function scrubBatch(
       item.report = res.report
       const ext = res.format === 'jpeg' ? 'jpg' : res.format
       const base = item.name.replace(/\.[^/.]+$/, '')
-      item.cleanFilename = `${base}-clean.${ext}`
+      let name = `${base}-clean.${ext}`
+      for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base}-clean-${n}.${ext}`
+      used.add(name.toLowerCase())
+      item.cleanFilename = name
       item.status = 'scrubbed'
       zipEntries.push({
         name: item.cleanFilename,

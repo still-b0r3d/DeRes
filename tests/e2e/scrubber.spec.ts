@@ -132,3 +132,30 @@ test('bytes after a WebP picture are cut, and the clean file still opens', async
   expect(await decodedSize(page, bytes, 'image/webp')).toEqual([24, 12])
   await expect(page.getByTestId('scrub-check-badge')).toHaveText('✓ Verified Clean')
 })
+
+test('the inspector words only what it checked, and copying coordinates never pops up a prompt', async ({ page }) => {
+  page.on('dialog', (d) => {
+    throw new Error(`unexpected ${d.type()} dialog: ${d.message()}`)
+  })
+  const thumb = await canvasJpeg(page, 8, 4)
+  const p = phoneStyleJpeg(await canvasJpeg(page, 32, 16), { ...FAKE_PHONE, thumbnail: thumb })
+  // Add a (fake) ICC profile segment after the Exif one.
+  const at = 4 + ((p[4] << 8) | p[5])
+  const icc = [0xff, 0xe2, 0x00, 0x12, ...Buffer.from('ICC_PROFILE\0'), 0x01, 0x01, 0, 0]
+  const photo = Buffer.concat([Buffer.from(p.subarray(0, at)), Buffer.from(icc), Buffer.from(p.subarray(at))])
+  await page.locator('#file-input').setInputFiles({ name: 'phone.jpg', mimeType: 'image/jpeg', buffer: photo })
+  await page.getByTestId('tab-scrub').click()
+
+  const table = page.getByTestId('scrub-table')
+  await expect(table).toContainText('Yes (may show the uncropped original)')
+  await expect(table).toContainText('Colour profile present')
+  await expect(table).not.toContainText('Display P3')
+  await expect(page.getByTestId('scrub-thumb-alert')).toContainText('may still show')
+
+  // A browser that refuses the clipboard: the coordinates go in the status line.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('denied')) } })
+  })
+  await page.getByTestId('copy-gps-btn').click()
+  await expect(page.getByTestId('scrub-status')).toContainText('0.000000, 0.000000')
+})

@@ -34,3 +34,16 @@ describe('createZip', () => {
     expect(view.getUint16(eocdOffset + 10, true)).toBe(2)
   })
 })
+
+describe('ZIP dates', () => {
+  it('every entry carries the same deliberate date, 1980-01-01 00:00, which says nothing about the user', () => {
+    const zip = createZip([{ name: 'a.txt', data: new Uint8Array([1]) }])
+    const view = new DataView(zip.buffer)
+    // Local header: time at 10, date at 12. DOS date 1980-01-01 = (0 << 9) | (1 << 5) | 1.
+    expect(view.getUint16(10, true)).toBe(0)
+    expect(view.getUint16(12, true)).toBe(0x0021)
+    const cd = 30 + 'a.txt'.length + 1
+    expect(view.getUint16(cd + 12, true)).toBe(0)
+    expect(view.getUint16(cd + 14, true)).toBe(0x0021)
+  })
+})

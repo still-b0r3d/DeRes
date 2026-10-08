@@ -3,6 +3,11 @@ import { crc32 } from './png'
 // Zero-dependency, client-side ZIP archive generator.
 // Packages scrubbed images and text exports into standard .zip files entirely in browser memory.
 
+// Every entry gets the same fixed time and date, 00:00 on 1980-01-01 (the
+// earliest a ZIP can hold), so the archive says nothing about when or where
+// it was made. DOS date: (year - 1980) << 9 | month << 5 | day.
+const ZIP_DATE = (0 << 9) | (1 << 5) | 1
+
 export interface ZipEntry {
   name: string
   data: Uint8Array
@@ -50,7 +55,7 @@ export function createZip(entries: ZipEntry[]): Uint8Array<ArrayBuffer> {
     view.setUint16(offset + 6, 0x0800, true) // UTF-8 filename flag
     view.setUint16(offset + 8, 0, true) // compression method: 0 (Stored)
     view.setUint16(offset + 10, 0, true) // time
-    view.setUint16(offset + 12, 0x5d21, true) // date: 2026-10-07
+    view.setUint16(offset + 12, ZIP_DATE, true) // date
     view.setUint32(offset + 14, e.crc, true) // CRC-32
     view.setUint32(offset + 18, e.size, true) // compressed size
     view.setUint32(offset + 22, e.size, true) // uncompressed size
@@ -78,7 +83,7 @@ export function createZip(entries: ZipEntry[]): Uint8Array<ArrayBuffer> {
     view.setUint16(offset + 8, 0x0800, true) // UTF-8 filename flag
     view.setUint16(offset + 10, 0, true) // compression method: 0
     view.setUint16(offset + 12, 0, true) // time
-    view.setUint16(offset + 14, 0x5d21, true) // date
+    view.setUint16(offset + 14, ZIP_DATE, true) // date
     view.setUint32(offset + 16, e.crc, true) // CRC-32
     view.setUint32(offset + 20, e.size, true) // compressed size
     view.setUint32(offset + 24, e.size, true) // uncompressed size
