@@ -953,6 +953,22 @@ button:disabled {
     border-bottom: 1px solid var(--line);
   }
 
+  /* In the scrubber, the metadata report is tall. Unpin the stage column on phones
+     so it flows naturally and doesn't obscure the controls underneath. */
+  .layout[data-tool="scrub"] .stage-col {
+    position: static;
+    top: auto;
+    z-index: auto;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border-bottom: none;
+  }
+
+  html:has(.layout[data-tool="scrub"]) {
+    scroll-padding-top: 16px;
+  }
+
   .stage {
     height: 45vh;
     height: 45svh;

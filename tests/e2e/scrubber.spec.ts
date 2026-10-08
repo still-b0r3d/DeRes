@@ -172,3 +172,15 @@ test("a GIF opens, and the inspector says it can't read it rather than 'no locat
   await expect(page.getByTestId('scrub-narrative')).not.toContainText('no GPS')
   await expect(page.getByTestId('scrub-table')).not.toContainText('None')
 })
+
+test('on a phone viewport, the scrubber buttons can be reached and clicked', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const photo = phoneStyleJpeg(await canvasJpeg(page, 32, 16), FAKE_PHONE)
+  await page.locator('#file-input').setInputFiles({ name: 'phone.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(photo) })
+  await page.getByTestId('tab-scrub').click()
+
+  const btn = page.getByTestId('scrub-download-btn')
+  await expect(btn).toBeVisible()
+  // This click will fail if .stage-col is sticky and overlays the controls on mobile
+  await btn.click({ timeout: 5000 })
+})

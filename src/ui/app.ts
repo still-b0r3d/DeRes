@@ -599,9 +599,11 @@ export function startApp(): void {
   const tabDeres = document.getElementById('tab-deres') as HTMLButtonElement | null
   const tabAscii = document.getElementById('tab-ascii') as HTMLButtonElement | null
   const tabScrub = document.getElementById('tab-scrub') as HTMLButtonElement | null
+  const layoutEl = document.querySelector('.layout') as HTMLElement | null
 
   function switchTool(tool: 'deres' | 'ascii' | 'scrub'): void {
     activeTool = tool
+    if (layoutEl) layoutEl.dataset.tool = tool
     if (tabDeres) {
       tabDeres.classList.toggle('active', tool === 'deres')
       tabDeres.setAttribute('aria-selected', String(tool === 'deres'))
@@ -636,6 +638,7 @@ export function startApp(): void {
   tabDeres?.addEventListener('click', () => switchTool('deres'))
   tabAscii?.addEventListener('click', () => switchTool('ascii'))
   tabScrub?.addEventListener('click', () => switchTool('scrub'))
+  if (layoutEl) layoutEl.dataset.tool = 'deres'
 
   controls.sync()
   asciiControls.sync()
