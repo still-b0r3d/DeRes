@@ -20,7 +20,7 @@ export interface ScrubOptions {
 }
 
 export interface SelfCheckReport {
-  format: 'jpeg' | 'png' | 'webp' | 'heic' | 'unknown'
+  format: ImageMetadata['format']
   originalSize: number
   scrubbedSize: number
   bytesSaved: number
@@ -38,7 +38,7 @@ export interface SelfCheckReport {
 
 export interface ScrubResult {
   data: Uint8Array
-  format: 'jpeg' | 'png' | 'webp' | 'heic' | 'unknown'
+  format: ImageMetadata['format']
   report: SelfCheckReport
 }
 
@@ -694,6 +694,10 @@ export function scrubImage(data: Uint8Array, options?: ScrubOptions): ScrubResul
     throw new Error(
       'HEIC files cannot be safely scrubbed at the byte level in the browser without re-encoding. Convert to JPEG or WebP to scrub metadata.'
     )
+  } else if (format === 'avif') {
+    throw new Error(
+      'AVIF files cannot be scrubbed here yet: only JPEG, PNG and WebP can. Convert to one of those to scrub metadata.'
+    )
   } else {
     throw new Error('Unsupported image format. Supported formats: JPEG, PNG, WebP.')
   }
@@ -711,7 +715,7 @@ export interface ScrubBatchItem {
   id: string
   name: string
   size: number
-  format: 'jpeg' | 'png' | 'webp' | 'heic' | 'unknown'
+  format: ImageMetadata['format']
   hasGps: boolean
   trailerBytes: number
   rawBytes: Uint8Array

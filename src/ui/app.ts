@@ -68,6 +68,7 @@ const MIME: Record<ImageMetadata['format'], string> = {
   png: 'image/png',
   webp: 'image/webp',
   heic: 'image/heic',
+  avif: 'image/avif',
   unknown: 'application/octet-stream'
 }
 
@@ -697,10 +698,18 @@ export function startApp(): void {
         asciiStage.message('Choose a photo to start.')
         scrubStage.message('Choose a photo to start.')
       }
-      showScrub()
+      // The scrubber reads the file itself, so it can still inspect a photo
+      // this browser can't show (HEIC outside Safari), just with no preview.
+      const meta = bytes ? inspectMetadata(bytes) : null
+      if (bytes && meta && meta.format !== 'unknown') {
+        setScrubFile({ bytes, meta, url: null, name })
+        showScrub()
+      } else {
+        showScrub()
+        scrubStage.problem(text)
+      }
       stage.problem(text)
       asciiStage.problem(text)
-      scrubStage.problem(text)
       controls.sync()
       asciiControls.sync()
       return

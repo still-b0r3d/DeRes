@@ -136,6 +136,23 @@ export function phoneStyleJpeg(jpeg: Uint8Array, f: FakeExif, trailer?: Uint8Arr
   return new Uint8Array([0xff, 0xd8, ...fakeExifApp1(f), ...kept, ...(trailer ?? [])])
 }
 
+/**
+ * A HEIF-family file (HEIC or AVIF) as far as the inspector reads it: an ftyp
+ * box with the given brands, then an mdat box holding an Exif item. There is
+ * no real picture in it, so no browser can show it.
+ */
+export function fakeHeif(major: string, compatible: string[], f: FakeExif): Uint8Array {
+  const text = (s: string) => [...s].map((c) => c.charCodeAt(0))
+  const box = (type: string, body: number[]) => {
+    const n = 8 + body.length
+    return [n >>> 24, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff, ...text(type), ...body]
+  }
+  const ftyp = box('ftyp', [...text(major), 0, 0, 0, 0, ...compatible.flatMap(text)])
+  // An Exif item: 4-byte offset to the TIFF header, "Exif\0\0", the TIFF block.
+  const mdat = box('mdat', [0, 0, 0, 6, ...text('Exif'), 0, 0, ...buildFakeTiff(f)])
+  return new Uint8Array([...ftyp, ...mdat])
+}
+
 /** The smallest JPEG-shaped byte stream the scrubber walks: tables are fake, no decoder will open it. */
 export function tinyJpegBody(): number[] {
   return [

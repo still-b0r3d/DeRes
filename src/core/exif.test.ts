@@ -7,7 +7,35 @@ import {
   inspectMetadata,
   type ImageMetadata
 } from './exif'
-import { buildMinimalOrientationApp1 } from './scrub'
+import { buildMinimalOrientationApp1, scrubImage } from './scrub'
+import { fakeHeif } from '../test/fake-exif'
+
+describe('HEIC and AVIF are told apart by their brands', () => {
+  const exif = { make: 'FakeCam', gps: { lat: 0, lon: 0 } }
+
+  it('HEIC files, also with the generic mif1 major brand', () => {
+    expect(detectFormat(fakeHeif('heic', ['mif1', 'heic'], exif))).toBe('heic')
+    expect(detectFormat(fakeHeif('mif1', ['mif1', 'heic'], exif))).toBe('heic')
+  })
+
+  it('AVIF files are not HEIC, whichever brand comes first', () => {
+    expect(detectFormat(fakeHeif('avif', ['mif1', 'avif', 'miaf'], exif))).toBe('avif')
+    expect(detectFormat(fakeHeif('avis', ['avis', 'msf1'], exif))).toBe('avif')
+    expect(detectFormat(fakeHeif('mif1', ['avif', 'mif1', 'miaf'], exif))).toBe('avif')
+  })
+
+  it('both can be inspected, neither can be scrubbed, and the message names the right format', () => {
+    for (const [file, name] of [
+      [fakeHeif('heic', ['mif1', 'heic'], exif), 'HEIC'],
+      [fakeHeif('avif', ['mif1', 'avif'], exif), 'AVIF']
+    ] as const) {
+      const meta = inspectMetadata(file)
+      expect(meta.make).toBe('FakeCam')
+      expect(meta.gps).toBeDefined()
+      expect(() => scrubImage(file)).toThrow(new RegExp(`^${name} files`))
+    }
+  })
+})
 
 describe('exif parser & inspector', () => {
   it('formats GPS coordinates into DMS strings correctly', () => {

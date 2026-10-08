@@ -11,7 +11,7 @@ export interface GpsCoordinates {
 }
 
 export interface ImageMetadata {
-  format: 'jpeg' | 'png' | 'webp' | 'heic' | 'unknown'
+  format: 'jpeg' | 'png' | 'webp' | 'heic' | 'avif' | 'unknown'
   make?: string
   model?: string
   lensModel?: string
@@ -129,10 +129,16 @@ export function detectFormat(data: Uint8Array): ImageMetadata['format'] {
     data[6] === 0x79 &&
     data[7] === 0x70
   ) {
-    const brand = String.fromCharCode(data[8], data[9], data[10], data[11])
-    if (['heic', 'heix', 'hevc', 'heim', 'heis', 'mif1', 'msf1'].includes(brand.toLowerCase())) {
-      return 'heic'
+    // ftyp box: major brand, minor version, then compatible brands to the
+    // end of the box. AVIF files often name the generic HEIF brands (mif1,
+    // msf1) too, so any AVIF brand makes it AVIF.
+    const boxEnd = Math.min(data.length, ((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]) >>> 0)
+    const brands = [String.fromCharCode(data[8], data[9], data[10], data[11]).toLowerCase()]
+    for (let p = 16; p + 4 <= boxEnd; p += 4) {
+      brands.push(String.fromCharCode(data[p], data[p + 1], data[p + 2], data[p + 3]).toLowerCase())
     }
+    if (brands.some((b) => b === 'avif' || b === 'avis')) return 'avif'
+    if (['heic', 'heix', 'hevc', 'heim', 'heis', 'mif1', 'msf1'].includes(brands[0])) return 'heic'
   }
   return 'unknown'
 }
@@ -393,7 +399,8 @@ export function inspectMetadata(data: Uint8Array): ImageMetadata {
     inspectPng(data, meta)
   } else if (format === 'webp') {
     inspectWebp(data, meta)
-  } else if (format === 'heic') {
+  } else if (format === 'heic' || format === 'avif') {
+    // Both are HEIF files and keep Exif the same way.
     inspectHeic(data, meta)
   }
 

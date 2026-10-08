@@ -23,6 +23,7 @@ export class ScrubStage {
   private readonly batchTableEl: HTMLTableElement
   private readonly previewImg: HTMLImageElement
   private readonly previewWrap: HTMLElement
+  private readonly noPreviewEl: HTMLElement
   private readonly narrativeEl: HTMLElement
   private readonly gpsAlertEl: HTMLElement
   private readonly gpsCoordsEl: HTMLElement
@@ -58,6 +59,17 @@ export class ScrubStage {
       'data-testid': 'scrub-preview-img'
     })
     this.previewWrap = h('div', { class: 'scrub-preview-wrap' }, this.previewImg)
+    this.noPreviewEl = h(
+      'p',
+      { class: 'scrub-no-preview', 'data-testid': 'scrub-no-preview', hidden: true },
+      "No preview: this browser can't show this photo. The details below are read straight from the file."
+    )
+    // A batch can hold photos this browser can't show (HEIC outside Safari).
+    this.previewImg.addEventListener('error', () => {
+      if (!this.previewImg.getAttribute('src')) return
+      show(this.previewWrap, false)
+      show(this.noPreviewEl, true)
+    })
 
     // Narrative
     this.narrativeEl = h('div', {
@@ -140,6 +152,7 @@ export class ScrubStage {
       { class: 'scrub-content', hidden: true },
       this.batchPanelEl,
       this.previewWrap,
+      this.noPreviewEl,
       this.checkBannerEl,
       this.narrativeEl,
       this.gpsAlertEl,
@@ -230,6 +243,7 @@ export class ScrubStage {
 
     // Preview
     show(this.previewWrap, imageUrl !== null)
+    show(this.noPreviewEl, imageUrl === null)
     if (imageUrl) this.previewImg.src = imageUrl
     else this.previewImg.removeAttribute('src')
 

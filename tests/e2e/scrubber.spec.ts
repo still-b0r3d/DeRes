@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { inspectMetadata } from '../../src/core/exif'
-import { jpegMarkers, phoneStyleJpeg } from '../../src/test/fake-exif'
+import { fakeHeif, jpegMarkers, phoneStyleJpeg } from '../../src/test/fake-exif'
 import { canvasJpeg, decodedSize, download, freshPage, gradientPng, zipNames } from './helpers'
 
 // The EXIF scrubber, with made-up phone-style photos (fake camera, 0,0).
@@ -70,4 +70,31 @@ test('a batch is only the photos picked together, never the sample or an older b
   await page.getByRole('button', { name: 'Try the sample' }).last().click()
   await expect(page.getByTestId('scrub-picture-info')).toContainText('rukus.png')
   await expect(page.getByTestId('scrub-batch-panel')).toBeHidden()
+})
+
+test("a HEIC this browser can't show is still inspected, with nothing left over from the last photo", async ({ page }) => {
+  const table = page.getByTestId('scrub-table')
+  const older = phoneStyleJpeg(await canvasJpeg(page, 32, 16), { make: 'OldCam', model: 'Before' })
+  await page.locator('#file-input').setInputFiles({ name: 'older.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(older) })
+  await page.getByTestId('tab-scrub').click()
+  await expect(table).toContainText('OldCam')
+
+  // No browser can show this one (there is no real picture in it).
+  const heic = fakeHeif('heic', ['mif1', 'heic'], FAKE_PHONE)
+  await page.locator('#file-input').setInputFiles({ name: 'phone.heic', mimeType: 'image/heic', buffer: Buffer.from(heic) })
+  await expect(page.getByTestId('scrub-picture-info')).toContainText('phone.heic')
+  await expect(table).toContainText('HEIC')
+  await expect(table).toContainText('FakeCam')
+  await expect(table).not.toContainText('OldCam')
+  await expect(page.getByTestId('scrub-gps-alert')).toBeVisible()
+  await expect(page.getByTestId('scrub-preview-img')).toBeHidden()
+  await expect(page.getByTestId('scrub-no-preview')).toBeVisible()
+
+  await page.getByTestId('scrub-download-btn').click()
+  await expect(page.getByTestId('scrub-status')).toContainText('HEIC files cannot be safely scrubbed')
+
+  // DeRes says it can't open it and keeps the last picture.
+  await page.getByTestId('tab-deres').click()
+  await expect(page.locator('.stage-note')).toContainText("can't open that file")
+  await expect(page.getByTestId('picture-info')).toHaveText('older.jpg · 32×16')
 })
