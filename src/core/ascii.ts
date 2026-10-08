@@ -167,32 +167,33 @@ export const TELETEXT_FALLBACK_BLOCKS: readonly string[] = [
   '░', '░', '░', '░', '░', '▄', '▌', '█'
 ]
 
-// C64 PETSCII screen code mapping for standard graphics glyphs
+// C64 screen codes (uppercase/graphics set) for the characters PETSCII mode
+// uses. PETSCII $A0-$BF are screen codes $60-$7F and $C0-$DF are $40-$5F;
+// adding $80 shows a character reversed. The C64 has one even shade (the
+// checkerboard) and no triangles.
 export const PETSCII_SCREEN_CODES: Record<string, number> = {
   ' ': 0x20,
-  '█': 0xa0,
-  '▌': 0x61,
-  '▄': 0x62,
-  '▀': 0x65,
-  '▐': 0x67,
-  '▒': 0x64,
-  '░': 0x66,
-  '▓': 0xa0,
-  '▖': 0x6a,
-  '▗': 0x6b,
-  '▘': 0x79,
-  '▝': 0x69,
-  '▚': 0x7f,
-  '▞': 0x7e,
-  '━': 0x6c,
-  '┃': 0x7d,
-  '♠': 0x53,
-  '♥': 0x51,
-  '♣': 0x57,
-  '♦': 0x5a,
-  '●': 0x77,
-  '▲': 0x58,
-  '▼': 0x59
+  '█': 0xa0, // reversed space
+  '▌': 0x61, // PETSCII $A1
+  '▐': 0xe1, // reversed ▌
+  '▄': 0x62, // PETSCII $A2
+  '▀': 0xe2, // reversed ▄
+  '▒': 0x66, // PETSCII $A6, the checkerboard
+  '░': 0x66, // no lighter even shade
+  '▓': 0xa0, // nor a darker one: full block
+  '▖': 0x7b, // PETSCII $BB
+  '▗': 0x6c, // PETSCII $AC
+  '▘': 0x7e, // PETSCII $BE
+  '▝': 0x7c, // PETSCII $BC
+  '▚': 0x7f, // PETSCII $BF
+  '▞': 0xff, // reversed ▚
+  '━': 0x40, // PETSCII $C0 ─
+  '┃': 0x5d, // PETSCII $DD │
+  '♠': 0x41, // PETSCII $C1
+  '♥': 0x53, // PETSCII $D3
+  '♣': 0x58, // PETSCII $D8
+  '♦': 0x5a, // PETSCII $DA
+  '●': 0x51 // PETSCII $D1
 }
 
 // C64 color control codes for PETSCII .seq stream (0..15)

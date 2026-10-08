@@ -11,6 +11,7 @@ import {
   toHtml,
   toMarkdown,
   toPlainText,
+  PETSCII_SCREEN_CODES,
   TELETEXT_MOSAICS
 } from './ascii'
 import { parseSauce } from './sauce'
@@ -293,5 +294,45 @@ describe('Teletext mosaic characters', () => {
     expect(TELETEXT_MOSAICS[1]).toBe('\u{1FB00}')
     expect(TELETEXT_MOSAICS[20]).toBe('\u{1FB13}')
     expect(TELETEXT_MOSAICS[62]).toBe('\u{1FB3B}')
+  })
+})
+
+describe('PETSCII screen codes', () => {
+  it('match the C64 character set', () => {
+    // From the C64's PETSCII chart (PETSCII $A0-$BF are screen codes $60-$7F,
+    // $C0-$DF are $40-$5F); +$80 shows the character reversed.
+    expect(PETSCII_SCREEN_CODES).toEqual({
+      ' ': 0x20,
+      '█': 0xa0, // reversed space
+      '▌': 0x61, // PETSCII $A1
+      '▐': 0xe1, // reversed ▌
+      '▄': 0x62, // PETSCII $A2
+      '▀': 0xe2, // reversed ▄
+      '▒': 0x66, // PETSCII $A6, the checkerboard
+      '░': 0x66, // no lighter even shade on the C64
+      '▓': 0xa0, // nor a darker one: full block
+      '▖': 0x7b, // PETSCII $BB
+      '▗': 0x6c, // PETSCII $AC
+      '▘': 0x7e, // PETSCII $BE
+      '▝': 0x7c, // PETSCII $BC
+      '▚': 0x7f, // PETSCII $BF
+      '▞': 0xff, // reversed ▚
+      '━': 0x40, // PETSCII $C0 ─
+      '┃': 0x5d, // PETSCII $DD │
+      '♠': 0x41, // PETSCII $C1
+      '♥': 0x53, // PETSCII $D3
+      '♣': 0x58, // PETSCII $D8
+      '♦': 0x5a, // PETSCII $DA
+      '●': 0x51 // PETSCII $D1
+    })
+  })
+
+  it('covers every character PETSCII mode makes', () => {
+    const w = 64
+    const h = 64
+    const px = new Uint8ClampedArray(w * h * 4)
+    for (let i = 0; i < w * h; i++) px.set([(i * 37) % 256, (i * 91) % 256, (i * 53) % 256, 255], i * 4)
+    const res = generateAscii(px, w, h, { mode: 'petscii', columns: 32 })
+    for (const row of res.cells) for (const cell of row) expect(PETSCII_SCREEN_CODES[cell.char], cell.char).toBeDefined()
   })
 })
