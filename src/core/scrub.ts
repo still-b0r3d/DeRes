@@ -5,6 +5,8 @@
 // - Preserves orientation by writing a clean, minimal 36-byte APP1 segment if orientation > 1.
 // - Strips eXIf, tEXt, zTXt, iTXt, tIME from PNG; truncates after IEND.
 // - Strips EXIF, XMP chunks from WebP; clears VP8X flags; updates RIFF size.
+//   No orientation is kept for WebP: Chromium 147 and WebKit 26.4 both ignore
+//   the EXIF Orientation of a WebP (checked 2026-10-07), so it changes nothing.
 // - Zero network requests, 100% in-browser client-side execution.
 
 import { crc32 } from './png'
@@ -231,7 +233,9 @@ export function scrubJpeg(data: Uint8Array, options?: ScrubOptions): Uint8Array 
   // SOI
   appendChunk(data.subarray(0, 2))
 
-  // If complete scrub and orientation needs preserving, inject minimal APP1 right after SOI
+  // If complete scrub and orientation needs preserving, inject a minimal APP1
+  // where viewers look for it: right after a leading JFIF APP0 if there is
+  // one, otherwise right after SOI (phones write Exif first and no APP0).
   let orientationInjected = false
   const injectOrientationIfNeeded = () => {
     if (
@@ -247,6 +251,9 @@ export function scrubJpeg(data: Uint8Array, options?: ScrubOptions): Uint8Array 
       orientationInjected = true
     }
   }
+
+  const leadingApp0 = data[2] === 0xff && data[3] === 0xe0
+  if (!leadingApp0) injectOrientationIfNeeded()
 
   let pos = 2
   let inScan = false
@@ -385,9 +392,6 @@ export function scrubJpeg(data: Uint8Array, options?: ScrubOptions): Uint8Array 
 
     pos = segEnd
   }
-
-  // Fallback: inject orientation if not yet injected
-  injectOrientationIfNeeded()
 
   // Concatenate parts
   const result = new Uint8Array(totalLen)

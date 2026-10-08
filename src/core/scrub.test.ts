@@ -12,6 +12,44 @@ import {
   verifyScrubbed
 } from './scrub'
 import { inspectMetadata } from './exif'
+import { fakeExifApp1, jpegMarkers, tinyJpegBody } from '../test/fake-exif'
+
+const FAKE_PHONE = { make: 'FakeCam', model: 'Test 1', orientation: 6, dateTime: '2000:01:01 00:00:00', gps: { lat: 0, lon: 0 } }
+
+describe('phone-style JPEGs (Exif first, no JFIF)', () => {
+  const phone = () => new Uint8Array([0xff, 0xd8, ...fakeExifApp1(FAKE_PHONE), ...tinyJpegBody()])
+
+  it('keeps the orientation in an APP1 right after SOI, before the picture data', () => {
+    const src = phone()
+    expect(inspectMetadata(src).gps).toBeDefined()
+    const out = scrubJpeg(src)
+    expect(jpegMarkers(out)).toEqual([0xe1, 0xdb, 0xc0, 0xda])
+    expect([...out.subarray(2, 38)]).toEqual([...buildMinimalOrientationApp1(6)])
+    // Nothing after the end-of-image marker.
+    expect([...out.subarray(-2)]).toEqual([0xff, 0xd9])
+    const meta = inspectMetadata(out)
+    expect(meta.orientation).toBe(6)
+    expect(meta.trailerBytes).toBe(0)
+    expect(meta.gps).toBeUndefined()
+    expect(meta.make).toBeUndefined()
+    expect(out.length).toBe(2 + 36 + tinyJpegBody().length)
+  })
+
+  it('puts it after the JFIF APP0 when the file starts with one', () => {
+    const app0 = [0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]
+    const src = new Uint8Array([0xff, 0xd8, ...app0, ...fakeExifApp1(FAKE_PHONE), ...tinyJpegBody()])
+    const out = scrubJpeg(src)
+    expect(jpegMarkers(out)).toEqual([0xe0, 0xe1, 0xdb, 0xc0, 0xda])
+    expect([...out.subarray(-2)]).toEqual([0xff, 0xd9])
+    expect(inspectMetadata(out).orientation).toBe(6)
+  })
+
+  it('adds no orientation segment when told not to keep it', () => {
+    const out = scrubJpeg(phone(), { preserveOrientation: false })
+    expect(jpegMarkers(out)).toEqual([0xdb, 0xc0, 0xda])
+    expect(inspectMetadata(out).orientation).toBeUndefined()
+  })
+})
 
 describe('exif & metadata scrubber', () => {
   it('constructs valid minimal orientation structures', () => {
