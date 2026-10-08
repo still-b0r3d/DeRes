@@ -3,7 +3,7 @@ import { NEUTRAL } from './adjust'
 import { hexToRgb } from './color'
 import { exportPng, FX_MIN_MULTIPLIER } from './export'
 import { DEFAULT_FX } from './fx'
-import { Deres, exportSize, MAX_EXPORT_PIXELS, paletteBytes, type DeresSettings } from './pipeline'
+import { colourCount, Deres, exportSize, MAX_EXPORT_PIXELS, paletteBytes, type DeresSettings } from './pipeline'
 import { decodePng } from './png'
 import { PROFILES, profileById } from './profiles'
 
@@ -196,3 +196,31 @@ describe('export', () => {
   })
 })
 
+
+describe('how many colours a machine gets', () => {
+  const used = (profileId: string, customCount?: number) =>
+    loaded().render(settings({ profileId, dither: 'none', customCount })).used
+
+  it("range and pool machines use their own count unless the slider asks for fewer", () => {
+    expect(colourCount(profileById('snes')!)).toBe(256)
+    expect(colourCount(profileById('vga')!)).toBe(256)
+    expect(colourCount(profileById('amstrad-cpc-1')!)).toBe(4)
+    expect(colourCount(profileById('snes')!, 32)).toBe(32)
+    // Never more than the machine had, never fewer than 2.
+    expect(colourCount(profileById('amstrad-cpc-1')!, 16)).toBe(4)
+    expect(colourCount(profileById('vga')!, 100000)).toBe(256)
+    expect(colourCount(profileById('vga')!, 1)).toBe(2)
+    // The Custom machine: 2 to 256, 16 to start with.
+    expect(colourCount(profileById('custom')!)).toBe(16)
+    expect(colourCount(profileById('custom')!, 200)).toBe(200)
+    expect(colourCount(profileById('gameboy')!)).toBeNull()
+  })
+
+  it('the picture really uses them', () => {
+    expect(used('snes')).toBeGreaterThan(100)
+    expect(used('vga')).toBeGreaterThan(100)
+    expect(used('amstrad-cpc-1')).toBeLessThanOrEqual(4)
+    expect(used('amstrad-cpc-1', 16)).toBeLessThanOrEqual(4)
+    expect(used('snes', 8)).toBeLessThanOrEqual(8)
+  })
+})

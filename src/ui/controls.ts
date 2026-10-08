@@ -2,7 +2,7 @@ import { NEUTRAL } from '../core/adjust'
 import { DITHERS } from '../core/dither'
 import { FX_MIN_MULTIPLIER } from '../core/export'
 import type { Geometry } from '../core/geometry'
-import { exportSize, MAX_EXPORT_PIXELS, paletteBytes } from '../core/pipeline'
+import { colourCount, exportSize, MAX_EXPORT_PIXELS, maxColourCount, paletteBytes } from '../core/pipeline'
 import { PROFILES, profileById, representativePalette } from '../core/profiles'
 import type { HardwareFitReport } from '../core/tiles'
 import { h, segmented, show, slider } from './dom'
@@ -474,14 +474,14 @@ export function buildControls(ctx: ControlsContext): {
     for (const [id, card] of cards) card.setAttribute('aria-pressed', String(id === s.profileId))
     about.textContent = `${p.origin}. ${p.about}`
 
-    const hasRangeOrCustom = p.palette.kind === 'range' || p.palette.kind === 'custom'
-    show(paletteTools, hasRangeOrCustom)
-    if (hasRangeOrCustom) {
-      const curCount = s.customPalette
-        ? s.customPalette.length
-        : (s.customCount ?? (p.palette.kind === 'range' ? p.palette.count : 16))
-      customCount.set(curCount)
-      show(customCount.el, !s.customPalette)
+    // Range, pool and Custom machines pick their colours from the photo; the
+    // slider can ask for fewer, never more than the machine had.
+    const maxCount = maxColourCount(p)
+    show(paletteTools, maxCount !== null)
+    if (maxCount !== null) {
+      customCount.input.max = String(maxCount)
+      customCount.set(colourCount(p, s.customCount)!)
+      show(customCount.el, !(p.palette.kind === 'custom' && s.customPalette))
     }
 
     if (cards.has('custom')) {
@@ -561,7 +561,7 @@ export function buildControls(ctx: ControlsContext): {
       } else if (p.palette.kind === 'n64') {
         coloursLabel = '16-bit RGBA5551'
       } else if (p.palette.kind === 'pool') {
-        coloursLabel = `${p.palette.count} from ${p.palette.pool.length} colours`
+        coloursLabel = `${colourCount(p, s.customCount)} from ${p.palette.pool.length} colours`
       } else if (p.palette.kind === 'cell') {
         if (p.palette.mode === 'gbc-tile') coloursLabel = '8 palettes of 4 colours (32 max)'
         else if (p.palette.mode === 'msx-screen2') coloursLabel = '2 colours per 8×1 line (15 colours)'
@@ -575,10 +575,10 @@ export function buildControls(ctx: ControlsContext): {
       } else if (p.palette.kind === 'fixed') {
         coloursLabel = `${p.palette.colours.length}-colour palette`
       } else if (p.palette.kind === 'range') {
-        const count = s.customPalette?.length ?? s.customCount ?? p.palette.count
+        const count = s.customPalette?.length ?? colourCount(p, s.customCount)
         coloursLabel = `${count}-colour palette`
       } else {
-        const count = s.customPalette?.length ?? s.customCount ?? 16
+        const count = s.customPalette?.length ?? colourCount(p, s.customCount) ?? 16
         coloursLabel = `${count}-colour palette`
       }
       const tooBig = w * hh > MAX_EXPORT_PIXELS

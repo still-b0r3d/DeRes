@@ -34,7 +34,8 @@ export function defaultSettings(): Settings {
     multiplier: 4,
     exportFx: false,
     animationStyle: 'screen-fx',
-    customCount: 16,
+    // The colours slider: unset means the machine's own count.
+    customCount: undefined,
     customPalette: undefined
   }
 }
@@ -72,7 +73,13 @@ export function loadSettings(): Settings {
     vhsOsd: f.vhsOsd !== false
   }
   const profileId = profileById(String(loaded.profileId)) ? String(loaded.profileId) : d.profileId
-  const customCount = typeof loaded.customCount === 'number' ? Math.round(num(loaded.customCount, 2, 256, 16)) : d.customCount
+  // The colours slider resets whenever a machine is picked, so a saved value
+  // is only kept for the Custom machine. (Before v0.8.3 every visitor had 16
+  // saved, which capped every range machine at 16.)
+  const customCount =
+    profileId === 'custom' && typeof loaded.customCount === 'number'
+      ? Math.round(num(loaded.customCount, 2, 256, 16))
+      : d.customCount
   const customPalette = Array.isArray(loaded.customPalette)
     ? (loaded.customPalette.filter((c) => typeof c === 'string') as string[])
     : undefined

@@ -95,6 +95,26 @@ interface PaletteState {
   lightest: number
 }
 
+/** The most colours the colours slider can ask for on a machine (null: no slider). */
+export function maxColourCount(profile: Profile): number | null {
+  if (profile.palette.kind === 'range' || profile.palette.kind === 'pool') return profile.palette.count
+  if (profile.palette.kind === 'custom') return 256
+  return null
+}
+
+/**
+ * How many colours a range, pool or Custom machine picks from the photo: the
+ * machine's own count, or fewer when the colours slider asks (customCount),
+ * never more than the machine had and never fewer than 2. Null for machines
+ * with a fixed palette or their own colour rules.
+ */
+export function colourCount(profile: Profile, customCount?: number): number | null {
+  const max = maxColourCount(profile)
+  if (max === null || !('count' in profile.palette)) return null
+  const want = typeof customCount === 'number' && Number.isFinite(customCount) ? Math.round(customCount) : profile.palette.count
+  return Math.min(max, Math.max(2, want))
+}
+
 export function paletteBytes(profile: Profile, customPalette?: readonly string[]): Uint8Array {
   const hexes =
     profile.palette.kind === 'custom' && customPalette && customPalette.length > 0
@@ -499,11 +519,11 @@ export class Deres {
       if (s.customPalette && s.customPalette.length > 0) {
         display = Uint8Array.from(s.customPalette.map(hexToRgb).flat())
       } else if (profile.palette.kind === 'pool') {
-        const count = s.customCount ?? profile.palette.count
+        const count = colourCount(profile, s.customCount)!
         display = quantizeFromPool(rgb, profile.palette.pool, count)
         if (display.length === 0) display = paletteBytes(profile)
       } else {
-        const count = s.customCount ?? ('count' in profile.palette ? profile.palette.count : 16)
+        const count = colourCount(profile, s.customCount) ?? 16
         const bits = profile.palette.kind === 'range' ? profile.palette.bitsPerChannel : 8
         display = quantizeRgb(rgb, count, bits)
         if (display.length === 0) display = paletteBytes(profile)

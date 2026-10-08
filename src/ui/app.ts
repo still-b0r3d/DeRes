@@ -17,7 +17,7 @@ import { BYTE_TO_LINEAR, rgbToHex } from '../core/color'
 import { baseName } from '../core/filename'
 import { planGeometry, type Geometry } from '../core/geometry'
 import { exportPaletteHex, parsePalettePng, parsePaletteText } from '../core/palette-file'
-import type { DeresSettings } from '../core/pipeline'
+import { colourCount, type DeresSettings } from '../core/pipeline'
 import { PROFILES, profileById } from '../core/profiles'
 import type { DitherId } from '../core/dither'
 import { quantizeRgb } from '../core/quantize'
@@ -234,7 +234,7 @@ export function startApp(): void {
       const imgData = picture.copy.rgba
       const imgW = picture.copy.width
       const imgH = picture.copy.height
-      const count = settings.customCount ?? 16
+      const count = colourCount(profileById(settings.profileId)!, settings.customCount) ?? 16
       const rgb = new Float32Array(imgW * imgH * 3)
       for (let i = 0; i < imgW * imgH; i++) {
         rgb[i * 3] = BYTE_TO_LINEAR[imgData[i * 4]]
@@ -342,7 +342,8 @@ export function startApp(): void {
       // Each machine starts with the dither and screen that suit it.
       const screen = p.id === 'vhs' ? 'vhs' : (settings.fx.screen === 'off' ? settings.fx.screen : p.screen)
       const fx = { ...settings.fx, screen }
-      this.set({ profileId: id, dither: p.dither, fx })
+      // The colours slider starts at the new machine's own count.
+      this.set({ profileId: id, dither: p.dither, fx, customCount: undefined })
     },
     openFile: () => fileInput.click(),
     loadSample,
@@ -846,6 +847,7 @@ export function startApp(): void {
     settings = {
       ...settings,
       profileId: randProfile.id,
+      customCount: undefined,
       dither: randDither,
       adjust: {
         ...settings.adjust,
