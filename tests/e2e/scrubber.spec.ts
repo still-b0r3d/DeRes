@@ -112,3 +112,23 @@ test('a damaged PNG leaves the page working', async ({ page }) => {
   await page.locator('#file-input').setInputFiles({ name: 'fine.png', mimeType: 'image/png', buffer: png })
   await expect(page.getByTestId('picture-info')).toHaveText('fine.png · 20×20')
 })
+
+test('bytes after a WebP picture are cut, and the clean file still opens', async ({ page, browserName }) => {
+  const webp = await page.evaluate(async () => {
+    const c = document.createElement('canvas')
+    c.width = 24
+    c.height = 12
+    c.getContext('2d')!.fillRect(0, 0, 12, 12)
+    const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/webp', 0.9))
+    return blob.type === 'image/webp' ? [...new Uint8Array(await blob.arrayBuffer())] : null
+  })
+  test.skip(!webp, `${browserName} can't make a WebP to test with`)
+  const withTrailer = Buffer.concat([Buffer.from(webp!), Buffer.from('trailing secret')])
+  await page.locator('#file-input').setInputFiles({ name: 'pic.webp', mimeType: 'image/webp', buffer: withTrailer })
+  await page.getByTestId('tab-scrub').click()
+  await expect(page.getByTestId('scrub-trailer-alert')).toBeVisible()
+  const { bytes } = await download(page, page.getByTestId('scrub-download-btn'))
+  expect(Buffer.from(bytes).toString('latin1')).not.toContain('trailing secret')
+  expect(await decodedSize(page, bytes, 'image/webp')).toEqual([24, 12])
+  await expect(page.getByTestId('scrub-check-badge')).toHaveText('✓ Verified Clean')
+})

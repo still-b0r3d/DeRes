@@ -51,6 +51,36 @@ describe('phone-style JPEGs (Exif first, no JFIF)', () => {
   })
 })
 
+describe('WebP: the RIFF size says where the file ends', () => {
+  const chunk = (fourCC: string, body: number[]) => {
+    const pad = body.length & 1 ? [0] : []
+    return [...[...fourCC].map((c) => c.charCodeAt(0)), body.length & 0xff, body.length >> 8, 0, 0, ...body, ...pad]
+  }
+  const webpWithTrailer = () => {
+    const body = chunk('VP8 ', [1, 2, 3, 4])
+    const n = 4 + body.length
+    // Bytes after the RIFF end, laid out like more chunks.
+    const trailer = [...chunk('ABCD', [0x73, 0x65, 0x63, 0x72, 0x65, 0x74]), ...chunk('XMP ', [1, 2])]
+    return new Uint8Array([0x52, 0x49, 0x46, 0x46, n & 0xff, n >> 8, 0, 0, 0x57, 0x45, 0x42, 0x50, ...body, ...trailer])
+  }
+
+  it('the inspector counts what follows the RIFF end as trailing bytes', () => {
+    const meta = inspectMetadata(webpWithTrailer())
+    expect(meta.trailerBytes).toBe(14 + 10)
+    expect(meta.rawTagCount).toBe(0)
+  })
+
+  it('the scrubber cuts it, and the self-check says so', () => {
+    const src = webpWithTrailer()
+    const res = scrubImage(src)
+    expect(res.data.length).toBe(12 + 12)
+    expect(new DataView(res.data.buffer).getUint32(4, true)).toBe(res.data.length - 8)
+    expect(res.report.trailersRemoved).toBe(true)
+    expect(res.report.isClean).toBe(true)
+    expect(res.report.bytesSaved).toBe(24)
+  })
+})
+
 describe('the self-check reports what it actually found', () => {
   const dirty = () =>
     new Uint8Array([0xff, 0xd8, ...fakeExifApp1(FAKE_PHONE), ...tinyJpegBody(), 1, 2, 3])

@@ -10,7 +10,7 @@
 // - Zero network requests, 100% in-browser client-side execution.
 
 import { crc32 } from './png'
-import { detectFormat, inspectMetadata, type ImageMetadata } from './exif'
+import { detectFormat, inspectMetadata, webpRiffEnd, type ImageMetadata } from './exif'
 
 export interface ScrubOptions {
   /** 'all' strips all metadata (camera, GPS, comments, trailers); 'location_only' preserves camera/settings while wiping GPS. Default 'all'. */
@@ -547,8 +547,10 @@ export function scrubWebp(data: Uint8Array): Uint8Array {
   appendChunk(header)
 
   let pos = 12
+  // Stop at the RIFF end: anything after it is a trailer and is cut.
+  const end = webpRiffEnd(data)
 
-  while (pos + 8 <= data.length) {
+  while (pos + 8 <= end) {
     const fourCC = String.fromCharCode(
       data[pos],
       data[pos + 1],
@@ -563,9 +565,12 @@ export function scrubWebp(data: Uint8Array): Uint8Array {
       0
     const paddedSize = size + (size % 2)
     const chunkEnd = pos + 8 + paddedSize
-    if (chunkEnd > data.length) break
+    // A chunk's data must fit inside the RIFF; only its padding byte may be
+    // missing (some writers leave it out of the size), and is put back.
+    if (pos + 8 + size > end) break
 
-    const chunkData = data.subarray(pos, chunkEnd)
+    const chunkData =
+      chunkEnd <= data.length ? data.subarray(pos, chunkEnd) : new Uint8Array([...data.subarray(pos, pos + 8 + size), 0])
 
     if (fourCC === 'EXIF' || fourCC === 'XMP ') {
       // Strip EXIF and XMP chunks

@@ -549,10 +549,19 @@ function inspectPng(data: Uint8Array, meta: ImageMetadata): void {
   }
 }
 
+/** Where a WebP's RIFF data ends (its size field says), never past the file. */
+export function webpRiffEnd(data: Uint8Array): number {
+  const size = (data[4] | (data[5] << 8) | (data[6] << 16) | (data[7] << 24)) >>> 0
+  return Math.min(data.length, 8 + size)
+}
+
 function inspectWebp(data: Uint8Array, meta: ImageMetadata): void {
   let pos = 12 // Skip "RIFF" + size + "WEBP"
+  const end = webpRiffEnd(data)
+  // Anything after the RIFF end is not part of the picture.
+  meta.trailerBytes = data.length - end
 
-  while (pos + 8 <= data.length) {
+  while (pos + 8 <= end) {
     const fourCC = String.fromCharCode(
       data[pos],
       data[pos + 1],
