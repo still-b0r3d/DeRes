@@ -13,7 +13,7 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.8.2, Animated PNG & GIF Exports (Zero-dependency in-browser APNG and GIF89a looping image encoders with Netscape 2.0 loop blocks, Screen FX CRT/VHS loop cycles, Before & After A/B compare wipe transitions, and Dither Shimmer phase rotations), is built. Not live yet.
+**Status:** v0.8.2 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
@@ -233,6 +233,8 @@ version and the build (the commit it was built from).
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.8.2 | 2026-10-07 | First live release. Animated PNG and looping GIF exports (Screen FX loop, A/B wipe, dither shimmer). |
+| 0.8.0 | 2026-10-07 | BBS heritage, Teletext & batch tools: PETSCII mode with .seq and .prg exports, Teletext mosaics with .ttx export, dial-up baud playback, batch EXIF scrubber with ZIP download. |
 | 0.7.0 | 2026-10-07 | Extended hardware & handhelds: Nokia 3310, GBC per-tile mode & .chr export, Virtual Boy crimson, Atari ST, Amstrad CPC Modes 0 & 1, MSX Screen 2, CGA composite artifact mode, Digipal LCD pet, integer wallpaper presets (Phone, Win95, 1080p), and "Surprise me" randomizer. |
 | 0.6.0 | 2026-10-07 | Analog, print & video aesthetics: VHS mode (tracking jitter, head noise, chroma smear, PLAY ▶ OSD), early CCD (640×480, noise, date stamp), NTSC composite bleed, JPEG deep fry DCT crunch, newspaper halftone rosettes, two-ink risograph, streaky 1-bit fax, monochrome P1/P3/P4 phosphors. |
 | 0.5.0 | 2026-10-07 | EXIF Scrubber: byte-level stripping (JPEG, PNG, WebP), minimal orientation preservation, GPS coordinates inspector & copy, uncropped-thumbnail warning, trailing data removal, automated privacy self-check. |
