@@ -2,9 +2,18 @@ import { NEUTRAL } from '../core/adjust'
 import { DITHERS } from '../core/dither'
 import { FX_MIN_MULTIPLIER } from '../core/export'
 import type { Geometry } from '../core/geometry'
-import { MAX_ANIMATION_PIXELS } from '../core/animate'
+import { MAX_ANIMATION_BUDGET, MAX_ANIMATION_PIXELS } from '../core/animate'
 import { colourCount, ditherApplies, ditherNote, exportSize, MAX_EXPORT_PIXELS, maxColourCount, paletteBytes } from '../core/pipeline'
 import { PROFILES, profileById, representativePalette } from '../core/profiles'
+import {
+  CONNECTION_NAMES,
+  LOOP_FPS,
+  LOOP_FRAMES,
+  resolveConnection,
+  signalMachine,
+  type LoopFps,
+  type LoopFrames
+} from '../core/signal'
 import type { HardwareFitReport } from '../core/tiles'
 import { h, segmented, show, slider } from './dom'
 import { MULTIPLIERS, type Settings } from './settings'
@@ -238,6 +247,88 @@ export function buildControls(ctx: ControlsContext): {
   const ditherNoteEl = h('p', { class: 'hint', 'data-testid': 'dither-note', hidden: true })
   const ditherSec = section('Dither', true, ditherNoteEl, ditherList)
 
+  // Signal
+  const sigPatch = (patch: Partial<Settings['signal']>) => set({ signal: { ...ctx.get().signal, ...patch } })
+  const signalMode = segmented(
+    'Signal',
+    [
+      { value: 'off', text: 'Off' },
+      { value: 'auto', text: "Machine's own" },
+      { value: 'rf', text: 'RF' },
+      { value: 'composite', text: 'Composite' },
+      { value: 'vhs-sp', text: 'VHS SP' },
+      { value: 'vhs-lp', text: 'VHS LP' },
+      { value: 'vhs-ep', text: 'VHS EP' }
+    ] as const,
+    (v) => sigPatch({ mode: v })
+  )
+  const signalNote = h('p', { class: 'hint', 'data-testid': 'signal-note' })
+  const wear = slider({
+    id: 'signal-wear',
+    label: 'Wear',
+    min: 0,
+    max: 1,
+    step: 0.05,
+    format: pct,
+    onInput: (v) => sigPatch({ wear: v })
+  })
+  const signalColour = slider({
+    id: 'signal-colour',
+    label: 'Colour',
+    min: 0,
+    max: 1.5,
+    step: 0.05,
+    format: pct,
+    onInput: (v) => sigPatch({ colour: v })
+  })
+  const sharpen = slider({
+    id: 'signal-sharpen',
+    label: 'Sharpen',
+    min: 0,
+    max: 1,
+    step: 0.05,
+    format: pct,
+    onInput: (v) => sigPatch({ sharpen: v })
+  })
+  const decoder = segmented(
+    'TV decoder',
+    [
+      { value: 'notch', text: 'Simple' },
+      { value: 'comb', text: 'Comb filter' }
+    ] as const,
+    (v) => sigPatch({ decoder: v })
+  )
+  const advanced = h(
+    'details',
+    { class: 'sub' },
+    h('summary', null, 'Advanced'),
+    h(
+      'div',
+      { class: 'group' },
+      signalColour.el,
+      sharpen.el,
+      h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'TV decoder'), decoder.el),
+      h('p', { class: 'hint' }, 'A comb filter cleans up the colour fringes, and with them the colours that only exist in the signal (CGA, Apple II).')
+    )
+  )
+  const signalGroup = h('div', { class: 'group' }, wear.el, advanced)
+  const signalSec = section(
+    'Signal',
+    false,
+    signalMode.el,
+    signalNote,
+    signalGroup,
+    h('p', { class: 'hint' }, 'The noise moves in the Screen FX animation under Export.'),
+    h(
+      'p',
+      { class: 'hint credit' },
+      'Signal engine: ',
+      h('a', { href: 'https://github.com/valadaptive/ntsc-rs', target: '_blank', rel: 'noopener' }, 'ntsc-rs'),
+      ' by valadaptive (MIT) · ',
+      h('a', { href: '/THIRD-PARTY-NOTICES.txt', target: '_blank', 'data-testid': 'signal-notices' }, 'notices')
+    )
+  )
+
   // Screen
   const fxPatch = (patch: Partial<Settings['fx']>) => set({ fx: { ...ctx.get().fx, ...patch } })
   const screen = segmented(
@@ -346,6 +437,24 @@ export function buildControls(ctx: ControlsContext): {
   )
   animStyle.el.classList.add('cols-3')
   const animRow = h('div', { class: 'row anim-row' }, h('span', { class: 'row-label' }, 'Animation loop'), animStyle.el)
+  // Length and speed of the Screen FX loop with the signal on.
+  const loopFrames = segmented(
+    'Loop length',
+    LOOP_FRAMES.map((n) => ({ value: String(n), text: `${n} frames` })),
+    (v) => set({ loopFrames: Number(v) as LoopFrames })
+  )
+  loopFrames.el.classList.add('cols-3')
+  const loopFps = segmented(
+    'Loop speed',
+    LOOP_FPS.map((n) => ({ value: String(n), text: `${n} fps` })),
+    (v) => set({ loopFps: Number(v) as LoopFps })
+  )
+  const loopRows = h(
+    'div',
+    { class: 'group', 'data-testid': 'loop-rows' },
+    h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Loop length'), loopFrames.el),
+    h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Loop speed'), loopFps.el)
+  )
 
   const downloadApngBtn = h(
     'button',
@@ -449,13 +558,14 @@ export function buildControls(ctx: ControlsContext): {
     sizeLine,
     fxLabel,
     animRow,
+    loopRows,
     h('div', { class: 'export-actions' }, downloadBtn, animActions, emuActions, shareBtn),
     exportNote,
     wallRow,
     statusLine
   )
 
-  const el = h('div', { class: 'controls-inner' }, imageSec, hardwareSec, adjustSec, ditherSec, screenSec, exportSec)
+  const el = h('div', { class: 'controls-inner' }, imageSec, hardwareSec, adjustSec, ditherSec, signalSec, screenSec, exportSec)
 
   function sync(): void {
     const s = ctx.get()
@@ -520,6 +630,24 @@ export function buildControls(ctx: ControlsContext): {
     ditherNoteEl.textContent = dNote ?? ''
     show(ditherNoteEl, dNote !== null)
 
+    signalMode.set(s.signal.mode)
+    wear.set(s.signal.wear)
+    signalColour.set(s.signal.colour)
+    sharpen.set(s.signal.sharpen)
+    decoder.set(s.signal.decoder)
+    const signalOn = s.signal.mode !== 'off'
+    show(signalGroup, signalOn)
+    const machine = signalMachine(p.id, g?.width ?? p.width)
+    const connection = resolveConnection(s.signal.mode, machine)
+    signalNote.textContent = connection
+      ? `The ${p.name} over ${CONNECTION_NAMES[connection]}.` +
+        (machine.artifact === 'cga'
+          ? ' Its colours are made by the signal itself: each one is a pattern of black and white dots.'
+          : machine.lineLocked
+            ? ' Its colour fringes stand still, as they did on the real thing.'
+            : '')
+      : 'Off. The real thing: the picture goes out as an analog TV signal and comes back with the colour bleed, fringes and noise a TV showed.'
+
     screen.set(s.fx.screen)
     const hasCrt =
       s.fx.screen === 'crt' ||
@@ -555,6 +683,10 @@ export function buildControls(ctx: ControlsContext): {
     }
     mult.set(String(s.multiplier))
     animStyle.set(s.animationStyle)
+    const signalLoop = signalOn && s.animationStyle === 'screen-fx'
+    show(loopRows, signalLoop)
+    loopFrames.set(String(s.loopFrames))
+    loopFps.set(String(s.loopFps))
     const fxOn = s.fx.screen !== 'off'
     fxBox.checked = s.exportFx
     fxBox.disabled = !fxOn || s.multiplier < FX_MIN_MULTIPLIER
@@ -591,14 +723,21 @@ export function buildControls(ctx: ControlsContext): {
       }
       const tooBig = w * hh > MAX_EXPORT_PIXELS
       // Every frame of an animation is held at once, so they stop sooner.
-      const animTooBig = w * hh > MAX_ANIMATION_PIXELS
+      const frameTooBig = w * hh > MAX_ANIMATION_PIXELS
+      const loopTooLong = !frameTooBig && signalLoop && w * hh * s.loopFrames > MAX_ANIMATION_BUDGET
+      const animTooBig = frameTooBig || loopTooLong
+      const look = signalOn ? `full colour, ${connection ? `through ${CONNECTION_NAMES[connection]}` : 'with the signal'}` : withFx ? 'full colour' : coloursLabel
       sizeLine.textContent = tooBig
         ? `${w}×${hh} is too big. Pick a smaller size.`
-        : `${w}×${hh} px · ${withFx ? 'full colour' : coloursLabel}${animTooBig ? ' · too big for an animation' : ''}`
+        : `${w}×${hh} px · ${look}${frameTooBig ? ' · too big for an animation' : loopTooLong ? ` · too big for ${s.loopFrames} frames` : ''}`
       downloadBtn.disabled = !pic || tooBig
       downloadApngBtn.disabled = !pic || animTooBig
       downloadGifBtn.disabled = !pic || animTooBig
-      const animTitle = animTooBig ? 'Too big for an animation: pick a smaller size' : ''
+      const animTitle = frameTooBig
+        ? 'Too big for an animation: pick a smaller size'
+        : loopTooLong
+          ? 'Too many frames at this size: pick fewer frames or a smaller size'
+          : ''
       downloadApngBtn.title = animTitle
       downloadGifBtn.title = animTitle
 

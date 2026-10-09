@@ -381,6 +381,17 @@ button:disabled {
   gap: 12px;
 }
 
+/* A drawer inside a section (the signal's Advanced settings). */
+.sub > summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.sub[open] > summary {
+  margin-bottom: 10px;
+}
+
 .choose {
   width: 100%;
   padding: 14px;

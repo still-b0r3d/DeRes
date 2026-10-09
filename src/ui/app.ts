@@ -306,14 +306,18 @@ export function startApp(): void {
     fx: s.fx,
     pixelShape: s.pixelShape,
     customCount: s.customCount,
-    customPalette: s.customPalette
+    customPalette: s.customPalette,
+    signal: s.signal
   })
+
+  /** The preview needs an enlarged copy: a screen effect or the signal is on. */
+  const shownLarger = () => settings.fx.screen !== 'off' || settings.signal.mode !== 'off'
 
   const render = () => {
     const g = geometry()
     if (!g) return
     const tv = settings.pixelShape === 'tv'
-    const fxScale = settings.fx.screen === 'off' ? 0 : stage.fxScaleFor(g.width, g.height, g.par, tv)
+    const fxScale = shownLarger() ? stage.fxScaleFor(g.width, g.height, g.par, tv) : 0
     engine.render({ settings: deres(settings), fxScale })
   }
 
@@ -731,7 +735,7 @@ export function startApp(): void {
     else show(busy, false)
   }
   stage.onResize = () => {
-    if (settings.fx.screen !== 'off') render()
+    if (shownLarger()) render()
   }
 
   function setScrubFile(file: ScrubFile): void {
@@ -837,9 +841,12 @@ export function startApp(): void {
 
   async function downloadAnimated(format: 'apng' | 'gif'): Promise<void> {
     if (!picture) return
+    const signalOn = settings.signal.mode !== 'off'
     const styleName =
       settings.animationStyle === 'screen-fx'
-        ? 'Screen FX loop'
+        ? signalOn
+          ? 'signal loop'
+          : 'Screen FX loop'
         : settings.animationStyle === 'compare-wipe'
           ? 'Before & After wipe'
           : 'Dither shimmer'
@@ -854,7 +861,8 @@ export function startApp(): void {
         settings.multiplier,
         fxOk,
         picture.base,
-        (done, total) => controls.status(`${making} frame ${done} of ${total}${done === total ? ', putting them together' : ''}`)
+        (done, total) => controls.status(`${making} frame ${done} of ${total}${done === total ? ', putting them together' : ''}`),
+        signalOn ? { frames: settings.loopFrames, fps: settings.loopFps } : undefined
       )
       const blob = new Blob([res.data], { type: res.mimeType })
       const url = URL.createObjectURL(blob)

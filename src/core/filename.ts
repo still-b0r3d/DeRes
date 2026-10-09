@@ -24,11 +24,13 @@ export interface ExportName {
   tv: boolean
   /** With the screen effect. */
   fx: boolean
+  /** Through the analog signal: its connection ("rf", "composite", "vhs-sp"…). */
+  signal?: string | null
 }
 
 export function exportFilename(n: ExportName): string {
   return (
     `${n.base}-${n.profileId}-${n.width}x${n.height}-${n.multiplier}x` +
-    `${n.tv ? '-tv' : ''}${n.fx ? '-fx' : ''}.png`
+    `${n.tv ? '-tv' : ''}${n.signal ? `-${n.signal}` : ''}${n.fx ? '-fx' : ''}.png`
   )
 }

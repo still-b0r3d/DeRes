@@ -60,6 +60,13 @@ export function encodeSettings(settings: Settings): string {
     ]
   }
 
+  // The signal only when it's on (links made before v0.9 have none).
+  const sig = settings.signal
+  if (sig && sig.mode !== 'off') {
+    minimal.sg = [sig.mode, sig.wear, sig.colour, sig.sharpen, sig.decoder]
+    minimal.lp = [settings.loopFrames, settings.loopFps]
+  }
+
   if (settings.customCount) {
     minimal.cc = settings.customCount
   }
@@ -118,6 +125,18 @@ export function decodeSettings(hash: string): Record<string, unknown> | null {
     if (Array.isArray(raw.fx)) {
       const [screen, mask, scanlines, curve, bloom, grid, ghost, vhsTracking, vhsOsd] = raw.fx
       out.fx = { screen, mask, scanlines, curve, bloom, grid, ghost, vhsTracking, vhsOsd }
+    }
+
+    if (Array.isArray(raw.sg)) {
+      const [mode, wear, colour, sharpen, decoder] = raw.sg
+      out.signal = { mode, wear, colour, sharpen, decoder }
+    } else {
+      // A link without one means no signal, whatever this browser last used.
+      out.signal = { mode: 'off' }
+    }
+    if (Array.isArray(raw.lp)) {
+      out.loopFrames = raw.lp[0]
+      out.loopFps = raw.lp[1]
     }
 
     set('customCount', raw.cc)

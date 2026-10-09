@@ -1,6 +1,7 @@
 import { fxRenderer, type Fx } from './fx'
 import { exportSize, MAX_EXPORT_PIXELS, type Rendered } from './pipeline'
 import { encodeIndexedPng, encodeRgbPng } from './png'
+import { signalRenderer, type SignalImage } from './signal'
 
 // Export: the picture enlarged by a whole number, nearest-neighbour, so every
 // pixel stays a crisp block. Without screen effects it's an indexed PNG
@@ -16,6 +17,8 @@ export interface ExportOptions {
   tv: boolean
   /** The screen effect to bake in, or null. */
   fx: Fx | null
+  /** The picture after the analog signal, when it's on (always kept in exports). */
+  signal?: SignalImage | null
 }
 
 export async function exportPng(
@@ -25,8 +28,14 @@ export async function exportPng(
   const m = Math.max(1, Math.floor(o.multiplier))
   const [width, height] = exportSize(r.width, r.height, r.geometry.par, m, o.tv)
   if (width * height > MAX_EXPORT_PIXELS) throw new Error('That export would be too big')
+  const withFx = !!(o.fx && o.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER)
 
-  if (o.fx && o.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER) {
+  if (o.signal) {
+    const render = signalRenderer(o.signal, width, height, withFx ? o.fx : null, 0, r.paper)
+    return { png: await encodeRgbPng(width, height, render), width, height, fx: withFx }
+  }
+
+  if (withFx && o.fx) {
     const render = fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, width, height, o.fx)
     return { png: await encodeRgbPng(width, height, render), width, height, fx: true }
   }
@@ -77,7 +86,7 @@ export function wallpaperPresetById(id: string): WallpaperPreset | undefined {
 export async function exportWallpaper(
   r: Rendered,
   preset: WallpaperPreset,
-  o: { tv: boolean; fx: Fx | null }
+  o: { tv: boolean; fx: Fx | null; signal?: SignalImage | null }
 ): Promise<{ png: Uint8Array<ArrayBuffer>; width: number; height: number }> {
   const targetW = preset.width
   const targetH = preset.height
@@ -103,9 +112,12 @@ export async function exportWallpaper(
     bgB = r.palette[2]
   }
 
-  if (o.fx && o.fx.screen !== 'off' && bestM >= FX_MIN_MULTIPLIER) {
+  const withFx = !!(o.fx && o.fx.screen !== 'off' && bestM >= FX_MIN_MULTIPLIER)
+  if (withFx || o.signal) {
     const fxRows: Uint8Array[] = []
-    const fxGen = fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, scaledW, scaledH, o.fx)
+    const fxGen = o.signal
+      ? signalRenderer(o.signal, scaledW, scaledH, withFx ? o.fx : null, 0, r.paper)
+      : fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, scaledW, scaledH, o.fx!)
     for (let sy = 0; sy < scaledH; sy++) {
       const row = new Uint8Array(scaledW * 3)
       fxGen(sy, row)

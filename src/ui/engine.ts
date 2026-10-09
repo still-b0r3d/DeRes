@@ -104,7 +104,8 @@ export class Engine {
     multiplier: number,
     withFx: boolean,
     base: string,
-    onProgress?: (done: number, total: number) => void
+    onProgress?: (done: number, total: number) => void,
+    loop?: { frames: number; fps: number }
   ): Promise<AnimatedExportResult> {
     const id = ++this.animatedExportId
     this.post({
@@ -116,7 +117,8 @@ export class Engine {
       animationStyle,
       multiplier,
       withFx,
-      base
+      base,
+      loop
     })
     return new Promise((resolve, reject) => this.animatedExports.set(id, { resolve, reject, onProgress }))
   }

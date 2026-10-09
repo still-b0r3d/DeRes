@@ -10,11 +10,16 @@ import { DEFAULT_PROFILE, profileById } from '../core/profiles'
 
 import { decodeSettings } from '../core/share'
 import type { AnimationStyle } from '../core/animate'
+import { checkSignal, DEFAULT_SIGNAL, LOOP_FPS, LOOP_FRAMES, type LoopFps, type LoopFrames, type SignalSettings } from '../core/signal'
 
 export interface Settings extends DeresSettings {
   multiplier: number
   exportFx: boolean
   animationStyle: AnimationStyle
+  signal: SignalSettings
+  /** Frames in a signal loop (the Screen FX animation with the signal on). */
+  loopFrames: LoopFrames
+  loopFps: LoopFps
 }
 
 const KEY = 'b0r3d-deres:settings'
@@ -34,6 +39,9 @@ export function defaultSettings(): Settings {
     multiplier: 4,
     exportFx: false,
     animationStyle: 'screen-fx',
+    signal: { ...DEFAULT_SIGNAL },
+    loopFrames: 16,
+    loopFps: 15,
     // The colours slider: unset means the machine's own count.
     customCount: undefined,
     customPalette: undefined
@@ -103,6 +111,9 @@ export function checkSettings(loaded: Record<string, unknown>, base: Settings): 
       ['screen-fx', 'compare-wipe', 'dither-shimmer'] as const,
       base.animationStyle
     ),
+    signal: checkSignal(loaded.signal, base.signal),
+    loopFrames: oneOf(loaded.loopFrames, LOOP_FRAMES, base.loopFrames),
+    loopFps: oneOf(loaded.loopFps, LOOP_FPS, base.loopFps),
     customCount:
       typeof loaded.customCount === 'number' && Number.isFinite(loaded.customCount)
         ? Math.round(num(loaded.customCount, 2, 256, 16))

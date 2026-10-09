@@ -17,6 +17,7 @@ import { processN64 } from './n64'
 import { DEFAULT_PROFILE, profileById, representativePalette, type Profile } from './profiles'
 import { quantizeRgb, snapToBits, quantizeFromPool } from './quantize'
 import { resampleArea } from './resample'
+import type { SignalSettings } from './signal'
 import { analyzeTileFit, encodeGbChr, encodeNesChr, type HardwareFitReport } from './tiles'
 import { YliluomaPlanner } from './yliluoma'
 import {
@@ -51,6 +52,14 @@ export interface DeresSettings {
   customPalette?: readonly string[]
   /** Dither coordinate offsets for animation cycles */
   ditherOffset?: readonly [number, number]
+  /** The analog signal between the picture and the screen (off when missing). */
+  signal?: SignalSettings
+  /**
+   * Replaces a fixed palette, entry for entry: the colours the signal really
+   * makes from CGA composite's bit patterns, so the dither aims at what the TV
+   * will show (set by the worker, never saved).
+   */
+  fixedPalette?: readonly string[]
 }
 
 export interface Rendered {
@@ -543,7 +552,8 @@ export class Deres {
 
     let pal: PaletteState
     if (profile.palette.kind === 'fixed') {
-      pal = this.palette(profile)
+      const own = profile.palette.colours.length
+      pal = s.fixedPalette?.length === own ? this.paletteFrom(profile, s.fixedPalette) : this.palette(profile)
     } else {
       let display: Uint8Array
       // A grabbed or loaded palette belongs to the Custom machine only.
@@ -679,6 +689,17 @@ export class Deres {
     const display = paletteBytes(profile)
     const state = this.createPaletteState(display, !!profile.mono)
     this.palettes.set(profile.id, state)
+    return state
+  }
+
+  /** A fixed palette with its colours replaced (same order), cached like the machine's own. */
+  private paletteFrom(profile: Profile, colours: readonly string[]): PaletteState {
+    const key = `${profile.id}:${colours.join('')}`
+    const hit = this.palettes.get(key)
+    if (hit) return hit
+    if (this.palettes.size > 64) this.palettes.clear()
+    const state = this.createPaletteState(Uint8Array.from(colours.map(hexToRgb).flat()), !!profile.mono)
+    this.palettes.set(key, state)
     return state
   }
 }

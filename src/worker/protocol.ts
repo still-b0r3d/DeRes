@@ -60,6 +60,8 @@ export type ToWorker =
       multiplier: number
       withFx: boolean
       base: string
+      /** Length and speed of a Screen FX loop with the signal on. */
+      loop?: { frames: number; fps: number }
     }
 
 export interface RenderedMessage {

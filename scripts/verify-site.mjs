@@ -203,6 +203,43 @@ async function run(base, remote) {
     const raw = fs.readFileSync(file)
     check('export is an indexed PNG', raw[25] === 3, `colour type ${raw[25]}`)
 
+    // The Signal step: its engine (WebAssembly) loads from this site, runs under
+    // the Content-Security-Policy, and its export keeps the signal.
+    await page.locator('details.sec > summary', { hasText: /^Signal$/ }).click()
+    await page.click('.seg[aria-label="Signal"] button[data-value="composite"]')
+    const signalShown = await page
+      .waitForFunction(
+        () => {
+          const c = document.querySelector('canvas.result')
+          const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+          const seen = new Set()
+          for (let i = 0; i < d.length && seen.size <= 200; i += 4) seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2])
+          return seen.size > 200
+        },
+        null,
+        { timeout: 20000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    const wasmReqs = requests.filter((u) => /\.wasm(\?|$)/.test(u))
+    check(
+      'the signal engine loads from this site and runs',
+      signalShown && wasmReqs.length > 0 && wasmReqs.every((u) => u.startsWith(origin)),
+      wasmReqs[0] || 'no .wasm request'
+    )
+    const pendingSignal = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Download PNG' }).click()
+    const sd = await pendingSignal
+    const signalFile = path.join(out, sd.suggestedFilename())
+    await sd.saveAs(signalFile)
+    check(
+      'a signal export is named for its connection, in full colour',
+      sd.suggestedFilename() === 'rukus-ega-320x200-4x-composite.png' && fs.readFileSync(signalFile)[25] === 2,
+      sd.suggestedFilename()
+    )
+    await page.click('.seg[aria-label="Signal"] button[data-value="off"]')
+    await settle('320×200')
+
     // A picture of its own.
     await page.locator('#file-input').setInputFiles({ name: 'gradient.png', mimeType: 'image/png', buffer: gradientPng(640, 360) })
     await page.waitForFunction(() => document.querySelector('[data-testid=picture-info]')?.textContent === 'gradient.png · 640×360', null, { timeout: 10000 }).catch(() => {})
@@ -229,6 +266,8 @@ async function run(base, remote) {
     }
     const lic = await page.request.get(new URL('LICENSE.txt', base).href)
     check('LICENSE.txt is served', lic.status() === 200 && (await lic.text()).startsWith('MIT License'))
+    const notices = await page.request.get(new URL('THIRD-PARTY-NOTICES.txt', base).href)
+    check('THIRD-PARTY-NOTICES.txt is served', notices.status() === 200 && (await notices.text()).includes('ntsc-rs'))
   } finally {
     await browser.close()
   }

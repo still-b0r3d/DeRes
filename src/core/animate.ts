@@ -3,6 +3,7 @@ import { encodeGif, encodeRgbGif, type GifFrame, type RgbGifFrame } from './gif'
 import { DEFAULT_FX, fxRenderer, type Fx } from './fx'
 import { exportSize, MAX_EXPORT_PIXELS, type DeresSettings, type Rendered } from './pipeline'
 import { FX_MIN_MULTIPLIER } from './export'
+import { engineStep, signalFrame, type SignalImage } from './signal'
 
 // Looping animation generators for b0r3d DeRes:
 // 1. screen-fx: CRT beam scanline ripple, VHS tracking roll + noise, composite shimmer
@@ -24,6 +25,13 @@ export interface AnimatedExportOptions {
   sourceHeight?: number
   /** Called after each frame is made: frames done so far, and how many in all. */
   onProgress?: (done: number, total: number) => void
+  /**
+   * The analog signal is on: one engine frame of a picture. Every loop frame
+   * gets its own frame number, so the noise really moves.
+   */
+  signal?: (r: Rendered, frame: number) => SignalImage
+  /** Length and speed of the Screen FX loop when the signal is on. */
+  loop?: { frames: number; fps: number }
 }
 
 /**
@@ -32,6 +40,20 @@ export interface AnimatedExportOptions {
  * has to cope with it.
  */
 export const MAX_ANIMATION_PIXELS = 1024 * 1024
+
+/**
+ * The most pixels a whole animation may hold (every frame together): the same
+ * as 16 frames at the largest size, so longer signal loops trade size for
+ * frames (48 frames fit up to about 640×480).
+ */
+export const MAX_ANIMATION_BUDGET = 16 * MAX_ANIMATION_PIXELS
+
+/** Frames, speed and engine step of a loop with the signal on (Screen FX style). */
+export function signalLoopTiming(loop: { frames: number; fps: number } | undefined): { frames: number; fps: number; step: number } {
+  const frames = loop?.frames ?? 16
+  const fps = loop?.fps ?? 15
+  return { frames, fps, step: engineStep(fps) }
+}
 
 export interface AnimatedExportResult {
   data: Uint8Array<ArrayBuffer>
@@ -138,6 +160,29 @@ export async function generateAnimatedExport(
   const progress = (done: number, total: number) => options.onProgress?.(done, total)
 
   const isApng = options.format === 'apng'
+  const signal = options.signal
+  // With the signal, the screen effect follows the PNG export's rule (from 3× up).
+  const signalFx = options.fx && options.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER ? options.fx : null
+
+  // --- STYLE 1 WITH THE SIGNAL: real moving noise, any loop length that fits ---
+  if (options.style === 'screen-fx' && signal) {
+    const { frames: frameCount, fps, step } = signalLoopTiming(options.loop)
+    if (width * height * frameCount > MAX_ANIMATION_BUDGET) {
+      throw new Error(`${frameCount} frames at that size is too much to hold at once. Pick fewer frames or a smaller size.`)
+    }
+    const delayMs = Math.round(1000 / fps)
+    const rgbFrames: Uint8Array[] = []
+    for (let f = 0; f < frameCount; f++) {
+      rgbFrames.push(signalFrame(signal(r, f * step), width, height, signalFx, f / frameCount, r.paper))
+      progress(f + 1, frameCount)
+    }
+    if (isApng) {
+      const data = await encodeApng(rgbFrames.map((rgb) => ({ width, height, delayMs, rgb })))
+      return { data, format: 'apng', mimeType: 'image/png', width, height, frameCount }
+    }
+    const data = encodeRgbGif(rgbFrames.map((rgb) => ({ width, height, delayMs, rgb })), { loop: 0 })
+    return { data, format: 'gif', mimeType: 'image/gif', width, height, frameCount }
+  }
 
   // --- STYLE 1: SCREEN FX LOOP ---
   if (options.style === 'screen-fx') {
@@ -188,9 +233,15 @@ export async function generateAnimatedExport(
     const fps = options.fps ?? 10
     const delayMs = Math.round(1000 / fps)
 
-    // Render Deres at full size
+    // Render Deres at full size (with the signal: a new frame of it each time)
+    const step = engineStep(fps)
+    const deresAt = signal
+      ? (f: number) => signalFrame(signal(r, f * step), width, height, signalFx, 0, r.paper)
+      : null
     let deresRgb: Uint8Array
-    if (options.fx && options.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER) {
+    if (deresAt) {
+      deresRgb = deresAt(0)
+    } else if (options.fx && options.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER) {
       const renderer = fxRenderer(
         { rgb: r.rgb, width: r.width, height: r.height, paper: r.paper },
         width,
@@ -226,6 +277,7 @@ export async function generateAnimatedExport(
     const rgbFrames: Uint8Array[] = []
 
     for (let f = 0; f < frameCount; f++) {
+      if (deresAt && f > 0) deresRgb = deresAt(f)
       let splitX = 0
       if (f === 0 || f === 15) {
         // Full original
@@ -288,6 +340,23 @@ export async function generateAnimatedExport(
   ]
 
   const hasFx = !!(options.fx && options.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER)
+
+  if (signal) {
+    const step = engineStep(fps)
+    const rgbFrames: Uint8Array[] = []
+    for (let f = 0; f < frameCount; f++) {
+      const offset = ditherPhases[f % ditherPhases.length]
+      const frameRender = renderDeres ? renderDeres({ ...settings, ditherOffset: offset }) : r
+      rgbFrames.push(signalFrame(signal(frameRender, f * step), width, height, signalFx, f / frameCount, frameRender.paper))
+      progress(f + 1, frameCount)
+    }
+    if (isApng) {
+      const data = await encodeApng(rgbFrames.map((rgb) => ({ width, height, delayMs, rgb })))
+      return { data, format: 'apng', mimeType: 'image/png', width, height, frameCount }
+    }
+    const data = encodeRgbGif(rgbFrames.map((rgb) => ({ width, height, delayMs, rgb })), { loop: 0 })
+    return { data, format: 'gif', mimeType: 'image/gif', width, height, frameCount }
+  }
 
   if (hasFx) {
     const rgbFrames: Uint8Array[] = []
