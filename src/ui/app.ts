@@ -1004,14 +1004,20 @@ export function startApp(): void {
   loadSample()
 }
 
+/** Where the code lives (MIT, so anyone can read it and host a copy). */
+const SOURCE_URL = 'https://github.com/still-b0r3d/img.b0r3d.org'
+
 function footer(): void {
   const version = import.meta.env.VITE_APP_VERSION || 'dev'
   const commit = (import.meta.env.VITE_BUILD_COMMIT || '').slice(0, 7)
   const line = document.getElementById('app-version')!
+  const dot = () => h('span', { 'aria-hidden': 'true' }, ' · ')
   line.replaceChildren(
     `b0r3d DeRes v${version}`,
-    ...(commit ? [h('span', { 'aria-hidden': 'true' }, ' · '), `build ${commit}`] : []),
-    h('span', { 'aria-hidden': 'true' }, ' · '),
+    ...(commit ? [dot(), `build ${commit}`] : []),
+    dot(),
+    h('a', { href: SOURCE_URL, target: '_blank', rel: 'noopener noreferrer' }, 'Source'),
+    dot(),
     h('a', { href: './LICENSE.txt' }, 'MIT')
   )
 }

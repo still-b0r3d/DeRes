@@ -148,7 +148,6 @@ images.
 ## Planned
 
 - **v0.9.0, Tactile sound & retro polish:** Web Audio tactile click/switch sounds, floppy disk drive head stepping feedback, and UI polish.
-- 1.0.0 is when all three tools are complete and ready for public launch.
 
 ---
 
@@ -246,10 +245,10 @@ elsewhere is the ASCII studio's font (below, CC BY-SA 4.0). The methods come fro
 ## Versioning
 
 Versions look like `0.1.0`: the second number goes up for each new stage or
-feature release, the third for fixes and small changes (`0.1.1`). `1.0.0` is
-when all three tools are out. The version lives in `package.json` and is bumped
-for every release that goes live, with a row added below. The footer shows the
-version and the build (the commit it was built from).
+feature release, the third for fixes and small changes (`0.1.1`). The version
+lives in `package.json` and is bumped for every release that goes live, with a
+row added below. The footer shows the version, the build (the commit it was
+built from) and a link to this repository.
 
 | Version | Date | Notes |
 |---------|------|-------|
@@ -272,3 +271,7 @@ version and the build (the commit it was built from).
 MIT, see [LICENSE](LICENSE). Use it, change it, host your own copy. Keep the
 copyright line and license text in your copy; a link back to
 [img.b0r3d.org](https://img.b0r3d.org) is appreciated.
+
+The license covers the code, not the names: the b0r3d name and the b0r3d cup
+logo are the site's own, so a copy you host should go by a name of its own
+rather than present itself as b0r3d.org or b0r3d DeRes.

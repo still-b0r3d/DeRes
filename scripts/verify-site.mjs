@@ -148,6 +148,8 @@ async function run(base, remote) {
       versionLine.includes(`b0r3d DeRes v${PKG_VERSION}`) && /build [0-9a-f]{7}/.test(versionLine) && versionLine.includes('MIT'),
       versionLine
     )
+    const source = await page.getByTestId('app-version').locator('a', { hasText: 'Source' }).getAttribute('href')
+    check('footer links to the source code', source === 'https://github.com/still-b0r3d/img.b0r3d.org', source)
     const workerReqs = requests.filter((u) => /worker[^/]*\.js(\?|$)/.test(u))
     check('image worker loads from this site', workerReqs.length > 0 && workerReqs.every((u) => u.startsWith(origin)), workerReqs[0] || 'no worker request')
 
