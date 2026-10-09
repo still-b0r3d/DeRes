@@ -143,6 +143,38 @@ images.
   - **A/B compare wipe loop:** smooth looping split wipe transition between the original photo and the retro deres result with a crisp retro divider bar.
   - **Dither shimmer loop:** shifts Bayer, PS1, and ordered dither matrix coordinates across 8 phase rotations for an authentic retro hardware shimmer.
   - **Export actions:** 1-click "Download APNG" and "Download GIF" buttons directly in the Export section with animation style selector, up to 1024×1024 per frame, with the status line counting the frames as they're made.
+- **Signal: the real analog video signal.** The finished picture goes out the
+  way the machine sent it to a TV and comes back as the TV decoded it: colour
+  bleed, fringes, dot crawl, ringing and noise. This is the real thing, the
+  [ntsc-rs](https://github.com/valadaptive/ntsc-rs) engine (MIT) built to
+  WebAssembly, not a look-alike filter. The engine (about 90 KB gzipped)
+  loads only when the signal is turned on.
+  - **Connections:** Machine's own, RF (aerial socket), composite, and VHS
+    tape at SP, LP and EP. A **wear** slider runs from a clean signal to a
+    worn-out one; **Advanced** has colour, sharpening, and the TV's decoder
+    (simple, or a comb filter that cleans up the colour fringes).
+  - **Each machine on the wire:** every pixel lasts as long as it did on the
+    real machine (the NES's 5.37 MHz pixels, the Genesis's 6.71 MHz, the CGA's
+    7.16 and 14.3 MHz, the Atari 2600's one pixel per colour cycle…), so dither
+    patterns blend or turn into rainbows as they did. Machines that ran 228
+    colour cycles a line (CGA, Apple II, Atari 2600, Genesis, Master System,
+    MSX) keep their colour fringes still instead of crawling. "Machine's own"
+    picks how each one usually reached the TV (RF for the NES, Spectrum, 2600
+    and ST; a VCR for the VHS look and the early CCD camera; composite for the
+    rest).
+  - **Real CGA artifact colour:** with the signal on, CGA Composite sends each
+    colour as its 4-dot black-and-white pattern in the 640-pixel mode, and the
+    colours come out of the signal itself. The picture is dithered to the
+    colours the signal really makes from those patterns (measured through the
+    engine for the current settings), so it aims at what the TV shows.
+  - **Moving noise in the loops:** every frame of an animation gets its own
+    signal frame, so the noise, snow and tape tracking really move. The Screen
+    FX loop can be 16, 32 or 48 frames at 15 or 30 fps (15 fps steps the
+    engine two frames at a time, so motion keeps real NTSC speed). Longer
+    loops have to fit in the same memory as 16 frames at 1024×1024 (48 frames
+    fit up to about 640×480).
+  - The PNG and wallpaper downloads keep the signal (in full colour), the file
+    name says which connection (`…-4x-rf.png`), and share links carry it.
 - Settings are remembered on your device. The picture never is.
 
 ## Planned
@@ -163,10 +195,34 @@ pnpm test:e2e          # end-to-end in Chromium, Firefox and WebKit
 pnpm build             # the site, in dist/
 pnpm verify:site       # whole-site check of dist/ (or pass the live URL)
 pnpm sample            # rebuild the sample's made-up metadata (b0r3d-brand/rukus.png)
+pnpm build:signal      # rebuild the signal engine (needs Rust, see below)
 ```
 
 `test:e2e` and `verify:site` need Playwright's browsers
 (`pnpm exec playwright install`).
+
+**The signal engine** is Rust: `signal/` is a small wrapper around the
+[ntsc-rs](https://github.com/valadaptive/ntsc-rs) engine crate (`crates/ntscrs`
+only, pinned to one commit in `signal/Cargo.toml`; never its GPL desktop app).
+The built WebAssembly is committed in `src/signal/wasm/`, so `pnpm build` (and
+the hosting build) never needs Rust. Rebuild it only after changing `signal/`
+or moving to a newer engine commit:
+
+- Rust with the `wasm32-unknown-unknown` target
+  (`rustup target add wasm32-unknown-unknown`);
+- `wasm-bindgen-cli` at exactly the version `signal/Cargo.toml` pins, on the
+  PATH or named by the `WASM_BINDGEN` environment variable;
+- then `pnpm build:signal`. It builds with SIMD (every supported browser has
+  it; the "relaxed SIMD" build would be faster in Chromium, but Safari can't
+  load it) and writes `src/signal/wasm/manifest.json`, which the unit tests
+  check the committed `.wasm` against.
+
+On Windows without the Visual Studio build tools, use Rust's `-gnu` toolchain
+(`RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`), with that toolchain's
+`lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained` folder on the PATH.
+
+The licences of everything compiled into the `.wasm` are in
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), served next to the page.
 
 How it fits together:
 
@@ -176,7 +232,12 @@ How it fits together:
   (`resample.ts`), framing (`geometry.ts`), pre-filters (`adjust.ts`), screen
   effects (`fx.ts`), PNG (`png.ts`, no library: the browser's own
   CompressionStream), the machines (`profiles.ts`) and the pipeline that ties
-  them together (`pipeline.ts`, `export.ts`).
+  them together (`pipeline.ts`, `export.ts`). `signal.ts` decides what goes to
+  the signal engine: each machine's pixel clock, line timing and usual
+  connection, the engine settings for each connection, and how the result is
+  shown at the export size.
+- `src/signal/`: loading the signal engine (`load.ts`, a dynamic import, so
+  nothing loads until the signal is on) and its built files (`wasm/`).
 - `src/worker/`: the image worker. It keeps the working copy, so moving a
   slider only sends settings. One job runs at a time and the newest settings
   win.
@@ -223,13 +284,16 @@ their colours and every emulator's numbers differ a little.
 | Atari ST | 512-colour range (3 bits per RGB channel), 16 on screen |
 | Amstrad CPC | 27-colour hardware gate array palette (16 for Mode 0, 4 for Mode 1) |
 | MSX Screen 2 | 15 TMS9918 fixed colours (2 per 8×1 horizontal pixel slice) |
-| CGA Composite | 16 NTSC composite artifact colours from color burst crosstalk |
+| CGA Composite | 16 NTSC composite artifact colours from color burst crosstalk. With the Signal on: the colours the signal itself makes from each 4-dot pattern, measured through the engine |
 | Custom | User-defined palette file or quantized from picture |
 
 ## Credits
 
-All the code here is written for this project. The one thing bundled from
-elsewhere is the ASCII studio's font (below, CC BY-SA 4.0). The methods come from:
+All the code here is written for this project, with two things bundled from
+elsewhere: the ASCII studio's font (below, CC BY-SA 4.0), and the Signal step's
+engine, [ntsc-rs](https://github.com/valadaptive/ntsc-rs) by valadaptive (MIT),
+compiled to WebAssembly with a few small libraries (all MIT; see
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)). The methods come from:
 
 - OKLab, by Björn Ottosson.
 - Ordered dithering for arbitrary palettes, by Joel Yliluoma ("algorithm 2").
