@@ -98,7 +98,46 @@ export function buildInjectControls(ctx: InjectControlsContext): {
     h('option', { value: '8' }, 'Rotate 90° CCW (8)')
   ) as HTMLSelectElement
 
-  // 3. Date & Description Inputs
+  // 3. Exposure & Optics Inputs
+  const inputLens = h('input', {
+    type: 'text',
+    class: 'injector-input',
+    'data-testid': 'injector-lens',
+    placeholder: 'e.g. b0r3d Prime 28mm f/1.4 Deluxe'
+  }) as HTMLInputElement
+
+  const inputAperture = h('input', {
+    type: 'number',
+    step: 'any',
+    class: 'injector-input',
+    'data-testid': 'injector-aperture',
+    placeholder: 'e.g. 1.4, 2.8'
+  }) as HTMLInputElement
+
+  const inputShutter = h('input', {
+    type: 'text',
+    class: 'injector-input',
+    'data-testid': 'injector-shutter',
+    placeholder: 'e.g. 1/250, 1/500, 0.004'
+  }) as HTMLInputElement
+
+  const inputIso = h('input', {
+    type: 'number',
+    step: 'any',
+    class: 'injector-input',
+    'data-testid': 'injector-iso',
+    placeholder: 'e.g. 100, 400'
+  }) as HTMLInputElement
+
+  const inputFocal = h('input', {
+    type: 'number',
+    step: 'any',
+    class: 'injector-input',
+    'data-testid': 'injector-focal',
+    placeholder: 'e.g. 28, 50 (mm)'
+  }) as HTMLInputElement
+
+  // 4. Date & Description Inputs
   const inputDateTime = h('input', {
     type: 'text',
     class: 'injector-input',
@@ -163,10 +202,15 @@ export function buildInjectControls(ctx: InjectControlsContext): {
         if (!meta) return
         if (meta.make) inputMake.value = meta.make
         if (meta.model) inputModel.value = meta.model
+        if (meta.lensModel) inputLens.value = meta.lensModel
         if (meta.artist) inputArtist.value = meta.artist
         if (meta.copyright) inputCopyright.value = meta.copyright
         if (meta.software) inputSoftware.value = meta.software
         if (meta.dateTime) inputDateTime.value = meta.dateTime
+        if (meta.fNumber) inputAperture.value = String(meta.fNumber)
+        if (meta.exposureTime) inputShutter.value = meta.exposureTime.replace(/s$/i, '')
+        if (meta.iso) inputIso.value = String(meta.iso)
+        if (meta.focalLength) inputFocal.value = String(meta.focalLength)
         if (meta.orientation) selectOrientation.value = String(meta.orientation)
         if (meta.gps) {
           inputLat.value = String(meta.gps.latitude.toFixed(6))
@@ -187,12 +231,17 @@ export function buildInjectControls(ctx: InjectControlsContext): {
       onclick: () => {
         inputMake.value = 'b0r3d optics'
         inputModel.value = 'Rukus-Cam 95 Deluxe'
+        inputLens.value = 'b0r3d Prime 28mm f/1.4 Deluxe'
         inputArtist.value = 'still_b0r3d'
         inputCopyright.value = '(c) 2026 b0r3d.org - All rights reserved'
         inputSoftware.value = 'b0r3d DeRes v0.8.3'
         inputDateTime.value = normalizeExifDate()
         inputDesc.value = 'Rukus the Cat, Chief Executive Officer of b0r3d.org'
         selectOrientation.value = '1'
+        inputAperture.value = '1.4'
+        inputShutter.value = '1/250'
+        inputIso.value = '100'
+        inputFocal.value = '28'
         inputLat.value = '41.878113'
         inputLon.value = '-87.629799'
         inputAlt.value = '182'
@@ -210,12 +259,17 @@ export function buildInjectControls(ctx: InjectControlsContext): {
       onclick: () => {
         inputMake.value = ''
         inputModel.value = ''
+        inputLens.value = ''
         inputArtist.value = ''
         inputCopyright.value = ''
         inputSoftware.value = ''
         inputDateTime.value = ''
         inputDesc.value = ''
         selectOrientation.value = '1'
+        inputAperture.value = ''
+        inputShutter.value = ''
+        inputIso.value = ''
+        inputFocal.value = ''
         inputLat.value = ''
         inputLon.value = ''
         inputAlt.value = ''
@@ -290,16 +344,26 @@ export function buildInjectControls(ctx: InjectControlsContext): {
         const lon = inputLon.value.trim() ? parseFloat(inputLon.value) : undefined
         const alt = inputAlt.value.trim() ? parseFloat(inputAlt.value) : undefined
         const orient = selectOrientation.value ? parseInt(selectOrientation.value, 10) : undefined
+        const aperture = inputAperture.value.trim() ? parseFloat(inputAperture.value) : undefined
+        const iso = inputIso.value.trim() ? parseInt(inputIso.value, 10) : undefined
+        const focal = inputFocal.value.trim() ? parseFloat(inputFocal.value) : undefined
+        const shutter = inputShutter.value.trim() || undefined
+        const lens = inputLens.value.trim() || undefined
 
         const opts: ExifInjectOptions = {
           make: inputMake.value.trim() || undefined,
           model: inputModel.value.trim() || undefined,
+          lensModel: lens,
           artist: inputArtist.value.trim() || undefined,
           copyright: inputCopyright.value.trim() || undefined,
           software: inputSoftware.value.trim() || undefined,
           dateTime: inputDateTime.value.trim() || undefined,
           description: inputDesc.value.trim() || undefined,
           orientation: orient,
+          fNumber: aperture,
+          exposureTime: shutter,
+          iso,
+          focalLength: focal,
           gps:
             lat !== undefined && lon !== undefined && !Number.isNaN(lat) && !Number.isNaN(lon)
               ? { latitude: lat, longitude: lon, altitude: alt }
@@ -337,6 +401,24 @@ export function buildInjectControls(ctx: InjectControlsContext): {
       { class: 'injector-grid-2' },
       h('div', { class: 'injector-row' }, h('label', null, 'Software'), inputSoftware),
       h('div', { class: 'injector-row' }, h('label', null, 'Orientation'), selectOrientation)
+    )
+  )
+
+  const opticsSec = section(
+    'Lens & Exposure',
+    true,
+    h('div', { class: 'injector-row' }, h('label', null, 'Lens Model'), inputLens),
+    h(
+      'div',
+      { class: 'injector-grid-2' },
+      h('div', { class: 'injector-row' }, h('label', null, 'Aperture (f-stop)'), inputAperture),
+      h('div', { class: 'injector-row' }, h('label', null, 'Shutter Speed'), inputShutter)
+    ),
+    h(
+      'div',
+      { class: 'injector-grid-2' },
+      h('div', { class: 'injector-row' }, h('label', null, 'ISO'), inputIso),
+      h('div', { class: 'injector-row' }, h('label', null, 'Focal Length (mm)'), inputFocal)
     )
   )
 
@@ -389,6 +471,7 @@ export function buildInjectControls(ctx: InjectControlsContext): {
     { class: 'controls-inner inject-controls', 'data-testid': 'inject-controls' },
     imageSec,
     cameraSec,
+    opticsSec,
     metaSec,
     gpsSec,
     actionSec

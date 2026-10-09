@@ -14,17 +14,23 @@ import { detectFormat } from './exif'
 export interface ExifInjectOptions {
   make?: string
   model?: string
+  lensModel?: string
   artist?: string
   copyright?: string
   software?: string
   dateTime?: string // YYYY:MM:DD HH:MM:SS
   description?: string
   orientation?: number // 1..8
+  iso?: number
+  fNumber?: number
+  exposureTime?: string | number
+  focalLength?: number
   gps?: {
     latitude: number
     longitude: number
     altitude?: number
   }
+  thumbnail?: Uint8Array
 }
 
 /**
@@ -102,6 +108,7 @@ export function buildExifTiff(options: ExifInjectOptions): Uint8Array {
   const ifd0Tags: TagEntry[] = []
   const exifSubIfdTags: TagEntry[] = []
   const gpsSubIfdTags: TagEntry[] = []
+  const ifd1Tags: TagEntry[] = []
 
   // IFD0 entries
   if (options.description) ifd0Tags.push(makeAsciiTag(0x010e, options.description))
@@ -120,6 +127,73 @@ export function buildExifTiff(options: ExifInjectOptions): Uint8Array {
   }
   if (options.artist) ifd0Tags.push(makeAsciiTag(0x013b, options.artist))
   if (options.copyright) ifd0Tags.push(makeAsciiTag(0x8298, options.copyright))
+
+  // Exif SubIFD entries (Camera / Exposure / Optics)
+  if (options.lensModel) {
+    exifSubIfdTags.push(makeAsciiTag(0xa434, options.lensModel))
+  }
+  if (options.iso && options.iso > 0) {
+    exifSubIfdTags.push({ tag: 0x8827, type: 3, count: 1, inlineVal: Math.round(options.iso) })
+  }
+  if (options.fNumber && options.fNumber > 0) {
+    const fnData = new Uint8Array(8)
+    const fnView = new DataView(fnData.buffer)
+    fnView.setUint32(0, Math.round(options.fNumber * 10), true)
+    fnView.setUint32(4, 10, true)
+    exifSubIfdTags.push({ tag: 0x829d, type: 5, count: 1, data: fnData })
+  }
+  if (options.focalLength && options.focalLength > 0) {
+    const flData = new Uint8Array(8)
+    const flView = new DataView(flData.buffer)
+    flView.setUint32(0, Math.round(options.focalLength * 10), true)
+    flView.setUint32(4, 10, true)
+    exifSubIfdTags.push({ tag: 0x920a, type: 5, count: 1, data: flData })
+  }
+  if (options.exposureTime !== undefined) {
+    let num = 1
+    let den = 1
+    if (typeof options.exposureTime === 'string') {
+      const trimmed = options.exposureTime.trim().replace(/s$/i, '')
+      const parts = trimmed.split('/')
+      if (parts.length === 2) {
+        num = parseInt(parts[0], 10) || 1
+        den = parseInt(parts[1], 10) || 1
+      } else {
+        const val = parseFloat(trimmed)
+        if (val > 0 && val < 1) {
+          num = 1
+          den = Math.round(1 / val)
+        } else if (val >= 1) {
+          num = Math.round(val * 10)
+          den = 10
+        }
+      }
+    } else if (typeof options.exposureTime === 'number' && options.exposureTime > 0) {
+      if (options.exposureTime < 1) {
+        num = 1
+        den = Math.round(1 / options.exposureTime)
+      } else {
+        num = Math.round(options.exposureTime * 10)
+        den = 10
+      }
+    }
+    const expData = new Uint8Array(8)
+    const expView = new DataView(expData.buffer)
+    expView.setUint32(0, num, true)
+    expView.setUint32(4, den, true)
+    exifSubIfdTags.push({ tag: 0x829a, type: 5, count: 1, data: expData })
+  }
+
+  // IFD1 entries (Embedded Thumbnail)
+  let thumbDataEntry: TagEntry | undefined
+  if (options.thumbnail && options.thumbnail.length > 0) {
+    thumbDataEntry = { tag: 0x0201, type: 4, count: 1, inlineVal: 0 }
+    ifd1Tags.push(
+      { tag: 0x0103, type: 3, count: 1, inlineVal: 6 }, // JPEG compression
+      thumbDataEntry,
+      { tag: 0x0202, type: 4, count: 1, inlineVal: options.thumbnail.length }
+    )
+  }
 
   // GPS SubIFD entries
   if (options.gps) {
@@ -158,7 +232,7 @@ export function buildExifTiff(options: ExifInjectOptions): Uint8Array {
   }
 
   // Fallback: If no tags were specified at all, add standard Orientation 1 so TIFF is valid
-  if (ifd0Tags.length === 0 && exifSubIfdTags.length === 0 && gpsSubIfdTags.length === 0) {
+  if (ifd0Tags.length === 0 && exifSubIfdTags.length === 0 && gpsSubIfdTags.length === 0 && ifd1Tags.length === 0) {
     ifd0Tags.push({ tag: 0x0112, type: 3, count: 1, inlineVal: 1 })
   }
 
@@ -179,6 +253,7 @@ export function buildExifTiff(options: ExifInjectOptions): Uint8Array {
   ifd0Tags.sort((a, b) => a.tag - b.tag)
   exifSubIfdTags.sort((a, b) => a.tag - b.tag)
   gpsSubIfdTags.sort((a, b) => a.tag - b.tag)
+  ifd1Tags.sort((a, b) => a.tag - b.tag)
 
   // Layout calculation
   const tiffHeaderSize = 8
@@ -202,12 +277,27 @@ export function buildExifTiff(options: ExifInjectOptions): Uint8Array {
     currentOffset += gpsSize
   }
 
+  let ifd1Offset = 0
+  if (ifd1Tags.length > 0) {
+    ifd1Offset = currentOffset
+    const ifd1Size = 2 + ifd1Tags.length * 12 + 4
+    currentOffset += ifd1Size
+  }
+
   // Assign offsets for data pool
-  const allTagsWithData = [...ifd0Tags, ...exifSubIfdTags, ...gpsSubIfdTags].filter((t) => t.data)
+  const allTagsWithData = [...ifd0Tags, ...exifSubIfdTags, ...gpsSubIfdTags, ...ifd1Tags].filter((t) => t.data)
   for (const t of allTagsWithData) {
     t.offset = currentOffset
     currentOffset += t.data!.length
     if (currentOffset % 2 !== 0) currentOffset++ // 16-bit word alignment
+  }
+
+  let thumbOffset = 0
+  if (options.thumbnail && thumbDataEntry) {
+    thumbOffset = currentOffset
+    thumbDataEntry.inlineVal = thumbOffset
+    currentOffset += options.thumbnail.length
+    if (currentOffset % 2 !== 0) currentOffset++
   }
 
   const totalTiffSize = currentOffset
@@ -220,7 +310,7 @@ export function buildExifTiff(options: ExifInjectOptions): Uint8Array {
   view.setUint16(2, 42, true)
   view.setUint32(4, ifd0Offset, true)
 
-  function writeIfd(offset: number, tags: TagEntry[]): void {
+  function writeIfd(offset: number, tags: TagEntry[], nextIfd = 0): void {
     view.setUint16(offset, tags.length, true)
     let cur = offset + 2
     for (const entry of tags) {
@@ -242,19 +332,24 @@ export function buildExifTiff(options: ExifInjectOptions): Uint8Array {
       }
       cur += 12
     }
-    // Next IFD offset = 0
-    view.setUint32(cur, 0, true)
+    view.setUint32(cur, nextIfd, true)
   }
 
-  writeIfd(ifd0Offset, ifd0Tags)
-  if (exifSubIfdTags.length > 0) writeIfd(exifSubIfdOffset, exifSubIfdTags)
-  if (gpsSubIfdTags.length > 0) writeIfd(gpsSubIfdOffset, gpsSubIfdTags)
+  writeIfd(ifd0Offset, ifd0Tags, ifd1Offset)
+  if (exifSubIfdTags.length > 0) writeIfd(exifSubIfdOffset, exifSubIfdTags, 0)
+  if (gpsSubIfdTags.length > 0) writeIfd(gpsSubIfdOffset, gpsSubIfdTags, 0)
+  if (ifd1Offset > 0) writeIfd(ifd1Offset, ifd1Tags, 0)
 
   // Write data pool
   for (const t of allTagsWithData) {
     if (t.data && t.offset !== undefined) {
       tiff.set(t.data, t.offset)
     }
+  }
+
+  // Write thumbnail bytes
+  if (options.thumbnail && thumbOffset > 0) {
+    tiff.set(options.thumbnail, thumbOffset)
   }
 
   return tiff
