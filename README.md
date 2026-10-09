@@ -14,11 +14,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.8.5 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v0.9.0 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.8.5)
+## What it does (v0.9.0)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try the sample (Rukus, who carries made-up,
@@ -143,7 +143,7 @@ images.
   - **A/B compare wipe loop:** smooth looping split wipe transition between the original photo and the retro deres result with a crisp retro divider bar.
   - **Dither shimmer loop:** shifts Bayer, PS1, and ordered dither matrix coordinates across 8 phase rotations for an authentic retro hardware shimmer.
   - **Export actions:** 1-click "Download APNG" and "Download GIF" buttons directly in the Export section with animation style selector, up to 1024×1024 per frame, with the status line counting the frames as they're made.
-- **Signal: the real analog video signal.** The finished picture goes out the
+- **Signal: the real analog video signal (v0.9.0).** The finished picture goes out the
   way the machine sent it to a TV and comes back as the TV decoded it: colour
   bleed, fringes, dot crawl, ringing and noise. This is the real thing, the
   [ntsc-rs](https://github.com/valadaptive/ntsc-rs) engine (MIT) built to
@@ -179,7 +179,7 @@ images.
 
 ## Planned
 
-- **v0.9.0, Tactile sound & retro polish:** Web Audio tactile click/switch sounds, floppy disk drive head stepping feedback, and UI polish.
+- **Tactile sound & retro polish** (version picked when it ships): Web Audio tactile click/switch sounds, floppy disk drive head stepping feedback, and UI polish.
 
 ---
 
@@ -316,6 +316,7 @@ built from) and a link to this repository.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.9.0 | 2026-10-09 | Signal: the picture through a real analog TV signal (the ntsc-rs engine, built to WebAssembly and loaded only when it's on). RF, composite and VHS SP/LP/EP plus each machine's own connection, a wear slider, colour, sharpening and the TV's decoder. Every machine goes out at its real pixel clock and line timing, so dithers blend or turn to rainbows as they did and 228-cycle machines keep their fringes still. CGA Composite gets its colours from the signal itself, dithered to the colours the signal really makes. PNG, wallpaper and animation exports keep it; loops get real moving noise, and the Screen FX loop can be 16, 32 or 48 frames at 15 or 30 fps. GIF encoding about 40% faster with far less memory on noisy loops. |
 | 0.8.5 | 2026-10-08 | Includes what went live unversioned earlier on 2026-10-08 (phone layout fix, All Tags list, AI markers, EXIF Injector tab, sample metadata), then fixes from its review. AI markers: Content Credentials alone are no longer called AI (cameras sign photos too) and are shown as a neutral note with who wrote them; AI-edited pictures, a PNG's XMP and prompts in PNG iTXt are found; WebP credentials are read and scrubbed. Injector: edits instead of replacing the whole EXIF (before, changing one field on a phone photo lost its rotation, camera and location), checks every value, says up front which formats it can't write, offers to remove a contradicting XMP block, updates the batch. All Tags: full values (every coordinate part, signed numbers, versions, comments), at most 2,000 tags listed and 500 shown. Sample: a real sRGB profile instead of an empty one, a white-background thumbnail, `pnpm sample` to rebuild it. A location preset tooltip reworded. |
 | 0.8.3 | 2026-10-07 | Fix release from the 2026-10-07 review. Scrubber: phone photos keep their rotation, honest Verified Clean badge, batch only holds the photos picked together, HEIC/AVIF inspection, damaged files can't freeze the page, WebP trailers and progressive-JPEG metadata removed. DeRes: each machine its own colour count, grabbed palettes stay with Custom, safe share links, repeat .scr/.koa downloads, real NES .chr, 8 machines' colours fixed, NES sub-palettes from the picture, files match the preview with bars, unusable dithers greyed out, no more "387 of 256 colours" on machines without a colour list, the made-up Digipal machine removed. ASCII: correct Teletext blocks and C64 screen codes, 40×25 PETSCII, working .seq and a .prg that shows the picture, blank .ans author, Teletext saved as .txt. Animations: size limit, progress, faster GIFs. |
 | 0.8.2 | 2026-10-07 | First live release. Animated PNG and looping GIF exports (Screen FX loop, A/B wipe, dither shimmer). |
