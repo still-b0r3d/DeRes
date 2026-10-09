@@ -33,6 +33,36 @@ export interface RgbGifFrame {
   rgb: Uint8Array
 }
 
+/** A byte buffer that grows as it's written (a plain number[] costs 4–8 bytes per byte). */
+class ByteSink {
+  private buf = new Uint8Array(1 << 16)
+  length = 0
+
+  push(b: number): void {
+    if (this.length === this.buf.length) {
+      const bigger = new Uint8Array(this.buf.length * 2)
+      bigger.set(this.buf)
+      this.buf = bigger
+    }
+    this.buf[this.length++] = b
+  }
+
+  bytes(): Uint8Array {
+    return this.buf.slice(0, this.length)
+  }
+}
+
+/**
+ * The LZW dictionary: the code for (prefix code, next index), 4096 × 256
+ * entries. An entry counts only if its stamp is the current generation, so
+ * clearing the dictionary (every ~4000 codes on a noisy frame) is one
+ * increment instead of wiping 6 MB. Made once, on first use.
+ */
+const LZW_TABLE_SIZE = 4096 * 256
+let lzwCodes: Uint16Array | null = null
+let lzwStamps: Uint32Array | null = null
+let lzwGeneration = 0
+
 /**
  * Packs LZW-compressed stream for a frame's pixel indices into 255-byte sub-blocks.
  */
@@ -40,7 +70,7 @@ function compressLzw(pixels: Uint8Array, minCodeSize: number): Uint8Array {
   const clearCode = 1 << minCodeSize
   const eoiCode = clearCode + 1
 
-  const bytes: number[] = []
+  const bytes = new ByteSink()
   const subBlock = new Uint8Array(255)
   let subLen = 0
 
@@ -81,7 +111,11 @@ function compressLzw(pixels: Uint8Array, minCodeSize: number): Uint8Array {
 
   let codeSize = minCodeSize + 1
   let nextCode = clearCode + 2
-  const table = new Map<number, number>()
+  lzwCodes ??= new Uint16Array(LZW_TABLE_SIZE)
+  lzwStamps ??= new Uint32Array(LZW_TABLE_SIZE)
+  const codes = lzwCodes
+  const stamps = lzwStamps
+  let generation = ++lzwGeneration
 
   writeBits(clearCode, codeSize)
 
@@ -89,7 +123,7 @@ function compressLzw(pixels: Uint8Array, minCodeSize: number): Uint8Array {
     writeBits(eoiCode, codeSize)
     flushBits()
     bytes.push(0x00) // Block terminator
-    return new Uint8Array(bytes)
+    return bytes.bytes()
   }
 
   let prefix = pixels[0]
@@ -97,20 +131,20 @@ function compressLzw(pixels: Uint8Array, minCodeSize: number): Uint8Array {
   for (let i = 1; i < pixels.length; i++) {
     const c = pixels[i]
     const key = (prefix << 8) | c
-    const existing = table.get(key)
-    if (existing !== undefined) {
-      prefix = existing
+    if (stamps[key] === generation) {
+      prefix = codes[key]
     } else {
       writeBits(prefix, codeSize)
       if (nextCode < 4096) {
-        table.set(key, nextCode)
+        codes[key] = nextCode
+        stamps[key] = generation
         nextCode++
         if (nextCode === (1 << codeSize) + 1 && codeSize < 12) {
           codeSize++
         }
       } else {
         writeBits(clearCode, codeSize)
-        table.clear()
+        generation = ++lzwGeneration
         codeSize = minCodeSize + 1
         nextCode = clearCode + 2
       }
@@ -123,7 +157,7 @@ function compressLzw(pixels: Uint8Array, minCodeSize: number): Uint8Array {
   flushBits()
   bytes.push(0x00) // Block terminator
 
-  return new Uint8Array(bytes)
+  return bytes.bytes()
 }
 
 function padPalette(palette: Uint8Array): { table: Uint8Array; depth: number } {
@@ -293,8 +327,12 @@ export function encodeRgbGif(
 
   // Map RGB pixels of each frame to nearest palette index. Each distinct
   // colour is searched for once and remembered: animation frames repeat the
-  // same colours a great deal, and the search covers up to 256 entries.
-  const nearest = new Map<number, number>()
+  // same colours a great deal, and the search covers up to 256 entries. The
+  // memory is a fixed table over every 24-bit colour (16 MB + a 2 MB "seen"
+  // bit set), not a Map: a noisy signal loop holds a million distinct colours,
+  // and a Map of them took over 100 MB.
+  const nearest = new Uint8Array(1 << 24)
+  const seen = new Uint8Array(1 << 21)
   const indexedFrames: GifFrame[] = []
   for (const f of frames) {
     const pixelCount = f.width * f.height
@@ -305,9 +343,8 @@ export function encodeRgbGif(
       const g = f.rgb[p * 3 + 1]
       const b = f.rgb[p * 3 + 2]
       const key = (r << 16) | (g << 8) | b
-      const known = nearest.get(key)
-      if (known !== undefined) {
-        indices[p] = known
+      if (seen[key >> 3] & (1 << (key & 7))) {
+        indices[p] = nearest[key]
         continue
       }
 
@@ -324,7 +361,8 @@ export function encodeRgbGif(
           if (dist === 0) break
         }
       }
-      nearest.set(key, bestIdx)
+      nearest[key] = bestIdx
+      seen[key >> 3] |= 1 << (key & 7)
       indices[p] = bestIdx
     }
 
