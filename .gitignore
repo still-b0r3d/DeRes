@@ -36,3 +36,6 @@ test-results/
 
 # Playwright
 playwright-report/
+
+# Signal engine build output (the wasm itself is committed under src/signal/wasm/)
+signal/target/

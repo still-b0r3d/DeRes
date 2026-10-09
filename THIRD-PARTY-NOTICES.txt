@@ -1,0 +1,61 @@
+b0r3d DeRes: third-party notices
+
+DeRes's own code is under the MIT licence in LICENSE. The Signal step runs a
+WebAssembly build (src/signal/wasm/, built from signal/) that contains the
+following open-source code. Each is used under its MIT licence (several offer
+others too). The MIT licence text follows the list.
+
+- ntsc-rs (the analog-signal engine, crates/ntscrs only), commit 450c6ee
+  https://github.com/valadaptive/ntsc-rs
+  Copyright © valadaptive
+  Licensed MIT OR ISC OR Apache-2.0; used under MIT.
+  (Its desktop app, crates/gui, is GPL-3.0 and is not used here.)
+
+- fearless_simd 0.7.0, https://github.com/linebender/fearless_simd
+  Copyright (c) 2018 Raph Levien
+  Licensed Apache-2.0 OR MIT; used under MIT.
+
+- hifijson 0.5.0, https://github.com/01mf02/hifijson
+  Copyright (c) Michael Färber
+  Licensed MIT.
+
+- num_enum 0.7.6, https://github.com/illicitonion/num_enum
+  Copyright (c) Daniel Wagner-Hall, Daniel Henry-Mantilla, Vincent Esche
+  Licensed BSD-3-Clause OR MIT OR Apache-2.0; used under MIT.
+
+- wasm-bindgen 0.2.129, https://github.com/wasm-bindgen/wasm-bindgen
+  Copyright (c) 2014 Alex Crichton
+  Licensed MIT OR Apache-2.0; used under MIT.
+
+- cfg-if 1.0.5, https://github.com/rust-lang/cfg-if
+  Copyright (c) 2014 Alex Crichton
+  Licensed MIT OR Apache-2.0; used under MIT.
+
+- once_cell 1.21.4, https://github.com/matklad/once_cell
+  Copyright (c) Aleksey Kladov
+  Licensed MIT OR Apache-2.0; used under MIT.
+
+- The Rust standard library, https://github.com/rust-lang/rust
+  Copyright (c) The Rust Project Contributors
+  Licensed MIT OR Apache-2.0; used under MIT.
+
+----------------------------------------------------------------------------
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

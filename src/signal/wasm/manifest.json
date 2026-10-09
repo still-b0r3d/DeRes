@@ -1,0 +1,9 @@
+{
+  "engine": "https://github.com/valadaptive/ntsc-rs (crates/ntscrs)",
+  "engineRev": "450c6ee48bbb0c440db07973bd357df2982e89e4",
+  "wasmBindgen": "0.2.129",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "target": "wasm32-unknown-unknown +simd128",
+  "bytes": 212167,
+  "sha256": "aac1d56ae8728f921258d334dc73db5c94ec186002437c57c16d584b892754c3"
+}

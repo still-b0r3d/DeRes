@@ -27,7 +27,9 @@ function buildCommit(): string {
 const CSP_SOURCES: Record<string, string[]> = {
   'default-src': ["'self'"],
   // Cloudflare injects b0r3d.org's visitor-stats beacon into the live page.
-  'script-src': ["'self'", 'https://static.cloudflareinsights.com'],
+  // 'wasm-unsafe-eval' lets the signal engine (WebAssembly, from this site)
+  // compile; it allows no JavaScript eval.
+  'script-src': ["'self'", "'wasm-unsafe-eval'", 'https://static.cloudflareinsights.com'],
   // Styles come from the built stylesheet only; the app sets the few dynamic
   // ones (sizes, swatch colours) through element.style, which CSP allows.
   'style-src': ["'self'"],
@@ -74,19 +76,29 @@ function contentSecurityPolicy(): Plugin {
 
 // The footer's "MIT" links to /LICENSE.txt, a copy of LICENSE made at build
 // time (and served by the dev server), so the link works while the repository
-// is private.
+// is private. /THIRD-PARTY-NOTICES.txt is the same for the signal engine's
+// open-source parts (linked from the Signal section).
+const TEXT_FILES: Record<string, string> = {
+  '/LICENSE.txt': './LICENSE',
+  '/THIRD-PARTY-NOTICES.txt': './THIRD-PARTY-NOTICES.txt'
+}
+
 function licenseFile(): Plugin {
-  const text = () => readFileSync(new URL('./LICENSE', import.meta.url), 'utf8')
+  const text = (file: string) => readFileSync(new URL(file, import.meta.url), 'utf8')
   return {
     name: 'b0r3d-license-file',
     configureServer(server) {
-      server.middlewares.use('/LICENSE.txt', (_req, res) => {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-        res.end(text())
-      })
+      for (const [path, file] of Object.entries(TEXT_FILES)) {
+        server.middlewares.use(path, (_req, res) => {
+          res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+          res.end(text(file))
+        })
+      }
     },
     generateBundle() {
-      this.emitFile({ type: 'asset', fileName: 'LICENSE.txt', source: text() })
+      for (const [path, file] of Object.entries(TEXT_FILES)) {
+        this.emitFile({ type: 'asset', fileName: path.slice(1), source: text(file) })
+      }
     }
   }
 }

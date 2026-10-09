@@ -17,7 +17,8 @@
     "check": "tsc --noEmit && eslint . && vitest run",
     "test:e2e": "playwright test",
     "verify:site": "node scripts/verify-site.mjs",
-    "sample": "node scripts/make-sample.mjs"
+    "sample": "node scripts/make-sample.mjs",
+    "build:signal": "node scripts/build-signal.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
