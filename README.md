@@ -6,21 +6,24 @@ your browser.
 b0r3d DeRes turns a photo into what old hardware could show: real palettes,
 real resolutions, the pixel shapes and dithering of the machines, and the
 screens they were seen on. It also includes an authentic BBS-style ASCII/ANSI art
-studio and a privacy-preserving byte-level EXIF metadata scrubber.
+studio, a privacy-preserving byte-level EXIF metadata scrubber, and an EXIF
+injector that edits a photo's metadata without touching its pixels.
 
 The app runs entirely in your browser: images are processed and exported on
 your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.8.3 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v0.8.5 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.8.3)
+## What it does (v0.8.5)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
-  it (Ctrl+V / Cmd+V), or try the sample (Rukus). It's decoded once into a
+  it (Ctrl+V / Cmd+V), or try the sample (Rukus, who carries made-up,
+  site-themed EXIF, a thumbnail and a colour profile so every tool has
+  something to show). It's decoded once into a
   working copy no bigger than 2048 px on its long edge (big phone photos would
   otherwise break the page on iPhones), with the photo's rotation applied.
 - **Hardware profiles**, not just palettes: each machine has its native
@@ -94,13 +97,20 @@ images.
   - **JPEG stripping:** strips APP1 (Exif, XMP), APP13 (Photoshop IRB / IPTC), COM, and APP2 MPF while preserving JFIF, Adobe APP14, and decoding tables, including metadata tucked between a progressive JPEG's scans.
   - **Trailing data removal:** truncates data following JPEG `FF D9` (EOI), PNG `IEND` and a WebP's RIFF end, to eliminate Google Pixel Motion Photo MP4 videos, Samsung camera trailers, and gain maps.
   - **Orientation preservation:** writes back a clean, minimal 36-byte APP1 segment holding only the orientation tag (if orientation > 1), at the start of the file (after JFIF if there is one) where viewers look for it, so upright phone photos stay upright. WebP gets none: browsers ignore a WebP's orientation tag.
-  - **PNG & WebP stripping:** drops PNG `eXIf`, `tEXt`, `zTXt`, `iTXt`, `tIME`; strips WebP `EXIF` and `XMP ` chunks, clears VP8X flags, and updates RIFF lengths.
+  - **PNG & WebP stripping:** drops PNG `eXIf`, `tEXt`, `zTXt`, `iTXt`, `tIME` and `caBX` (Content Credentials); strips WebP `EXIF`, `XMP ` and `C2PA` chunks, clears VP8X flags, and updates RIFF lengths.
   - **HEIC and AVIF:** inspect only (the metadata is shown even when the browser can't display the picture); convert to JPEG or WebP to scrub.
   - **Metadata inspector & narrative:** displays camera make/model, lens, timestamps, shutter speed, aperture, ISO, and a plain-English narrative summary.
+  - **All Tags list:** every tag in the file (IFD0, Exif, GPS, Interop, the thumbnail's IFD1, XMP, PNG text, Content Credentials) with its full value: coordinates in degrees, minutes and seconds, versions, Windows XP text, UserComment, signed values, and a byte count for maker notes. A filter finds tags by name, number or value. (Shown in the EXIF Injector too.)
+  - **AI markers:** says when a file declares it was made or edited with AI: the IPTC digital source type (in XMP, including a PNG's), Content Credentials that say so, Stable Diffusion / ComfyUI settings, Midjourney prompts, DALL-E's name. Content Credentials on their own are shown as a neutral note with the app or device that wrote them, since cameras, phones and editors add them too; their signature isn't checked. No marker never proves a person made a picture, and pixel watermarks like SynthID can't be read here.
   - **GPS coordinate callout:** displays coordinates as DMS and decimal with 1-click copy; loads zero external maps or tile APIs (zero phone-home rule).
   - **Uncropped-thumbnail warning:** detects embedded IFD1 thumbnails, renders a preview, and warns that a thumbnail may show the uncropped original.
   - **Automated privacy self-check:** re-parses the scrubbed output buffer with the metadata inspector. The "Verified Clean" badge (and each batch row's "Cleaned") only shows when no GPS or camera metadata is left; otherwise it says what is.
-- **Analog, print & video aesthetics (v0.6.0):**
+- **EXIF Injector (v0.8.5):**
+  - **Edits, doesn't replace:** the form starts with what the photo has; only the fields you change are written, an emptied field removes its tag, and every other tag (exposure details, serial numbers, the maker's own data, the thumbnail) stays as it was, in the photo's own byte order. A maker note stays at the same place in the block when it can, since some makers point inside it from the block's start.
+  - **Fields:** camera make and model, lens, artist, copyright, software, orientation, aperture, shutter speed, ISO, focal length, date and time, description, and GPS latitude, longitude and altitude, with presets (b0r3d Defaults, three places) and a Now button.
+  - **Checked before writing:** a shutter speed, ISO, coordinate or date that isn't real is refused with a message on that field. A changed date also drops the old time zone and GPS clock; a changed f-number, shutter speed, ISO or focal length drops the copies worked out from it; a new location replaces all the GPS tags.
+  - **XMP:** when the photo also has an XMP block with its own copy of the location, date or camera, a ticked box offers to remove it so it can't contradict the new EXIF.
+  - **JPEG and PNG**, written byte by byte (no re-encoding; anything after the picture is left as it is). Other formats are named up front as read-only. The saved file becomes the photo the Scrubber shows, in a batch too.
   - **VHS Tape (`vhs`):** 320×240 analog magnetic tape with bottom tracking scanline jitter band, head switching noise, horizontal chroma smear (~0.4 MHz color carrier limitation), and green/white `PLAY ▶` + timestamp OSD in the corner.
   - **Early CCD Camera (`ccd-early`):** 640×480 sensor mode, CCD sensor noise (photon shot noise + thermal chroma grain), and burnt-orange 7-segment digital date stamp (`'99 10 24`) in bottom right.
   - **NTSC Composite chroma bleed (`composite`):** Horizontal YIQ color subcarrier cross-talk, phase ringing, and color fringing on sharp vertical transitions.
@@ -153,6 +163,7 @@ pnpm check             # typecheck + lint + unit tests; run before every commit
 pnpm test:e2e          # end-to-end in Chromium, Firefox and WebKit
 pnpm build             # the site, in dist/
 pnpm verify:site       # whole-site check of dist/ (or pass the live URL)
+pnpm sample            # rebuild the sample's made-up metadata (b0r3d-brand/rukus.png)
 ```
 
 `test:e2e` and `verify:site` need Playwright's browsers
@@ -242,6 +253,7 @@ version and the build (the commit it was built from).
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.8.5 | 2026-10-08 | Includes what went live unversioned earlier on 2026-10-08 (phone layout fix, All Tags list, AI markers, EXIF Injector tab, sample metadata), then fixes from its review. AI markers: Content Credentials alone are no longer called AI (cameras sign photos too) and are shown as a neutral note with who wrote them; AI-edited pictures, a PNG's XMP and prompts in PNG iTXt are found; WebP credentials are read and scrubbed. Injector: edits instead of replacing the whole EXIF (before, changing one field on a phone photo lost its rotation, camera and location), checks every value, says up front which formats it can't write, offers to remove a contradicting XMP block, updates the batch. All Tags: full values (every coordinate part, signed numbers, versions, comments), at most 2,000 tags listed and 500 shown. Sample: a real sRGB profile instead of an empty one, a white-background thumbnail, `pnpm sample` to rebuild it. A location preset tooltip reworded. |
 | 0.8.3 | 2026-10-07 | Fix release from the 2026-10-07 review. Scrubber: phone photos keep their rotation, honest Verified Clean badge, batch only holds the photos picked together, HEIC/AVIF inspection, damaged files can't freeze the page, WebP trailers and progressive-JPEG metadata removed. DeRes: each machine its own colour count, grabbed palettes stay with Custom, safe share links, repeat .scr/.koa downloads, real NES .chr, 8 machines' colours fixed, NES sub-palettes from the picture, files match the preview with bars, unusable dithers greyed out, no more "387 of 256 colours" on machines without a colour list, the made-up Digipal machine removed. ASCII: correct Teletext blocks and C64 screen codes, 40×25 PETSCII, working .seq and a .prg that shows the picture, blank .ans author, Teletext saved as .txt. Animations: size limit, progress, faster GIFs. |
 | 0.8.2 | 2026-10-07 | First live release. Animated PNG and looping GIF exports (Screen FX loop, A/B wipe, dither shimmer). |
 | 0.8.0 | 2026-10-07 | BBS heritage, Teletext & batch tools: PETSCII mode with .seq and .prg exports, Teletext mosaics with .ttx export, dial-up baud playback, batch EXIF scrubber with ZIP download. |
