@@ -14,6 +14,9 @@ export function batchStatus(item: ScrubBatchItem): { text: string; cls: 'clean' 
   return item.report.isClean ? { text: '✓ Cleaned', cls: 'clean' } : { text: '⚠ Not clean', cls: 'err' }
 }
 
+/** The All Tags list shows at most this many rows at once. */
+const MAX_TABLE_ROWS = 500
+
 export class ScrubStage {
   readonly el: HTMLElement
   private readonly statusMsg: HTMLElement
@@ -33,8 +36,11 @@ export class ScrubStage {
   private readonly trailerAlertEl: HTMLElement
   private readonly trailerDescEl: HTMLElement
   private readonly aiAlertEl: HTMLElement
+  private readonly aiTitleEl: HTMLElement
   private readonly aiDescEl: HTMLElement
   private readonly aiEvidenceEl: HTMLElement
+  private readonly c2paNoteEl: HTMLElement
+  private readonly c2paDescEl: HTMLElement
   private readonly checkBannerEl: HTMLElement
   private readonly checkBadgeEl: HTMLElement
   private readonly checkSummaryEl: HTMLElement
@@ -138,16 +144,31 @@ export class ScrubStage {
     // AI Generation Marker Alert
     this.aiDescEl = h('p', { class: 'scrub-alert-body' })
     this.aiEvidenceEl = h('div', { class: 'scrub-ai-evidence', 'data-testid': 'scrub-ai-evidence' })
+    this.aiTitleEl = h('div', { class: 'scrub-alert-title' })
     this.aiAlertEl = h(
       'div',
       { class: 'scrub-alert scrub-ai-alert', 'data-testid': 'scrub-ai-alert', hidden: true },
-      h('div', { class: 'scrub-alert-title' }, '🤖 AI Generation Marker Found'),
+      this.aiTitleEl,
       this.aiDescEl,
       this.aiEvidenceEl,
       h(
         'p',
         { class: 'scrub-alert-note' },
         "Note: Metadata markers can be removed or omitted, so absence of markers does not guarantee human creation. Google SynthID watermarks cannot be analyzed without Google's proprietary verification service."
+      )
+    )
+
+    // Content Credentials without an AI claim: worth knowing, not a warning.
+    this.c2paDescEl = h('p', { class: 'scrub-alert-body' })
+    this.c2paNoteEl = h(
+      'div',
+      { class: 'scrub-alert scrub-c2pa-note', 'data-testid': 'scrub-c2pa-note', hidden: true },
+      h('div', { class: 'scrub-alert-title' }, '🔏 Content Credentials Found'),
+      this.c2paDescEl,
+      h(
+        'p',
+        { class: 'scrub-alert-note' },
+        "Cameras, phones and editing apps add these as well as AI tools. Their signature isn't checked here."
       )
     )
 
@@ -221,6 +242,7 @@ export class ScrubStage {
       this.checkBannerEl,
       this.narrativeEl,
       this.aiAlertEl,
+      this.c2paNoteEl,
       this.gpsAlertEl,
       this.thumbAlertEl,
       this.trailerAlertEl,
@@ -346,13 +368,20 @@ export class ScrubStage {
       show(this.trailerAlertEl, false)
     }
 
-    // AI Generation Marker Warning
-    if (meta.aiDetection && meta.aiDetection.detected) {
-      show(this.aiAlertEl, true)
-      this.aiDescEl.textContent = `${meta.aiDetection.summary}${meta.aiDetection.promptOrParams ? ` Prompt: "${meta.aiDetection.promptOrParams}"` : ''}`
-      this.aiEvidenceEl.textContent = meta.aiDetection.evidence.join(' · ')
-    } else {
-      show(this.aiAlertEl, false)
+    // AI markers: only what the file says about AI.
+    const ai = meta.aiDetection
+    show(this.aiAlertEl, !!ai?.detected)
+    if (ai?.detected) {
+      this.aiTitleEl.textContent = ai.kind === 'edited' ? '🤖 AI Editing Marker Found' : '🤖 AI Generation Marker Found'
+      this.aiDescEl.textContent = `${ai.summary}${ai.promptOrParams ? ` Prompt: "${ai.promptOrParams}"` : ''}`
+      this.aiEvidenceEl.textContent = ai.evidence.join(' · ')
+    }
+    // Content Credentials that say nothing about AI.
+    const cred = ai?.credentials
+    show(this.c2paNoteEl, !!cred && !cred.aiClaim)
+    if (cred && !cred.aiClaim) {
+      const by = cred.generator ? `, written by ${cred.generator}` : ''
+      this.c2paDescEl.textContent = `This file carries Content Credentials (C2PA) in its ${cred.where}${by}: a signed record of where the picture came from. Nothing in them says AI made it.`
     }
 
     // Populate Table
@@ -373,7 +402,8 @@ export class ScrubStage {
     this.summaryTabBtn.classList.toggle('active', mode === 'summary')
     this.treeTabBtn.classList.toggle('active', mode === 'tree')
     show(this.filterInput, mode === 'tree')
-    if (mode === 'tree') this.filterInput.focus()
+    // On a phone, focusing would pop the keyboard up over the list.
+    if (mode === 'tree' && matchMedia('(hover: hover) and (pointer: fine)').matches) this.filterInput.focus()
     if (this.currentMeta) this.renderTable(this.currentMeta)
   }
 
@@ -399,6 +429,8 @@ export class ScrubStage {
           )
         : meta.allTags
 
+      // A damaged file can list thousands of tags; the filter narrows them down.
+      const shown = filtered.slice(0, MAX_TABLE_ROWS)
       this.tableEl.replaceChildren(
         h(
           'thead',
@@ -409,7 +441,7 @@ export class ScrubStage {
           'tbody',
           null,
           ...(filtered.length > 0
-            ? filtered.map((t) =>
+            ? shown.map((t) =>
                 h(
                   'tr',
                   null,
@@ -429,7 +461,18 @@ export class ScrubStage {
                     q ? `No tags matching "${q}"` : 'No raw EXIF/TIFF tags recorded.'
                   )
                 )
-              ])
+              ]),
+          filtered.length > shown.length
+            ? h(
+                'tr',
+                null,
+                h(
+                  'td',
+                  { colspan: 4, class: 'val-muted' },
+                  `Showing ${shown.length} of ${filtered.length} tags. Type in the filter to find the rest.`
+                )
+              )
+            : null
         )
       )
       return

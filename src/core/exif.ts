@@ -2,8 +2,8 @@
 // Extracts camera, GPS coordinates, timestamps, exposure settings, thumbnails,
 // and trailer data across JPEG, PNG, WebP, and HEIC files without external dependencies.
 
-import { formatTagValue, getTagName } from './exif-dictionary'
-import { detectAiMarkers, type AiMarkerReport } from './ai-detect'
+import { decodeCharsetText, formatTagValue, getTagName, type TagCategory, type TagValue } from './exif-dictionary'
+import { detectAiMarkers, findContentCredentials, type AiMarkerReport } from './ai-detect'
 
 export interface GpsCoordinates {
   latitude: number
@@ -17,9 +17,47 @@ export interface ParsedExifTag {
   tagId: number
   tagHex: string
   name: string
-  category: 'IFD0' | 'Exif' | 'GPS' | 'Interop' | 'IFD1' | 'XMP' | 'Text'
+  category: TagCategory | 'XMP' | 'Text' | 'C2PA'
+  /** The decoded value (read when first asked for). */
   rawValue: unknown
   displayValue: string
+}
+
+/**
+ * The All Tags list stops here. A damaged file can claim tens of thousands of
+ * tags; the summary still counts them, the list doesn't try to show them.
+ */
+export const MAX_LISTED_TAGS = 2000
+
+/** A tag whose value is only read and formatted when the list shows it. */
+function lazyTag(
+  base: Omit<ParsedExifTag, 'rawValue' | 'displayValue'>,
+  read: () => unknown,
+  format: (value: unknown) => string
+): ParsedExifTag {
+  let value: unknown
+  let read_ = false
+  let text: string | undefined
+  const get = () => {
+    if (!read_) {
+      value = read()
+      read_ = true
+    }
+    return value
+  }
+  return {
+    ...base,
+    get rawValue() {
+      return get()
+    },
+    get displayValue() {
+      return (text ??= format(get()))
+    }
+  }
+}
+
+function addTag(meta: ImageMetadata, tag: ParsedExifTag): void {
+  if (meta.allTags.length < MAX_LISTED_TAGS) meta.allTags.push(tag)
 }
 
 export interface ImageMetadata {
@@ -37,6 +75,8 @@ export interface ImageMetadata {
   software?: string
   artist?: string
   copyright?: string
+  /** ImageDescription (0x010e). */
+  description?: string
   hasIccProfile: boolean
   hasThumbnail: boolean
   thumbnail?: {
@@ -49,6 +89,8 @@ export interface ImageMetadata {
   aiDetection?: AiMarkerReport
   xmpText?: string
   textChunks?: Record<string, string>
+  /** EXIF text that can carry an AI prompt (description, software, comments). */
+  exifText?: string[]
 }
 
 /** Formats decimal GPS coordinates to human-readable DMS text. */
@@ -163,6 +205,23 @@ export function detectFormat(data: Uint8Array): ImageMetadata['format'] {
   return 'unknown'
 }
 
+/** Bytes per value for each TIFF type (1 BYTE … 12 DOUBLE, 13 IFD). */
+export const TYPE_SIZE: Record<number, number> = {
+  1: 1,
+  2: 1,
+  3: 2,
+  4: 4,
+  5: 8,
+  6: 1,
+  7: 1,
+  8: 2,
+  9: 4,
+  10: 8,
+  11: 4,
+  12: 8,
+  13: 4
+}
+
 interface IfdEntry {
   type: number
   count: number
@@ -218,12 +277,76 @@ class TiffReader {
     if (pos >= this.data.length) return ''
     // Text fields are short; a damaged count must not make this read megabytes.
     const end = Math.min(this.data.length, pos + Math.min(length, 1024))
-    let s = ''
-    for (let i = pos; i < end; i++) {
-      if (this.data[i] === 0) break
-      s += String.fromCharCode(this.data[i])
+    let stop = pos
+    while (stop < end && this.data[stop] !== 0) stop++
+    const bytes = this.data.subarray(pos, stop)
+    // EXIF text is meant to be ASCII, but phones and editors write UTF-8
+    // ("©", accents); anything that isn't valid UTF-8 is read byte by byte.
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes).trim()
+    } catch {
+      return new TextDecoder('latin1').decode(bytes).trim()
     }
-    return s.trim()
+  }
+
+  /**
+   * Every value of a tag, for the All Tags list: text as a string, one number
+   * as a number, several as number[] (rationals divided out, signed types
+   * signed), UNDEFINED as bytes. Long lists stop at 64 numbers or 4 KB.
+   */
+  readTagValue(type: number, count: number, valOffset: number, maxBytes = 4096): TagValue {
+    if (type === 2) return this.getString(valOffset, count)
+    const size = TYPE_SIZE[type] ?? 1
+    const pos = this.baseOffset + valOffset
+    const room = Math.max(0, Math.floor((this.data.length - pos) / size))
+    if (type === 1 || type === 6 || type === 7) {
+      const n = Math.min(count, room, maxBytes)
+      const bytes = this.data.slice(pos, pos + n)
+      if (type === 7) return bytes
+      const nums = Array.from(bytes, (b) => (type === 6 ? (b << 24) >> 24 : b))
+      return count === 1 ? nums[0] : nums
+    }
+    const n = Math.min(count, room, 64)
+    const view = new DataView(this.data.buffer, this.data.byteOffset + pos, n * size)
+    const le = this.le
+    const out: number[] = []
+    for (let i = 0; i < n; i++) {
+      const at = i * size
+      switch (type) {
+        case 3:
+          out.push(view.getUint16(at, le))
+          break
+        case 8:
+          out.push(view.getInt16(at, le))
+          break
+        case 4:
+        case 13:
+          out.push(view.getUint32(at, le))
+          break
+        case 9:
+          out.push(view.getInt32(at, le))
+          break
+        case 5: {
+          const den = view.getUint32(at + 4, le)
+          out.push(den === 0 ? 0 : view.getUint32(at, le) / den)
+          break
+        }
+        case 10: {
+          const den = view.getInt32(at + 4, le)
+          out.push(den === 0 ? 0 : view.getInt32(at, le) / den)
+          break
+        }
+        case 11:
+          out.push(view.getFloat32(at, le))
+          break
+        case 12:
+          out.push(view.getFloat64(at, le))
+          break
+        default:
+          return `${count} values of an unknown type (${type})`
+      }
+    }
+    return count === 1 ? out[0] : out
   }
 
   readIfd(offset: number): Map<number, IfdEntry> {
@@ -237,7 +360,7 @@ class TiffReader {
       const tag = this.getUint16(cur)
       const type = this.getUint16(cur + 2)
       const count = this.getUint32(cur + 4)
-      const typeSize = [0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8][type] || 1
+      const typeSize = TYPE_SIZE[type] ?? 1
       const totalSize = count * typeSize
 
       let value: unknown
@@ -320,27 +443,37 @@ export function parseTiffBlock(data: Uint8Array, tiffStart: number, meta: ImageM
   const ifd0Offset = reader.getUint32(4)
   if (ifd0Offset === 0) return
 
-  const recordIfdTags = (
-    ifd: Map<number, IfdEntry>,
-    category: 'IFD0' | 'Exif' | 'GPS' | 'Interop' | 'IFD1'
-  ) => {
+  const recordIfdTags = (ifd: Map<number, IfdEntry>, category: TagCategory) => {
     for (const [tagId, entry] of ifd.entries()) {
-      const name = getTagName(category, tagId)
-      const displayValue = formatTagValue(category, tagId, entry.value)
-      meta.allTags.push({
-        tagId,
-        tagHex: `0x${tagId.toString(16).padStart(4, '0')}`,
-        name,
-        category,
-        rawValue: entry.value,
-        displayValue
-      })
+      if (meta.allTags.length >= MAX_LISTED_TAGS) return
+      addTag(
+        meta,
+        lazyTag(
+          { tagId, tagHex: `0x${tagId.toString(16).padStart(4, '0')}`, name: getTagName(category, tagId), category },
+          () => reader.readTagValue(entry.type, entry.count, entry.valOffset),
+          (v) => formatTagValue(category, tagId, v as TagValue, entry.count)
+        )
+      )
     }
   }
+  // Text an AI tool may leave its prompt in (Stable Diffusion writes UserComment).
+  const keepText = (ifd: Map<number, IfdEntry>, tag: number, decode: (v: TagValue) => string) => {
+    const entry = ifd.get(tag)
+    if (!entry) return
+    // A prompt with its settings can run to many KB; read up to 64 KB.
+    const text = decode(reader.readTagValue(entry.type, entry.count, entry.valOffset, 65536))
+    if (text) (meta.exifText ??= []).push(text)
+  }
+  const asText = (v: TagValue) => (typeof v === 'string' ? v : '')
+  const xpText = (v: TagValue) =>
+    Array.isArray(v) ? new TextDecoder('utf-16le').decode(Uint8Array.from(v)).replace(/\0+$/, '') : ''
 
   const ifd0 = reader.readIfd(ifd0Offset)
   meta.rawTagCount += ifd0.size
   recordIfdTags(ifd0, 'IFD0')
+  keepText(ifd0, 0x010e, asText)
+  keepText(ifd0, 0x0131, asText)
+  keepText(ifd0, 0x9c9c, xpText)
 
   // Standard tags in IFD0
   if (ifd0.has(0x010f)) meta.make = String(ifd0.get(0x010f)!.value)
@@ -350,6 +483,7 @@ export function parseTiffBlock(data: Uint8Array, tiffStart: number, meta: ImageM
   if (ifd0.has(0x0131)) meta.software = String(ifd0.get(0x0131)!.value)
   if (ifd0.has(0x013b)) meta.artist = String(ifd0.get(0x013b)!.value)
   if (ifd0.has(0x8298)) meta.copyright = String(ifd0.get(0x8298)!.value)
+  if (ifd0.has(0x010e)) meta.description = String(ifd0.get(0x010e)!.value)
 
   // SubIFD Exif (0x8769)
   if (ifd0.has(0x8769)) {
@@ -357,6 +491,7 @@ export function parseTiffBlock(data: Uint8Array, tiffStart: number, meta: ImageM
     const exifIfd = reader.readIfd(exifOffset)
     meta.rawTagCount += exifIfd.size
     recordIfdTags(exifIfd, 'Exif')
+    keepText(exifIfd, 0x9286, decodeCharsetText)
 
     if (exifIfd.has(0xa005)) {
       const interopOffset = Number(exifIfd.get(0xa005)!.value)
@@ -486,12 +621,72 @@ export function inspectMetadata(data: Uint8Array): ImageMetadata {
       textBlocks.push(`${k}: ${v}`)
     }
   }
-  for (const t of meta.allTags) {
-    if (typeof t.rawValue === 'string') textBlocks.push(t.rawValue)
+  textBlocks.push(...(meta.exifText ?? []))
+  const credentials = findContentCredentials(data)
+  meta.aiDetection = detectAiMarkers(textBlocks, meta.software, credentials)
+  if (credentials) {
+    addTag(meta, {
+      tagId: 0,
+      tagHex: 'C2PA',
+      name: 'Content Credentials',
+      category: 'C2PA',
+      rawValue: credentials,
+      displayValue: `${credentials.bytes.toLocaleString()} bytes in the ${credentials.where}${credentials.generator ? `, signed by ${credentials.generator}` : ''}`
+    })
   }
-  meta.aiDetection = detectAiMarkers(data, textBlocks, meta.software)
 
   return meta
+}
+
+/** A text row in the All Tags list (XMP, PNG text, JUMBF data). */
+function textRow(meta: ImageMetadata, tagHex: string, name: string, category: ParsedExifTag['category'], value: string, shown: string): void {
+  addTag(meta, { tagId: 0, tagHex, name, category, rawValue: value, displayValue: shown })
+}
+
+const short = (text: string) => (text.length > 200 ? `${text.slice(0, 200)}…` : text)
+
+/** How JPEG APP1 segments (and PNG iTXt keywords) say they hold XMP. */
+export const XMP_SIG = 'http://ns.adobe.com/xap/1.0/\0'
+export const XMP_EXTENSION_SIG = 'http://ns.adobe.com/xmp/extension/\0'
+export const PNG_XMP_KEYWORD = 'XML:com.adobe.xmp'
+
+/** Whether the bytes at `at` spell out `text` (ASCII). */
+export function startsWithText(data: Uint8Array, at: number, text: string): boolean {
+  if (at + text.length > data.length) return false
+  for (let i = 0; i < text.length; i++) if (data[at + i] !== text.charCodeAt(i)) return false
+  return true
+}
+
+/**
+ * A PNG text chunk. tEXt is Latin-1; iTXt is UTF-8 (where XMP and most
+ * non-English AI prompts go). Compressed text (zTXt, compressed iTXt) can't
+ * be inflated here without waiting, so it's listed but not read.
+ */
+function readPngText(type: string, chunk: Uint8Array, meta: ImageMetadata): void {
+  const keyEnd = chunk.indexOf(0)
+  if (keyEnd <= 0) return
+  const keyword = new TextDecoder('latin1').decode(chunk.subarray(0, keyEnd))
+  let text: string | null = null
+  if (type === 'tEXt') {
+    text = new TextDecoder('latin1').decode(chunk.subarray(keyEnd + 1))
+  } else if (type === 'iTXt') {
+    const compressed = chunk[keyEnd + 1] === 1
+    const langEnd = chunk.indexOf(0, keyEnd + 3)
+    const transEnd = langEnd < 0 ? -1 : chunk.indexOf(0, langEnd + 1)
+    if (!compressed && transEnd >= 0) text = new TextDecoder('utf-8').decode(chunk.subarray(transEnd + 1))
+  }
+  if (text === null) {
+    textRow(meta, type, `PNG Text (${keyword})`, 'Text', '', `${chunk.length.toLocaleString()} bytes of compressed text (not read)`)
+    return
+  }
+  if (type === 'iTXt' && keyword === PNG_XMP_KEYWORD) {
+    meta.xmpText = (meta.xmpText ?? '') + text
+    textRow(meta, 'XMP', 'XMP Metadata Packet', 'XMP', text, `${text.length.toLocaleString()} characters`)
+    return
+  }
+  const chunks = (meta.textChunks ??= {})
+  chunks[keyword] = chunks[keyword] ? `${chunks[keyword]}\n${text}` : text
+  textRow(meta, type, `PNG Text (${keyword})`, 'Text', text, short(text))
 }
 
 function inspectJpeg(data: Uint8Array, meta: ImageMetadata): void {
@@ -554,36 +749,23 @@ function inspectJpeg(data: Uint8Array, meta: ImageMetadata): void {
       ) {
         // Exif TIFF block starts at segStart + 6
         parseTiffBlock(data, segStart + 6, meta)
-      } else {
-        const xmpSig = 'http://ns.adobe.com/xap/1.0/\0'
-        if (segLen >= 29) {
-          const str = new TextDecoder('latin1').decode(data.subarray(segStart, segStart + 29))
-          if (str === xmpSig) {
-            const xmp = new TextDecoder('utf-8').decode(data.subarray(segStart + 29, segEnd))
-            meta.xmpText = xmp
-            meta.rawTagCount++
-            meta.allTags.push({
-              tagId: 0,
-              tagHex: 'XMP',
-              name: 'XMP Metadata Packet',
-              category: 'XMP',
-              rawValue: xmp,
-              displayValue: `${xmp.length} chars`
-            })
-          }
-        }
+      } else if (startsWithText(data, segStart, XMP_SIG)) {
+        const xmp = new TextDecoder('utf-8').decode(data.subarray(segStart + XMP_SIG.length, segEnd))
+        meta.xmpText = (meta.xmpText ?? '') + xmp
+        meta.rawTagCount++
+        textRow(meta, 'XMP', 'XMP Metadata Packet', 'XMP', xmp, `${xmp.length.toLocaleString()} characters`)
+      } else if (startsWithText(data, segStart, XMP_EXTENSION_SIG)) {
+        // Extended XMP: the rest of a packet too big for one segment.
+        const xmp = new TextDecoder('utf-8').decode(data.subarray(segStart + XMP_EXTENSION_SIG.length + 40, segEnd))
+        meta.xmpText = (meta.xmpText ?? '') + xmp
+        meta.rawTagCount++
+        textRow(meta, 'XMP', 'Extended XMP Packet', 'XMP', xmp, `${xmp.length.toLocaleString()} characters`)
       }
     } else if (marker === 0xeb) {
-      // APP11: C2PA JUMBF Box
+      // APP11: JUMBF boxes (Content Credentials live here, so do JPEG XT
+      // extensions). What they hold is worked out once, in inspectMetadata.
       meta.rawTagCount++
-      meta.allTags.push({
-        tagId: 0,
-        tagHex: 'APP11',
-        name: 'C2PA Content Credentials Manifest',
-        category: 'XMP',
-        rawValue: 'APP11 C2PA segment',
-        displayValue: `${segLen} bytes`
-      })
+      textRow(meta, 'APP11', 'APP11 segment (JUMBF data)', 'C2PA', '', `${segLen.toLocaleString()} bytes`)
     } else if (marker === 0xe2) {
       // APP2: ICC Profile or MPF
       if (
@@ -638,34 +820,10 @@ function inspectPng(data: Uint8Array, meta: ImageMetadata): void {
       meta.hasIccProfile = true
     } else if (type === 'tEXt' || type === 'zTXt' || type === 'iTXt') {
       meta.rawTagCount++
-      if (type === 'tEXt') {
-        const chunkBytes = data.subarray(chunkData, chunkData + len)
-        const nullIdx = chunkBytes.indexOf(0)
-        if (nullIdx > 0) {
-          const keyword = new TextDecoder('latin1').decode(chunkBytes.subarray(0, nullIdx))
-          const text = new TextDecoder('latin1').decode(chunkBytes.subarray(nullIdx + 1))
-          if (!meta.textChunks) meta.textChunks = {}
-          meta.textChunks[keyword] = text
-          meta.allTags.push({
-            tagId: 0,
-            tagHex: 'tEXt',
-            name: `PNG Text (${keyword})`,
-            category: 'Text',
-            rawValue: text,
-            displayValue: text.length > 80 ? `${text.slice(0, 80)}...` : text
-          })
-        }
-      }
+      readPngText(type, data.subarray(chunkData, chunkData + len), meta)
     } else if (type === 'caBX') {
       meta.rawTagCount++
-      meta.allTags.push({
-        tagId: 0,
-        tagHex: 'caBX',
-        name: 'C2PA Content Credentials Box',
-        category: 'XMP',
-        rawValue: 'caBX chunk',
-        displayValue: `${len} bytes`
-      })
+      textRow(meta, 'caBX', 'caBX chunk (JUMBF data)', 'C2PA', '', `${len.toLocaleString()} bytes`)
     } else if (type === 'IEND') {
       iendEnd = nextChunk
       break
@@ -726,14 +884,10 @@ function inspectWebp(data: Uint8Array, meta: ImageMetadata): void {
       meta.rawTagCount++
       const xmpStr = new TextDecoder('utf-8').decode(data.subarray(pos + 8, pos + 8 + size))
       meta.xmpText = xmpStr
-      meta.allTags.push({
-        tagId: 0,
-        tagHex: 'XMP',
-        name: 'XMP Metadata Packet',
-        category: 'XMP',
-        rawValue: xmpStr,
-        displayValue: `${xmpStr.length} chars`
-      })
+      textRow(meta, 'XMP', 'XMP Metadata Packet', 'XMP', xmpStr, `${xmpStr.length.toLocaleString()} characters`)
+    } else if (fourCC === 'C2PA') {
+      meta.rawTagCount++
+      textRow(meta, 'C2PA', 'C2PA chunk (JUMBF data)', 'C2PA', '', `${size.toLocaleString()} bytes`)
     }
 
     pos = nextChunk

@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { inspectMetadata } from '../../src/core/exif'
+import { chunk } from '../../src/core/png'
 import { fakeHeif, jpegMarkers, phoneStyleJpeg } from '../../src/test/fake-exif'
+import { fakeC2paBox } from '../../src/test/fake-tiff'
 import { canvasJpeg, decodedSize, download, freshPage, gradientPng, zipNames } from './helpers'
 
 // The EXIF scrubber, with made-up phone-style photos (fake camera, 0,0).
@@ -199,45 +201,38 @@ test('metadata inspector full tag tree view displays tags and filters by keyword
 
   const table = page.getByTestId('scrub-table')
   await expect(table).toContainText('Orientation')
+  // Every value in full: degrees, minutes and seconds, not just the degrees.
+  const row = (name: string) => table.locator('tr').filter({ has: page.getByRole('cell', { name, exact: true }) })
+  await expect(row('GPSLatitude')).toContainText(`0° 0' 0"`)
+  await expect(row('GPSVersionID')).toContainText('2.3.0.0')
 
   await filterInput.fill('FakeCam')
   await expect(table).toContainText('FakeCam')
 })
 
-test('detects AI generation markers and renders the AI alert banner', async ({ page }) => {
-  // Construct a PNG with caBX chunk
-  const pngHeader = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
-  const ihdr = [
-    0x00, 0x00, 0x00, 0x0d,
-    0x49, 0x48, 0x44, 0x52,
-    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00,
-    0x90, 0x77, 0x53, 0xde
-  ]
-  const cabxChunk = [
-    0x00, 0x00, 0x00, 0x04,
-    0x63, 0x61, 0x42, 0x58, // 'caBX'
-    0x01, 0x02, 0x03, 0x04,
-    0x11, 0x22, 0x33, 0x44
-  ]
-  const idat = [
-    0x00, 0x00, 0x00, 0x02,
-    0x49, 0x44, 0x41, 0x54,
-    0x78, 0x9c,
-    0x05, 0xb9, 0x41, 0x02
-  ]
-  const iend = [
-    0x00, 0x00, 0x00, 0x00,
-    0x49, 0x45, 0x4e, 0x44,
-    0xae, 0x42, 0x60, 0x82
-  ]
-  const cabxPng = Buffer.from([...pngHeader, ...ihdr, ...cabxChunk, ...idat, ...iend])
-
-  await page.locator('#file-input').setInputFiles({ name: 'ai.png', mimeType: 'image/png', buffer: cabxPng })
-  await page.getByTestId('tab-scrub').click()
-
+test('Content Credentials alone are not called AI; credentials that say AI are', async ({ page }) => {
+  // A PNG with a made-up caBX chunk inserted after IHDR.
+  const withCredentials = async (box: Uint8Array) => {
+    const png = await gradientPng(8, 8)
+    return Buffer.concat([png.subarray(0, 33), Buffer.from(chunk('caBX', box)), png.subarray(33)])
+  }
   const alert = page.getByTestId('scrub-ai-alert')
+  const note = page.getByTestId('scrub-c2pa-note')
+
+  const camera = await withCredentials(fakeC2paBox({ generatorInfo: 'Leica Camera AG M11-P' }))
+  await page.locator('#file-input').setInputFiles({ name: 'camera.png', mimeType: 'image/png', buffer: camera })
+  await page.getByTestId('tab-scrub').click()
+  await expect(note).toBeVisible()
+  await expect(note).toContainText('Leica Camera AG M11-P')
+  await expect(note).toContainText('Nothing in them says AI made it')
+  await expect(alert).toBeHidden()
+
+  const ai = await withCredentials(fakeC2paBox({ generator: 'Adobe_Firefly', sourceType: 'trainedAlgorithmicMedia' }))
+  await page.locator('#file-input').setInputFiles({ name: 'ai.png', mimeType: 'image/png', buffer: ai })
+  await expect(page.getByTestId('scrub-picture-info')).toContainText('ai.png')
   await expect(alert).toBeVisible()
   await expect(alert).toContainText('AI Generation Marker Found')
-  await expect(alert).toContainText('C2PA Content Credentials')
+  await expect(alert).toContainText('Adobe_Firefly')
+  await expect(note).toBeHidden()
 })
 

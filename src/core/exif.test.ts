@@ -5,10 +5,12 @@ import {
   formatGpsDms,
   getMetadataNarrative,
   inspectMetadata,
+  MAX_LISTED_TAGS,
   type ImageMetadata
 } from './exif'
 import { buildMinimalOrientationApp1, scrubImage } from './scrub'
-import { fakeHeif } from '../test/fake-exif'
+import { fakeHeif, tinyJpegBody } from '../test/fake-exif'
+import { bytesFor, exifApp1, rawTiff } from '../test/fake-tiff'
 
 describe('HEIC and AVIF are told apart by their brands', () => {
   const exif = { make: 'FakeCam', gps: { lat: 0, lon: 0 } }
@@ -198,5 +200,64 @@ describe('file types the inspector cannot read', () => {
     const text = getMetadataNarrative(meta)
     expect(text).not.toMatch(/no GPS/i)
     expect(text).toMatch(/can't be read/i)
+  })
+})
+
+describe('the All Tags list shows every value in full', () => {
+  const jpeg = (tiff: Uint8Array) => new Uint8Array([0xff, 0xd8, ...exifApp1(tiff), ...tinyJpegBody()])
+  const shown = (meta: ImageMetadata) => Object.fromEntries(meta.allTags.map((t) => [t.name, t.displayValue]))
+
+  for (const le of [true, false]) {
+    it(`multi-value, signed and byte tags (${le ? 'little' : 'big'}-endian)`, () => {
+      const b = bytesFor(le)
+      const xp = [...'Hi there'].flatMap((c) => [c.charCodeAt(0), 0])
+      const { tiff } = rawTiff(
+        [b.ascii(0x010f, 'Cañon ©'), { tag: 0x9c9c, type: 1, count: xp.length, bytes: xp }, b.short(0x4321, 1, 2, 3)],
+        [
+          b.undefinedBytes(0x9000, [...'0232'].map((c) => c.charCodeAt(0))),
+          b.undefinedBytes(0x9101, [1, 2, 3, 0]),
+          b.srational(0x9204, [-1, 3]),
+          b.srational(0x9201, [8, 1]),
+          b.undefinedBytes(0x927c, Array.from({ length: 300 }, (_, i) => i & 0xff)),
+          b.rational(0xa432, [24, 1], [70, 1], [28, 10], [4, 1]),
+          b.undefinedBytes(0x9286, [...'ASCII\0\0\0hello'].map((c) => c.charCodeAt(0)))
+        ],
+        [
+          b.byteList(0x0000, [2, 3, 0, 0]),
+          b.ascii(0x0001, 'N'),
+          b.rational(0x0002, [41, 1], [52, 1], [4121, 100]),
+          b.rational(0x0007, [14, 1], [5, 1], [9, 1])
+        ],
+        le
+      )
+      const meta = inspectMetadata(jpeg(tiff))
+      const s = shown(meta)
+      expect(meta.make).toBe('Cañon ©')
+      expect(s.Make).toBe('Cañon ©')
+      expect(s.XPComment).toBe('Hi there')
+      expect(s['Unknown Tag (0x4321)']).toBe('1, 2, 3')
+      expect(s.ExifVersion).toBe('2.32')
+      expect(s.ComponentsConfiguration).toBe('Y, Cb, Cr, -')
+      expect(s.ExposureBiasValue).toBe('-0.33 EV')
+      expect(s.ShutterSpeedValue).toBe('1/256s')
+      expect(s.MakerNote).toBe("300 bytes (the camera maker's own data)")
+      expect(s.LensSpecification).toBe('24–70 mm f/2.8–4')
+      expect(s.UserComment).toBe('hello')
+      expect(s.GPSVersionID).toBe('2.3.0.0')
+      expect(s.GPSLatitude).toBe(`41° 52' 41.21"`)
+      expect(s.GPSTimeStamp).toBe('14:05:09 UTC')
+      expect(s.ExifIFDPointer).toMatch(/^Exif block at byte \d+$/)
+    })
+  }
+
+  it('a damaged block claiming thousands of tags lists a bounded number, quickly', () => {
+    const b = bytesFor(true)
+    const tags = Array.from({ length: 5000 }, (_, i) => b.ascii(0x1000 + i, 'some text value'))
+    const { tiff } = rawTiff(tags)
+    const start = performance.now()
+    const meta = inspectMetadata(jpeg(tiff))
+    expect(meta.allTags.length).toBe(MAX_LISTED_TAGS)
+    expect(meta.rawTagCount).toBe(5000)
+    expect(performance.now() - start).toBeLessThan(1000)
   })
 })

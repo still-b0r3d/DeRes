@@ -609,8 +609,8 @@ export function scrubWebp(data: Uint8Array): Uint8Array {
     const chunkData =
       chunkEnd <= data.length ? data.subarray(pos, chunkEnd) : new Uint8Array([...data.subarray(pos, pos + 8 + size), 0])
 
-    if (fourCC === 'EXIF' || fourCC === 'XMP ') {
-      // Strip EXIF and XMP chunks
+    if (fourCC === 'EXIF' || fourCC === 'XMP ' || fourCC === 'C2PA') {
+      // Strip EXIF, XMP and Content Credentials (as caBX in a PNG and APP11 in a JPEG)
     } else if (fourCC === 'VP8X') {
       // Clear EXIF (bit 3: 0x08) and XMP (bit 2: 0x04) flags in VP8X chunk
       const vp8xCopy = new Uint8Array(chunkData)
