@@ -1365,6 +1365,18 @@ button:disabled {
   font-size: 1rem;
 }
 
+.scrub-c2pa-note {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+}
+
+.scrub-c2pa-note .scrub-alert-title {
+  color: var(--text);
+  font-weight: 700;
+  font-family: var(--brand-font);
+  font-size: 1rem;
+}
+
 .scrub-ai-evidence {
   font-size: 0.8rem;
   color: var(--muted);
@@ -1646,13 +1658,6 @@ button:disabled {
 }
 
 /* EXIF Injector Controls */
-.injector-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 6px;
-}
-
 .injector-row {
   display: flex;
   flex-direction: column;
@@ -1694,6 +1699,14 @@ button:disabled {
   outline: none;
 }
 
+.injector-input[aria-invalid='true'] {
+  border-color: #ff6b6b;
+}
+
+.status-msg.is-error {
+  color: #ff6b6b;
+}
+
 .injector-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1702,7 +1715,8 @@ button:disabled {
 
 .injector-grid-3 {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  /* Room for a full "-87.629799"; altitude needs less. */
+  grid-template-columns: 1.3fr 1.3fr 0.8fr;
   gap: 6px;
 }
 

@@ -1,17 +1,28 @@
-// EXIF Injector Controls Pane
-// Dedicated interface for byte-level EXIF tag editing and injection.
+// EXIF Injector controls
+// The form starts with what the photo already has. Only fields that are
+// changed get written; an emptied field removes that tag; everything the
+// form doesn't show stays in the photo as it was.
 
-import type { ExifInjectOptions } from '../core/inject'
-import { normalizeExifDate } from '../core/inject'
 import type { ImageMetadata } from '../core/exif'
+import {
+  canInject,
+  editsFromFields,
+  EMPTY_FIELDS,
+  normalizeExifDate,
+  readInjectorFields,
+  xmpCopies,
+  type ExifEdits,
+  type InjectOptions,
+  type InjectorFields
+} from '../core/inject'
 import { h, show } from './dom'
 
 export interface InjectControlsContext {
   openFile(): void
   loadSample(): void
-  picture(): { name: string; size: number } | null
-  currentMeta(): ImageMetadata | null
-  injectAndDownload(options: ExifInjectOptions): void
+  /** The photo being edited (the open one, or the selected one in a batch). */
+  current(): { name: string; bytes: Uint8Array; meta: ImageMetadata } | null
+  injectAndDownload(edits: ExifEdits, options: InjectOptions): void
 }
 
 function section(title: string, open: boolean, ...body: (Node | null)[]): HTMLDetailsElement {
@@ -23,71 +34,74 @@ function section(title: string, open: boolean, ...body: (Node | null)[]): HTMLDe
   )
 }
 
+/** Labels, for messages and the form. */
+const LABELS: Record<keyof InjectorFields, string> = {
+  make: 'Camera Make',
+  model: 'Camera Model',
+  lens: 'Lens Model',
+  artist: 'Artist / Creator',
+  copyright: 'Copyright',
+  software: 'Software',
+  orientation: 'Orientation',
+  aperture: 'Aperture (f-stop)',
+  shutter: 'Shutter Speed',
+  iso: 'ISO',
+  focal: 'Focal Length (mm)',
+  dateTime: 'Date & Time',
+  description: 'Description / Title',
+  lat: 'GPS Latitude',
+  lon: 'GPS Longitude',
+  alt: 'Altitude (m)'
+}
+
 export function buildInjectControls(ctx: InjectControlsContext): {
   el: HTMLElement
   sync: () => void
-  status: (t: string) => void
+  status: (t: string, isError?: boolean) => void
 } {
-  // 1. Photo Section
+  // 1. Photo
   const pictureInfo = h('p', { class: 'picture-info', 'data-testid': 'inject-picture-info' })
-  const chooseBtn = h(
-    'button',
-    { type: 'button', class: 'choose', onclick: () => ctx.openFile() },
-    'Choose photo(s)'
-  )
-
+  const formatNote = h('p', { class: 'hint', 'data-testid': 'inject-format-note', hidden: true })
   const imageSec = section(
     'Photo',
     true,
-    chooseBtn,
+    h('button', { type: 'button', class: 'choose', onclick: () => ctx.openFile() }, 'Choose photo(s)'),
     h(
       'p',
       { class: 'hint' },
       h('button', { type: 'button', class: 'linkish', onclick: () => ctx.loadSample() }, 'Try the sample'),
       h('span', { class: 'desktop-only' }, ' · or drop photos on the page, or paste one')
     ),
-    pictureInfo
+    pictureInfo,
+    formatNote
   )
 
-  // 2. Camera & Creator Form Inputs
-  const inputMake = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-make',
-    placeholder: 'e.g. Nikon, Apple, b0r3d optics'
-  }) as HTMLInputElement
+  // 2. The fields
+  const text = (key: keyof InjectorFields, placeholder: string): HTMLInputElement =>
+    h('input', {
+      type: 'text',
+      class: 'injector-input',
+      'data-testid': `injector-${key === 'dateTime' ? 'datetime' : key === 'description' ? 'desc' : key}`,
+      'aria-label': LABELS[key],
+      placeholder
+    }) as HTMLInputElement
+  // type=number brings up a keyboard with a minus sign on phones. A browser
+  // reads anything that isn't a number in it as "", so badInput is checked
+  // before that could look like a cleared field.
+  const number = (key: keyof InjectorFields, placeholder: string): HTMLInputElement =>
+    h('input', {
+      type: 'number',
+      step: 'any',
+      class: 'injector-input',
+      'data-testid': `injector-${key}`,
+      'aria-label': LABELS[key],
+      placeholder
+    }) as HTMLInputElement
 
-  const inputModel = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-model',
-    placeholder: 'e.g. Z8, iPhone 15 Pro, Rukus-Cam'
-  }) as HTMLInputElement
-
-  const inputArtist = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-artist',
-    placeholder: 'e.g. still_b0r3d'
-  }) as HTMLInputElement
-
-  const inputCopyright = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-copyright',
-    placeholder: 'e.g. (c) 2026 b0r3d.org'
-  }) as HTMLInputElement
-
-  const inputSoftware = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-software',
-    placeholder: 'e.g. b0r3d DeRes v0.8.3'
-  }) as HTMLInputElement
-
-  const selectOrientation = h(
+  const orientation = h(
     'select',
-    { class: 'injector-select', 'data-testid': 'injector-orientation' },
+    { class: 'injector-select', 'data-testid': 'injector-orientation', 'aria-label': LABELS.orientation },
+    h('option', { value: '' }, 'Not set'),
     h('option', { value: '1' }, 'Standard (1)'),
     h('option', { value: '2' }, 'Mirror Horizontal (2)'),
     h('option', { value: '3' }, 'Rotate 180° (3)'),
@@ -98,241 +112,128 @@ export function buildInjectControls(ctx: InjectControlsContext): {
     h('option', { value: '8' }, 'Rotate 90° CCW (8)')
   ) as HTMLSelectElement
 
-  // 3. Exposure & Optics Inputs
-  const inputLens = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-lens',
-    placeholder: 'e.g. b0r3d Prime 28mm f/1.4 Deluxe'
-  }) as HTMLInputElement
+  const inputs: Record<keyof InjectorFields, HTMLInputElement | HTMLSelectElement> = {
+    make: text('make', 'e.g. Nikon, Apple, b0r3d optics'),
+    model: text('model', 'e.g. Z8, iPhone 15 Pro, Rukus-Cam'),
+    lens: text('lens', 'e.g. b0r3d Prime 28mm f/1.4 Deluxe'),
+    artist: text('artist', 'e.g. still_b0r3d'),
+    copyright: text('copyright', 'e.g. (c) 2026 b0r3d.org'),
+    software: text('software', 'e.g. b0r3d DeRes'),
+    orientation,
+    aperture: number('aperture', 'e.g. 1.4, 2.8'),
+    shutter: text('shutter', 'e.g. 1/250, 0.5, 2'),
+    iso: number('iso', 'e.g. 100, 400'),
+    focal: number('focal', 'e.g. 28, 4.25'),
+    dateTime: text('dateTime', 'YYYY:MM:DD HH:MM:SS'),
+    description: text('description', 'Photo title or description'),
+    lat: number('lat', 'e.g. 41.8781'),
+    lon: number('lon', 'e.g. -87.6298'),
+    alt: number('alt', 'e.g. 182')
+  }
+  const keys = Object.keys(inputs) as (keyof InjectorFields)[]
 
-  const inputAperture = h('input', {
-    type: 'number',
-    step: 'any',
-    class: 'injector-input',
-    'data-testid': 'injector-aperture',
-    placeholder: 'e.g. 1.4, 2.8'
-  }) as HTMLInputElement
+  for (const input of Object.values(inputs)) {
+    input.addEventListener('input', () => input.removeAttribute('aria-invalid'))
+  }
 
-  const inputShutter = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-shutter',
-    placeholder: 'e.g. 1/250, 1/500, 0.004'
-  }) as HTMLInputElement
+  /** What the photo had when it was opened; unchanged fields are left alone. */
+  let loaded: InjectorFields = { ...EMPTY_FIELDS }
+  let loadedBytes: Uint8Array | null = null
 
-  const inputIso = h('input', {
-    type: 'number',
-    step: 'any',
-    class: 'injector-input',
-    'data-testid': 'injector-iso',
-    placeholder: 'e.g. 100, 400'
-  }) as HTMLInputElement
+  function fill(values: InjectorFields): void {
+    for (const k of keys) {
+      inputs[k].value = values[k]
+      inputs[k].removeAttribute('aria-invalid')
+    }
+  }
+  function read(): InjectorFields {
+    const out = { ...EMPTY_FIELDS }
+    for (const k of keys) out[k] = inputs[k].value
+    return out
+  }
 
-  const inputFocal = h('input', {
-    type: 'number',
-    step: 'any',
-    class: 'injector-input',
-    'data-testid': 'injector-focal',
-    placeholder: 'e.g. 28, 50 (mm)'
-  }) as HTMLInputElement
-
-  // 4. Date & Description Inputs
-  const inputDateTime = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-datetime',
-    placeholder: 'YYYY:MM:DD HH:MM:SS'
-  }) as HTMLInputElement
-
-  const nowBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'pill-btn injector-prefill-btn',
-      title: 'Fill current time',
-      onclick: () => {
-        inputDateTime.value = normalizeExifDate()
-      }
-    },
-    'Now'
-  )
-
-  const inputDesc = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-desc',
-    placeholder: 'Photo title or description'
-  }) as HTMLInputElement
-
-  // 4. GPS Inputs
-  const inputLat = h('input', {
-    type: 'number',
-    step: 'any',
-    class: 'injector-input',
-    'data-testid': 'injector-lat',
-    placeholder: 'Latitude (e.g. 41.8781)'
-  }) as HTMLInputElement
-
-  const inputLon = h('input', {
-    type: 'number',
-    step: 'any',
-    class: 'injector-input',
-    'data-testid': 'injector-lon',
-    placeholder: 'Longitude (e.g. -87.6298)'
-  }) as HTMLInputElement
-
-  const inputAlt = h('input', {
-    type: 'number',
-    step: 'any',
-    class: 'injector-input',
-    'data-testid': 'injector-alt',
-    placeholder: 'Altitude (m)'
-  }) as HTMLInputElement
-
-  // Preset Buttons
-  const prefillBtn = h(
+  // Presets
+  const resetBtn = h(
     'button',
     {
       type: 'button',
       class: 'pill-btn injector-prefill-btn',
       'data-testid': 'inject-prefill-btn',
-      onclick: () => {
-        const meta = ctx.currentMeta()
-        if (!meta) return
-        if (meta.make) inputMake.value = meta.make
-        if (meta.model) inputModel.value = meta.model
-        if (meta.lensModel) inputLens.value = meta.lensModel
-        if (meta.artist) inputArtist.value = meta.artist
-        if (meta.copyright) inputCopyright.value = meta.copyright
-        if (meta.software) inputSoftware.value = meta.software
-        if (meta.dateTime) inputDateTime.value = meta.dateTime
-        if (meta.fNumber) inputAperture.value = String(meta.fNumber)
-        if (meta.exposureTime) inputShutter.value = meta.exposureTime.replace(/s$/i, '')
-        if (meta.iso) inputIso.value = String(meta.iso)
-        if (meta.focalLength) inputFocal.value = String(meta.focalLength)
-        if (meta.orientation) selectOrientation.value = String(meta.orientation)
-        if (meta.gps) {
-          inputLat.value = String(meta.gps.latitude.toFixed(6))
-          inputLon.value = String(meta.gps.longitude.toFixed(6))
-          if (meta.gps.altitude !== undefined) inputAlt.value = String(meta.gps.altitude)
-        }
-      }
+      title: 'Put back what the photo has',
+      onclick: () => fill(loaded)
     },
-    'Pre-fill from photo'
+    'Reset to photo'
   )
-
-  const siteDefaultsBtn = h(
+  const defaultsBtn = h(
     'button',
     {
       type: 'button',
       class: 'pill-btn injector-prefill-btn',
       'data-testid': 'inject-defaults-btn',
-      onclick: () => {
-        inputMake.value = 'b0r3d optics'
-        inputModel.value = 'Rukus-Cam 95 Deluxe'
-        inputLens.value = 'b0r3d Prime 28mm f/1.4 Deluxe'
-        inputArtist.value = 'still_b0r3d'
-        inputCopyright.value = '(c) 2026 b0r3d.org - All rights reserved'
-        inputSoftware.value = 'b0r3d DeRes v0.8.3'
-        inputDateTime.value = normalizeExifDate()
-        inputDesc.value = 'Rukus the Cat, Chief Executive Officer of b0r3d.org'
-        selectOrientation.value = '1'
-        inputAperture.value = '1.4'
-        inputShutter.value = '1/250'
-        inputIso.value = '100'
-        inputFocal.value = '28'
-        inputLat.value = '41.878113'
-        inputLon.value = '-87.629799'
-        inputAlt.value = '182'
-      }
+      onclick: () =>
+        fill({
+          make: 'b0r3d optics',
+          model: 'Rukus-Cam 95 Deluxe',
+          lens: 'b0r3d Prime 28mm f/1.4 Deluxe',
+          artist: 'still_b0r3d',
+          copyright: '(c) 2026 b0r3d.org - All rights reserved',
+          software: `b0r3d DeRes v${import.meta.env.VITE_APP_VERSION || 'dev'}`,
+          orientation: '1',
+          aperture: '1.4',
+          shutter: '1/250',
+          iso: '100',
+          focal: '28',
+          dateTime: normalizeExifDate(),
+          description: 'Rukus the Cat, Chief Executive Officer of b0r3d.org',
+          lat: '41.878113',
+          lon: '-87.629799',
+          alt: '182'
+        })
     },
     'b0r3d Defaults'
   )
-
-  const clearFieldsBtn = h(
+  const clearBtn = h(
     'button',
     {
       type: 'button',
       class: 'linkish danger-link',
       'data-testid': 'inject-clear-btn',
-      onclick: () => {
-        inputMake.value = ''
-        inputModel.value = ''
-        inputLens.value = ''
-        inputArtist.value = ''
-        inputCopyright.value = ''
-        inputSoftware.value = ''
-        inputDateTime.value = ''
-        inputDesc.value = ''
-        selectOrientation.value = '1'
-        inputAperture.value = ''
-        inputShutter.value = ''
-        inputIso.value = ''
-        inputFocal.value = ''
-        inputLat.value = ''
-        inputLon.value = ''
-        inputAlt.value = ''
-      }
+      title: 'Empty every field (injecting then removes those tags)',
+      onclick: () => fill(EMPTY_FIELDS)
     },
     'Clear fields'
   )
 
-  // GPS Presets
-  const setGps = (lat: number, lon: number, alt?: number) => {
-    inputLat.value = String(lat)
-    inputLon.value = String(lon)
-    inputAlt.value = alt !== undefined ? String(alt) : ''
+  const setGps = (lat: string, lon: string, alt: string) => {
+    inputs.lat.value = lat
+    inputs.lon.value = lon
+    inputs.alt.value = alt
+  }
+  const gpsBtn = (label: string, title: string, lat: string, lon: string, alt: string) =>
+    h('button', { type: 'button', class: 'pill-btn injector-prefill-btn', title, onclick: () => setGps(lat, lon, alt) }, label)
+
+  // 3. Removing the XMP block, when the photo has one
+  const xmpBox = h('input', { type: 'checkbox', 'data-testid': 'inject-remove-xmp' }) as HTMLInputElement
+  const xmpText = h('span', { class: 'radio-desc' })
+  const xmpRow = h(
+    'label',
+    { class: 'checkbox-option', hidden: true },
+    xmpBox,
+    h('div', { class: 'checkbox-text' }, h('strong', null, 'Remove the XMP block too'), xmpText)
+  )
+
+  // 4. Inject
+  const statusEl = h('p', { class: 'status-msg', 'data-testid': 'inject-status', hidden: true })
+  let statusTimer: ReturnType<typeof setTimeout> | undefined
+  function status(t: string, isError = false): void {
+    clearTimeout(statusTimer)
+    statusEl.textContent = t
+    statusEl.classList.toggle('is-error', isError)
+    show(statusEl, true)
+    // Errors stay until they're dealt with.
+    if (!isError) statusTimer = setTimeout(() => show(statusEl, false), 8000)
   }
 
-  const gpsChicagoBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'pill-btn injector-prefill-btn',
-      title: 'Chicago, IL (b0r3d Pi Server)',
-      onclick: () => setGps(41.878113, -87.629799, 182)
-    },
-    '📍 Chicago HQ'
-  )
-
-  const gpsTokyoBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'pill-btn injector-prefill-btn',
-      title: 'Akihabara Electric Town, Tokyo',
-      onclick: () => setGps(35.698300, 139.773000, 10)
-    },
-    '📍 Akihabara'
-  )
-
-  const gpsNullIslandBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'pill-btn injector-prefill-btn',
-      title: '0°N 0°E (Null Island)',
-      onclick: () => setGps(0, 0, 0)
-    },
-    '📍 Null Island'
-  )
-
-  const clearGpsBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'linkish',
-      onclick: () => {
-        inputLat.value = ''
-        inputLon.value = ''
-        inputAlt.value = ''
-      }
-    },
-    'Clear GPS'
-  )
-
-  // Primary Action Button
   const injectBtn = h(
     'button',
     {
@@ -340,128 +241,94 @@ export function buildInjectControls(ctx: InjectControlsContext): {
       class: 'download scrub-inject-btn primary',
       'data-testid': 'inject-download-btn',
       onclick: () => {
-        const lat = inputLat.value.trim() ? parseFloat(inputLat.value) : undefined
-        const lon = inputLon.value.trim() ? parseFloat(inputLon.value) : undefined
-        const alt = inputAlt.value.trim() ? parseFloat(inputAlt.value) : undefined
-        const orient = selectOrientation.value ? parseInt(selectOrientation.value, 10) : undefined
-        const aperture = inputAperture.value.trim() ? parseFloat(inputAperture.value) : undefined
-        const iso = inputIso.value.trim() ? parseInt(inputIso.value, 10) : undefined
-        const focal = inputFocal.value.trim() ? parseFloat(inputFocal.value) : undefined
-        const shutter = inputShutter.value.trim() || undefined
-        const lens = inputLens.value.trim() || undefined
-
-        const opts: ExifInjectOptions = {
-          make: inputMake.value.trim() || undefined,
-          model: inputModel.value.trim() || undefined,
-          lensModel: lens,
-          artist: inputArtist.value.trim() || undefined,
-          copyright: inputCopyright.value.trim() || undefined,
-          software: inputSoftware.value.trim() || undefined,
-          dateTime: inputDateTime.value.trim() || undefined,
-          description: inputDesc.value.trim() || undefined,
-          orientation: orient,
-          fNumber: aperture,
-          exposureTime: shutter,
-          iso,
-          focalLength: focal,
-          gps:
-            lat !== undefined && lon !== undefined && !Number.isNaN(lat) && !Number.isNaN(lon)
-              ? { latitude: lat, longitude: lon, altitude: alt }
-              : undefined
+        for (const k of keys) {
+          const input = inputs[k]
+          if (input instanceof HTMLInputElement && input.validity.badInput) {
+            input.setAttribute('aria-invalid', 'true')
+            input.focus()
+            status(`${LABELS[k]}: that isn't a number.`, true)
+            return
+          }
         }
-
-        ctx.injectAndDownload(opts)
+        const { edits, error } = editsFromFields(read(), loaded)
+        if (error) {
+          inputs[error.field].setAttribute('aria-invalid', 'true')
+          inputs[error.field].focus()
+          status(error.message, true)
+          return
+        }
+        const removeXmp = !xmpRow.hidden && xmpBox.checked
+        if (Object.keys(edits).length === 0 && !removeXmp) {
+          status('Nothing has changed yet: every field still shows what the photo has.')
+          return
+        }
+        ctx.injectAndDownload(edits, { removeXmp })
       }
     },
     'Inject EXIF & Download'
   )
 
-  // Status message
-  const statusEl = h('p', { class: 'status-msg', 'data-testid': 'inject-status' })
-
-  // Sections
-  const cameraSec = section(
-    'Camera & Creator',
-    true,
-    h('div', { class: 'injector-actions' }, prefillBtn, siteDefaultsBtn, clearFieldsBtn),
-    h(
-      'div',
-      { class: 'injector-grid-2' },
-      h('div', { class: 'injector-row' }, h('label', null, 'Camera Make'), inputMake),
-      h('div', { class: 'injector-row' }, h('label', null, 'Camera Model'), inputModel)
-    ),
-    h(
-      'div',
-      { class: 'injector-grid-2' },
-      h('div', { class: 'injector-row' }, h('label', null, 'Artist / Creator'), inputArtist),
-      h('div', { class: 'injector-row' }, h('label', null, 'Copyright'), inputCopyright)
-    ),
-    h(
-      'div',
-      { class: 'injector-grid-2' },
-      h('div', { class: 'injector-row' }, h('label', null, 'Software'), inputSoftware),
-      h('div', { class: 'injector-row' }, h('label', null, 'Orientation'), selectOrientation)
-    )
-  )
-
-  const opticsSec = section(
-    'Lens & Exposure',
-    true,
-    h('div', { class: 'injector-row' }, h('label', null, 'Lens Model'), inputLens),
-    h(
-      'div',
-      { class: 'injector-grid-2' },
-      h('div', { class: 'injector-row' }, h('label', null, 'Aperture (f-stop)'), inputAperture),
-      h('div', { class: 'injector-row' }, h('label', null, 'Shutter Speed'), inputShutter)
-    ),
-    h(
-      'div',
-      { class: 'injector-grid-2' },
-      h('div', { class: 'injector-row' }, h('label', null, 'ISO'), inputIso),
-      h('div', { class: 'injector-row' }, h('label', null, 'Focal Length (mm)'), inputFocal)
-    )
-  )
-
-  const metaSec = section(
-    'Timestamp & Caption',
-    true,
+  const row = (key: keyof InjectorFields, extra?: Node) =>
     h(
       'div',
       { class: 'injector-row' },
-      h('label', null, 'Date & Time'),
-      h('div', { class: 'injector-input-row' }, inputDateTime, nowBtn)
-    ),
-    h('div', { class: 'injector-row' }, h('label', null, 'Description / Title'), inputDesc)
-  )
+      h('label', null, LABELS[key]),
+      extra ? h('div', { class: 'injector-input-row' }, inputs[key], extra) : inputs[key]
+    )
 
+  const cameraSec = section(
+    'Camera & Creator',
+    true,
+    h('p', { class: 'hint' }, 'The fields start with what the photo has. Change any of them, or empty one to remove it.'),
+    h('div', { class: 'injector-actions' }, resetBtn, defaultsBtn, clearBtn),
+    h('div', { class: 'injector-grid-2' }, row('make'), row('model')),
+    h('div', { class: 'injector-grid-2' }, row('artist'), row('copyright')),
+    h('div', { class: 'injector-grid-2' }, row('software'), row('orientation'))
+  )
+  const opticsSec = section(
+    'Lens & Exposure',
+    true,
+    row('lens'),
+    h('div', { class: 'injector-grid-2' }, row('aperture'), row('shutter')),
+    h('div', { class: 'injector-grid-2' }, row('iso'), row('focal'))
+  )
+  const nowBtn = h(
+    'button',
+    {
+      type: 'button',
+      class: 'pill-btn injector-prefill-btn',
+      title: 'Fill in the time now',
+      onclick: () => {
+        inputs.dateTime.value = normalizeExifDate()
+        inputs.dateTime.removeAttribute('aria-invalid')
+      }
+    },
+    'Now'
+  )
+  const metaSec = section('Timestamp & Caption', true, row('dateTime', nowBtn), row('description'))
   const gpsSec = section(
     'GPS Location',
     true,
-    h(
-      'div',
-      { class: 'injector-grid-3' },
-      h('div', { class: 'injector-row' }, h('label', null, 'GPS Latitude'), inputLat),
-      h('div', { class: 'injector-row' }, h('label', null, 'GPS Longitude'), inputLon),
-      h('div', { class: 'injector-row' }, h('label', null, 'Altitude (m)'), inputAlt)
-    ),
+    h('div', { class: 'injector-grid-3' }, row('lat'), row('lon'), row('alt')),
     h(
       'div',
       { class: 'injector-actions' },
-      gpsChicagoBtn,
-      gpsTokyoBtn,
-      gpsNullIslandBtn,
-      clearGpsBtn
-    )
+      gpsBtn('📍 Chicago HQ', 'Downtown Chicago, Illinois', '41.878113', '-87.629799', '182'),
+      gpsBtn('📍 Akihabara', 'Akihabara Electric Town, Tokyo', '35.6983', '139.773', '10'),
+      gpsBtn('📍 Null Island', '0°N 0°E (Null Island)', '0', '0', '0'),
+      h('button', { type: 'button', class: 'linkish', onclick: () => setGps('', '', '') }, 'Clear GPS')
+    ),
+    h('p', { class: 'hint' }, "A new location replaces all of the photo's GPS tags.")
   )
-
   const actionSec = section(
     'Inject & Save',
     true,
     h(
       'p',
       { class: 'hint' },
-      'Injects clean TIFF 6.0 / Exif 2.32 bytes directly into your photo without re-encoding or altering pixels.'
+      "Only the fields you change are written; the rest of the photo's EXIF stays as it was. The pixels aren't touched."
     ),
+    xmpRow,
     injectBtn,
     statusEl
   )
@@ -478,24 +345,41 @@ export function buildInjectControls(ctx: InjectControlsContext): {
   )
 
   function sync(): void {
-    const pic = ctx.picture()
-    if (pic) {
-      pictureInfo.textContent = `${pic.name} · ${(pic.size / 1024).toFixed(1)} KB`
-      injectBtn.disabled = false
-      prefillBtn.disabled = false
-    } else {
+    const cur = ctx.current()
+    if (!cur) {
       pictureInfo.textContent = 'No photo loaded.'
+      show(formatNote, false)
+      show(xmpRow, false)
       injectBtn.disabled = true
-      prefillBtn.disabled = true
+      resetBtn.disabled = true
+      return
     }
-  }
+    pictureInfo.textContent = `${cur.name} · ${(cur.bytes.length / 1024).toFixed(1)} KB`
+    const writable = canInject(cur.meta.format)
+    injectBtn.disabled = !writable
+    resetBtn.disabled = !writable
+    show(formatNote, !writable)
+    formatNote.textContent =
+      cur.meta.format === 'unknown'
+        ? "The injector writes into JPEG and PNG files, and this kind of file can't be read here."
+        : `The injector writes into JPEG and PNG files. This one is ${cur.meta.format.toUpperCase()}, so its EXIF can be read in the Scrubber but not changed here.`
 
-  let statusTimer: ReturnType<typeof setTimeout> | undefined
-  function status(t: string): void {
-    clearTimeout(statusTimer)
-    statusEl.textContent = t
-    show(statusEl, true)
-    statusTimer = setTimeout(() => show(statusEl, false), 6000)
+    // A new photo: start from what it has. (Switching tabs keeps your edits.)
+    if (cur.bytes !== loadedBytes) {
+      loadedBytes = cur.bytes
+      loaded = writable ? readInjectorFields(cur.bytes) : { ...EMPTY_FIELDS }
+      fill(loaded)
+      const xmp = writable ? cur.meta.xmpText : undefined
+      show(xmpRow, !!xmp)
+      if (xmp) {
+        const copies = xmpCopies(xmp)
+        xmpBox.checked = copies.length > 0
+        xmpText.textContent =
+          copies.length > 0
+            ? `The photo's XMP block keeps its own copy of the ${copies.join(', ')}, which would contradict what you inject.`
+            : 'The photo has an XMP block too (more metadata kept beside the EXIF).'
+      }
+    }
   }
 
   return { el, sync, status }

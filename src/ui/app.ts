@@ -594,43 +594,47 @@ export function startApp(): void {
   const injectControls = buildInjectControls({
     openFile: () => fileInput.click(),
     loadSample: () => loadSample(),
-    picture: () => {
+    current: () => {
       if (batchItems.length > 1) {
         const item = batchItems[activeBatchIndex]
-        return item ? { name: item.name, size: item.rawBytes.length } : null
+        return item ? { name: item.name, bytes: item.rawBytes, meta: item.meta } : null
       }
-      return scrubFile ? { name: scrubFile.name, size: scrubFile.bytes.length } : null
+      return scrubFile ? { name: scrubFile.name, bytes: scrubFile.bytes, meta: scrubFile.meta } : null
     },
-    currentMeta: () => {
-      if (batchItems.length > 1) {
-        const item = batchItems[activeBatchIndex]
-        return item ? item.meta : null
-      }
-      return scrubFile ? scrubFile.meta : null
-    },
-    injectAndDownload: (options) => {
-      const activeBytes = batchItems.length > 1 ? batchItems[activeBatchIndex]?.rawBytes : scrubFile?.bytes
-      const activeName = batchItems.length > 1 ? batchItems[activeBatchIndex]?.name : scrubFile?.name
-      if (!activeBytes || !activeName) return
+    injectAndDownload: (edits, options) => {
+      const inBatch = batchItems.length > 1
+      const item = inBatch ? batchItems[activeBatchIndex] : null
+      const bytes = item ? item.rawBytes : scrubFile?.bytes
+      const name = item ? item.name : scrubFile?.name
+      if (!bytes || !name) return
       try {
-        injectControls.status('Injecting EXIF metadata…')
-        const newBytes = injectExif(activeBytes, options)
+        const newBytes = injectExif(bytes, edits, options)
         const meta = inspectMetadata(newBytes)
         const ext = meta.format === 'jpeg' ? 'jpg' : meta.format
-        const filename = `${baseName(activeName)}-injected.${ext}`
-        const blob = new Blob([newBytes.buffer as ArrayBuffer], { type: MIME[meta.format] })
+        const filename = `${baseName(name)}-injected.${ext}`
+        const blob = new Blob([newBytes.slice().buffer], { type: MIME[meta.format] })
         const url = URL.createObjectURL(blob)
-        setScrubFile({ bytes: newBytes, meta, url, name: activeName })
-        scrubStage.showMetadata(meta, url)
         const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
         document.body.append(a)
         a.click()
         a.remove()
-        injectControls.status(
-          `Injected ${meta.rawTagCount} EXIF tags and saved ${filename}.`
-        )
+        // The edited photo is now the one shown, inspected and scrubbed
+        // (in a batch, that photo's place in the batch).
+        if (item) {
+          batchItems[activeBatchIndex] = { ...createScrubBatchItem(newBytes, item.name), id: item.id }
+          setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        } else {
+          setScrubFile({ bytes: newBytes, meta, url, name })
+        }
+        showScrub()
+        const n = Object.keys(edits).length
+        const parts = [
+          n > 0 ? `${n} field${n === 1 ? '' : 's'} changed` : '',
+          options.removeXmp ? 'XMP block removed' : ''
+        ].filter(Boolean)
+        injectControls.status(`Saved ${filename}: ${parts.join(', ')}.`)
       } catch (err) {
-        injectControls.status(`Failed to inject: ${(err as Error).message}`)
+        injectControls.status(`Couldn't inject: ${(err as Error).message}`, true)
       }
     }
   })

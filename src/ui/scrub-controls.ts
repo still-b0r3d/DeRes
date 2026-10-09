@@ -132,9 +132,7 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
     h('div', { class: 'scrub-checkbox-group' }, labelOrientation)
   )
 
-
-
-  // 4. Export & Download
+  // 3. Export & Download
   const statusEl = h('p', { class: 'status-msg', 'data-testid': 'scrub-status' })
 
   const downloadSingleBtn = h(
@@ -167,13 +165,7 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
     statusEl
   )
 
-  const el = h(
-    'div',
-    { class: 'controls-inner scrub-controls', 'data-testid': 'scrub-controls' },
-    imageSec,
-    optionsSec,
-    actionSec
-  )
+  const el = h('div', { class: 'controls-inner scrub-controls', 'data-testid': 'scrub-controls' }, imageSec, optionsSec, actionSec)
 
   function sync(): void {
     const items = ctx.batchItems()
