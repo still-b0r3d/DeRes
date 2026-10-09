@@ -1,7 +1,4 @@
 import type { ScrubBatchItem, ScrubOptions } from '../core/scrub'
-import type { ExifInjectOptions } from '../core/inject'
-import { normalizeExifDate } from '../core/inject'
-import type { ImageMetadata } from '../core/exif'
 import { h, show } from './dom'
 
 export interface ScrubControlsContext {
@@ -14,8 +11,6 @@ export interface ScrubControlsContext {
   batchItems(): ScrubBatchItem[]
   clearBatch(): void
   picture(): { name: string; size: number } | null
-  currentMeta?: () => ImageMetadata | null
-  injectAndDownload?: (options: ExifInjectOptions) => void
 }
 
 function section(title: string, open: boolean, ...body: (Node | null)[]): HTMLDetailsElement {
@@ -137,234 +132,7 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
     h('div', { class: 'scrub-checkbox-group' }, labelOrientation)
   )
 
-  // 3. EXIF Injector / Editor Section
-  const inputMake = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-make',
-    placeholder: 'e.g. Nikon, Apple, Sony'
-  }) as HTMLInputElement
 
-  const inputModel = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-model',
-    placeholder: 'e.g. Z8, iPhone 15 Pro'
-  }) as HTMLInputElement
-
-  const inputArtist = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-artist',
-    placeholder: 'e.g. still_b0r3d'
-  }) as HTMLInputElement
-
-  const inputCopyright = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-copyright',
-    placeholder: 'e.g. 2026 still_b0r3d'
-  }) as HTMLInputElement
-
-  const inputSoftware = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-software',
-    placeholder: 'e.g. b0r3d DeRes'
-  }) as HTMLInputElement
-
-  const inputDateTime = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-datetime',
-    placeholder: 'YYYY:MM:DD HH:MM:SS'
-  }) as HTMLInputElement
-
-  const nowBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'pill-btn injector-prefill-btn',
-      title: 'Fill current time',
-      onclick: () => {
-        inputDateTime.value = normalizeExifDate()
-      }
-    },
-    'Now'
-  )
-
-  const inputDesc = h('input', {
-    type: 'text',
-    class: 'injector-input',
-    'data-testid': 'injector-desc',
-    placeholder: 'Image caption / description'
-  }) as HTMLInputElement
-
-  const selectOrientation = h(
-    'select',
-    { class: 'injector-select', 'data-testid': 'injector-orientation' },
-    h('option', { value: '1' }, 'Standard (1)'),
-    h('option', { value: '2' }, 'Mirror Horizontal (2)'),
-    h('option', { value: '3' }, 'Rotate 180° (3)'),
-    h('option', { value: '4' }, 'Mirror Vertical (4)'),
-    h('option', { value: '5' }, 'Mirror Horiz & Rotate 270° CW (5)'),
-    h('option', { value: '6' }, 'Rotate 90° CW (6)'),
-    h('option', { value: '7' }, 'Mirror Horiz & Rotate 90° CW (7)'),
-    h('option', { value: '8' }, 'Rotate 90° CCW (8)')
-  ) as HTMLSelectElement
-
-  const inputLat = h('input', {
-    type: 'number',
-    step: 'any',
-    class: 'injector-input',
-    'data-testid': 'injector-lat',
-    placeholder: 'Latitude (e.g. 37.7749)'
-  }) as HTMLInputElement
-
-  const inputLon = h('input', {
-    type: 'number',
-    step: 'any',
-    class: 'injector-input',
-    'data-testid': 'injector-lon',
-    placeholder: 'Longitude (e.g. -122.4194)'
-  }) as HTMLInputElement
-
-  const inputAlt = h('input', {
-    type: 'number',
-    step: 'any',
-    class: 'injector-input',
-    'data-testid': 'injector-alt',
-    placeholder: 'Alt (m)'
-  }) as HTMLInputElement
-
-  const prefillBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'pill-btn injector-prefill-btn',
-      'data-testid': 'injector-prefill-btn',
-      onclick: () => {
-        const meta = ctx.currentMeta ? ctx.currentMeta() : null
-        if (!meta) return
-        if (meta.make) inputMake.value = meta.make
-        if (meta.model) inputModel.value = meta.model
-        if (meta.artist) inputArtist.value = meta.artist
-        if (meta.copyright) inputCopyright.value = meta.copyright
-        if (meta.software) inputSoftware.value = meta.software
-        if (meta.dateTime) inputDateTime.value = meta.dateTime
-        if (meta.orientation) selectOrientation.value = String(meta.orientation)
-        if (meta.gps) {
-          inputLat.value = String(meta.gps.latitude.toFixed(6))
-          inputLon.value = String(meta.gps.longitude.toFixed(6))
-          if (meta.gps.altitude !== undefined) inputAlt.value = String(meta.gps.altitude)
-        }
-      }
-    },
-    'Pre-fill from photo'
-  )
-
-  const clearFieldsBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'linkish',
-      onclick: () => {
-        inputMake.value = ''
-        inputModel.value = ''
-        inputArtist.value = ''
-        inputCopyright.value = ''
-        inputSoftware.value = ''
-        inputDateTime.value = ''
-        inputDesc.value = ''
-        selectOrientation.value = '1'
-        inputLat.value = ''
-        inputLon.value = ''
-        inputAlt.value = ''
-      }
-    },
-    'Clear fields'
-  )
-
-  const injectBtn = h(
-    'button',
-    {
-      type: 'button',
-      class: 'download scrub-inject-btn',
-      'data-testid': 'scrub-inject-btn',
-      onclick: () => {
-        const lat = inputLat.value.trim() ? parseFloat(inputLat.value) : undefined
-        const lon = inputLon.value.trim() ? parseFloat(inputLon.value) : undefined
-        const alt = inputAlt.value.trim() ? parseFloat(inputAlt.value) : undefined
-        const orient = selectOrientation.value ? parseInt(selectOrientation.value, 10) : undefined
-
-        const opts: ExifInjectOptions = {
-          make: inputMake.value.trim() || undefined,
-          model: inputModel.value.trim() || undefined,
-          artist: inputArtist.value.trim() || undefined,
-          copyright: inputCopyright.value.trim() || undefined,
-          software: inputSoftware.value.trim() || undefined,
-          dateTime: inputDateTime.value.trim() || undefined,
-          description: inputDesc.value.trim() || undefined,
-          orientation: orient,
-          gps:
-            lat !== undefined && lon !== undefined && !Number.isNaN(lat) && !Number.isNaN(lon)
-              ? { latitude: lat, longitude: lon, altitude: alt }
-              : undefined
-        }
-
-        if (ctx.injectAndDownload) {
-          ctx.injectAndDownload(opts)
-        }
-      }
-    },
-    'Inject EXIF & Download'
-  )
-
-  const injectorForm = h(
-    'div',
-    { class: 'injector-form' },
-    h(
-      'p',
-      { class: 'hint' },
-      'Write custom tags directly into image bytes without altering pixels. Supports JPEG & PNG.'
-    ),
-    h('div', { class: 'injector-actions' }, prefillBtn, clearFieldsBtn),
-    h(
-      'div',
-      { class: 'injector-grid-2' },
-      h('div', { class: 'injector-row' }, h('label', null, 'Camera Make'), inputMake),
-      h('div', { class: 'injector-row' }, h('label', null, 'Camera Model'), inputModel)
-    ),
-    h(
-      'div',
-      { class: 'injector-grid-2' },
-      h('div', { class: 'injector-row' }, h('label', null, 'Artist / Creator'), inputArtist),
-      h('div', { class: 'injector-row' }, h('label', null, 'Copyright'), inputCopyright)
-    ),
-    h(
-      'div',
-      { class: 'injector-grid-2' },
-      h('div', { class: 'injector-row' }, h('label', null, 'Software'), inputSoftware),
-      h('div', { class: 'injector-row' }, h('label', null, 'Orientation'), selectOrientation)
-    ),
-    h(
-      'div',
-      { class: 'injector-row' },
-      h('label', null, 'Date & Time'),
-      h('div', { class: 'injector-input-row' }, inputDateTime, nowBtn)
-    ),
-    h('div', { class: 'injector-row' }, h('label', null, 'Description / Title'), inputDesc),
-    h(
-      'div',
-      { class: 'injector-grid-3' },
-      h('div', { class: 'injector-row' }, h('label', null, 'GPS Latitude'), inputLat),
-      h('div', { class: 'injector-row' }, h('label', null, 'GPS Longitude'), inputLon),
-      h('div', { class: 'injector-row' }, h('label', null, 'Altitude'), inputAlt)
-    ),
-    injectBtn
-  )
-
-  const injectorSec = section('Inject / Edit EXIF', false, injectorForm)
 
   // 4. Export & Download
   const statusEl = h('p', { class: 'status-msg', 'data-testid': 'scrub-status' })
@@ -404,7 +172,6 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
     { class: 'controls-inner scrub-controls', 'data-testid': 'scrub-controls' },
     imageSec,
     optionsSec,
-    injectorSec,
     actionSec
   )
 
@@ -422,24 +189,18 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
       downloadZipBtn.disabled = false
       downloadZipBtn.textContent = `Download Clean ZIP (${items.length} photos)`
       show(clearBatchBtn, true)
-      injectBtn.disabled = true
-      prefillBtn.disabled = true
     } else if (pic) {
       pictureInfo.textContent = `${pic.name} · ${(pic.size / 1024).toFixed(1)} KB`
       show(downloadSingleBtn, true)
       downloadSingleBtn.disabled = false
       show(downloadZipBtn, false)
       show(clearBatchBtn, false)
-      injectBtn.disabled = false
-      prefillBtn.disabled = false
     } else {
       pictureInfo.textContent = 'No photo loaded.'
       downloadSingleBtn.disabled = true
       show(downloadSingleBtn, true)
       show(downloadZipBtn, false)
       show(clearBatchBtn, false)
-      injectBtn.disabled = true
-      prefillBtn.disabled = true
     }
 
     const opts = ctx.getOptions()

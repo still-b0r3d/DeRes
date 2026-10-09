@@ -953,9 +953,10 @@ button:disabled {
     border-bottom: 1px solid var(--line);
   }
 
-  /* In the scrubber, the metadata report is tall. Unpin the stage column on phones
+  /* In the scrubber & injector, the metadata report and form are tall. Unpin the stage column on phones
      so it flows naturally and doesn't obscure the controls underneath. */
-  .layout[data-tool="scrub"] .stage-col {
+  .layout[data-tool="scrub"] .stage-col,
+  .layout[data-tool="inject"] .stage-col {
     position: static;
     top: auto;
     z-index: auto;
@@ -965,7 +966,8 @@ button:disabled {
     border-bottom: none;
   }
 
-  html:has(.layout[data-tool="scrub"]) {
+  html:has(.layout[data-tool="scrub"]),
+  html:has(.layout[data-tool="inject"]) {
     scroll-padding-top: 16px;
   }
 
@@ -1005,6 +1007,7 @@ button:disabled {
 /* Tool tabs */
 .tool-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 4px 0 14px;
   border-bottom: 1px solid var(--line);

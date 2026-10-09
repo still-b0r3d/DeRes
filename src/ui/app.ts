@@ -38,6 +38,7 @@ import { buildAsciiControls } from './ascii-controls'
 import { AsciiStage } from './ascii-stage'
 import { buildControls } from './controls'
 import { buildScrubControls } from './scrub-controls'
+import { buildInjectControls } from './inject-controls'
 import { ScrubStage } from './scrub-stage'
 import { h, show } from './dom'
 import { Engine } from './engine'
@@ -94,7 +95,7 @@ function saveAsciiSettings(settings: AsciiSettings): void {
 }
 
 export function startApp(): void {
-  let activeTool: 'deres' | 'ascii' | 'scrub' = 'deres'
+  let activeTool: 'deres' | 'ascii' | 'scrub' | 'inject' = 'deres'
   let settings: Settings = loadSettings()
   let asciiSettings: AsciiSettings = loadAsciiSettings()
   let scrubOptions: ScrubOptions = { mode: 'all', preserveOrientation: true }
@@ -128,6 +129,7 @@ export function startApp(): void {
       scrubStage.showMetadata(scrubFile.meta, scrubFile.url)
     }
     scrubControls.sync()
+    injectControls.sync()
   }
 
   async function handleFiles(files: FileList | File[]): Promise<void> {
@@ -584,50 +586,74 @@ export function startApp(): void {
         scrubControls.status(`ZIP failed: ${(err as Error).message}`)
       }
     },
-    picture: () => (scrubFile ? { name: scrubFile.name, size: scrubFile.bytes.length } : null),
-    currentMeta: () => (scrubFile ? scrubFile.meta : null),
-    injectAndDownload: (options) => {
-      if (!scrubFile) return
-      try {
-        scrubControls.status('Injecting EXIF metadata…')
-        const newBytes = injectExif(scrubFile.bytes, options)
-        const meta = inspectMetadata(newBytes)
-        setScrubFile({ bytes: newBytes, meta, url: scrubFile.url, name: scrubFile.name })
-        scrubStage.showMetadata(meta, scrubFile.url)
-        const ext = meta.format === 'jpeg' ? 'jpg' : meta.format
-        const filename = `${baseName(scrubFile.name)}-injected.${ext}`
-        const blob = new Blob([newBytes.buffer as ArrayBuffer], { type: MIME[meta.format] })
-        const url = URL.createObjectURL(blob)
-        const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
-        document.body.append(a)
-        a.click()
-        a.remove()
-        setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        scrubControls.status(
-          `Injected ${meta.rawTagCount} EXIF tags and saved ${filename}.`
-        )
-      } catch (err) {
-        scrubControls.status(`Failed to inject: ${(err as Error).message}`)
-      }
-    }
+    picture: () => (scrubFile ? { name: scrubFile.name, size: scrubFile.bytes.length } : null)
   })
 
   scrubStage.onStatus = scrubControls.status
 
+  const injectControls = buildInjectControls({
+    openFile: () => fileInput.click(),
+    loadSample: () => loadSample(),
+    picture: () => {
+      if (batchItems.length > 1) {
+        const item = batchItems[activeBatchIndex]
+        return item ? { name: item.name, size: item.rawBytes.length } : null
+      }
+      return scrubFile ? { name: scrubFile.name, size: scrubFile.bytes.length } : null
+    },
+    currentMeta: () => {
+      if (batchItems.length > 1) {
+        const item = batchItems[activeBatchIndex]
+        return item ? item.meta : null
+      }
+      return scrubFile ? scrubFile.meta : null
+    },
+    injectAndDownload: (options) => {
+      const activeBytes = batchItems.length > 1 ? batchItems[activeBatchIndex]?.rawBytes : scrubFile?.bytes
+      const activeName = batchItems.length > 1 ? batchItems[activeBatchIndex]?.name : scrubFile?.name
+      if (!activeBytes || !activeName) return
+      try {
+        injectControls.status('Injecting EXIF metadata…')
+        const newBytes = injectExif(activeBytes, options)
+        const meta = inspectMetadata(newBytes)
+        const ext = meta.format === 'jpeg' ? 'jpg' : meta.format
+        const filename = `${baseName(activeName)}-injected.${ext}`
+        const blob = new Blob([newBytes.buffer as ArrayBuffer], { type: MIME[meta.format] })
+        const url = URL.createObjectURL(blob)
+        setScrubFile({ bytes: newBytes, meta, url, name: activeName })
+        scrubStage.showMetadata(meta, url)
+        const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
+        document.body.append(a)
+        a.click()
+        a.remove()
+        injectControls.status(
+          `Injected ${meta.rawTagCount} EXIF tags and saved ${filename}.`
+        )
+      } catch (err) {
+        injectControls.status(`Failed to inject: ${(err as Error).message}`)
+      }
+    }
+  })
+
   const deresControlsSlot = controls.el
   const asciiControlsSlot = asciiControls.el
   const scrubControlsSlot = scrubControls.el
+  const injectControlsSlot = injectControls.el
   asciiControlsSlot.hidden = true
   scrubControlsSlot.hidden = true
-  document.getElementById('controls')!.append(deresControlsSlot, asciiControlsSlot, scrubControlsSlot)
+  injectControlsSlot.hidden = true
+  document
+    .getElementById('controls')!
+    .append(deresControlsSlot, asciiControlsSlot, scrubControlsSlot, injectControlsSlot)
 
   // Tabs
   const tabDeres = document.getElementById('tab-deres') as HTMLButtonElement | null
   const tabAscii = document.getElementById('tab-ascii') as HTMLButtonElement | null
   const tabScrub = document.getElementById('tab-scrub') as HTMLButtonElement | null
+  const tabInject = document.getElementById('tab-inject') as HTMLButtonElement | null
   const layoutEl = document.querySelector('.layout') as HTMLElement | null
 
-  function switchTool(tool: 'deres' | 'ascii' | 'scrub'): void {
+  function switchTool(tool: 'deres' | 'ascii' | 'scrub' | 'inject'): void {
     activeTool = tool
     if (layoutEl) layoutEl.dataset.tool = tool
     if (tabDeres) {
@@ -642,19 +668,27 @@ export function startApp(): void {
       tabScrub.classList.toggle('active', tool === 'scrub')
       tabScrub.setAttribute('aria-selected', String(tool === 'scrub'))
     }
+    if (tabInject) {
+      tabInject.classList.toggle('active', tool === 'inject')
+      tabInject.setAttribute('aria-selected', String(tool === 'inject'))
+    }
 
     show(deresStageSlot, tool === 'deres')
     show(deresControlsSlot, tool === 'deres')
     show(asciiStageSlot, tool === 'ascii')
     show(asciiControlsSlot, tool === 'ascii')
-    show(scrubStageSlot, tool === 'scrub')
+    show(scrubStageSlot, tool === 'scrub' || tool === 'inject')
     show(scrubControlsSlot, tool === 'scrub')
+    show(injectControlsSlot, tool === 'inject')
 
     if (tool === 'ascii') {
       asciiControls.sync()
       renderAscii()
     } else if (tool === 'scrub') {
       showScrub()
+    } else if (tool === 'inject') {
+      showScrub()
+      injectControls.sync()
     } else {
       controls.sync()
       render()
@@ -664,11 +698,13 @@ export function startApp(): void {
   tabDeres?.addEventListener('click', () => switchTool('deres'))
   tabAscii?.addEventListener('click', () => switchTool('ascii'))
   tabScrub?.addEventListener('click', () => switchTool('scrub'))
+  tabInject?.addEventListener('click', () => switchTool('inject'))
   if (layoutEl) layoutEl.dataset.tool = 'deres'
 
   controls.sync()
   asciiControls.sync()
   scrubControls.sync()
+  injectControls.sync()
 
   engine.onRendered = (m: RenderedMessage) => {
     const tv = settings.pixelShape === 'tv'
@@ -759,8 +795,8 @@ export function startApp(): void {
     showScrub()
     if (activeTool === 'ascii') {
       renderAscii()
-    } else if (activeTool === 'scrub') {
-      // Scrubber view already updated
+    } else if (activeTool === 'scrub' || activeTool === 'inject') {
+      // Scrubber and Injector view already updated
     } else {
       render()
     }

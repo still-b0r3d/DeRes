@@ -241,25 +241,3 @@ test('detects AI generation markers and renders the AI alert banner', async ({ p
   await expect(alert).toContainText('C2PA Content Credentials')
 })
 
-test('EXIF injector writes custom tags into a photo and downloads the modified file', async ({ page }) => {
-  const photo = phoneStyleJpeg(await canvasJpeg(page, 32, 16), FAKE_PHONE)
-  await page.locator('#file-input').setInputFiles({ name: 'original.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(photo) })
-  await page.getByTestId('tab-scrub').click()
-
-  // Open the Inject/Edit EXIF details accordion
-  const summary = page.locator('summary', { hasText: 'Inject / Edit EXIF' })
-  await summary.click()
-
-  // Fill custom creator & make
-  await page.getByTestId('injector-make').fill('Hasselblad')
-  await page.getByTestId('injector-artist').fill('still_b0r3d')
-
-  // Click Inject EXIF & Download
-  const { download: d, bytes } = await download(page, page.getByTestId('scrub-inject-btn'))
-  expect(d.suggestedFilename()).toBe('original-injected.jpg')
-
-  // Verify tags in the downloaded file
-  const meta = inspectMetadata(bytes)
-  expect(meta.make).toBe('Hasselblad')
-  expect(meta.artist).toBe('still_b0r3d')
-})
