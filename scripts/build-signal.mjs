@@ -12,6 +12,7 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, rmSync, readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -31,13 +32,19 @@ if (cli !== pinned) {
 }
 
 const targetDir = process.env.CARGO_TARGET_DIR || join(crate, 'target')
+// Panic messages carry the source paths of the engine and its libraries, which
+// sit under the cargo home (C:\Users\<name>\.cargo); they go in as /cargo, so
+// the committed file doesn't name the PC that built it.
+const cargoHome = process.env.CARGO_HOME || join(homedir(), '.cargo')
 // simd128 only: every browser DeRes supports has it (relaxed SIMD would be
 // faster in Chromium, but Safari can't load it, and the two builds give
 // slightly different pictures).
+const rustflags = ['-C', 'target-feature=+simd128', `--remap-path-prefix=${cargoHome}=/cargo`]
 execFileSync('cargo', ['build', '--release', '--locked', '--target', 'wasm32-unknown-unknown'], {
   cwd: crate,
   stdio: 'inherit',
-  env: { ...process.env, CARGO_TARGET_DIR: targetDir, RUSTFLAGS: '-C target-feature=+simd128' }
+  // The encoded form keeps a cargo home with spaces in it in one piece.
+  env: { ...process.env, CARGO_TARGET_DIR: targetDir, CARGO_ENCODED_RUSTFLAGS: rustflags.join('\x1f') }
 })
 
 for (const f of readdirSync(out)) if (f.startsWith('deres_signal')) rmSync(join(out, f))
