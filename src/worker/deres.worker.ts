@@ -366,7 +366,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       const engine = sig ? await loadSignalEngine() : null
       const prof = profileById(s.profileId)
       const profId = prof?.id ?? 'deres'
-      const onProgress = (done: number, total: number) => post({ type: 'progress', id: msg.id, done, total })
+      const onProgress = (done: number, total: number, note?: string) => post({ type: 'progress', id: msg.id, done, total, note })
       let res
       let filename: string
       if (msg.animationStyle === 'gif-frames') {

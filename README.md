@@ -44,8 +44,9 @@ images.
     open, and chosen then): the GIF or APNG download runs every frame through
     the pipeline and keeps the GIF's delays and loop count. The frames go into the
     file one at a time, so any number of them fit and only one frame's size is
-    limited. A full-colour GIF shares one palette across its frames while they
-    fit the animation memory; past that, each frame gets its own.
+    limited. A full-colour GIF always shares one palette across its frames, so
+    still parts don't shimmer: past what the animation memory holds, each frame
+    is made twice (once to read its colours, once to write it).
   - The Signal's noise moves at the GIF's own speed. The ASCII studio uses the
     first frame.
 - **Reset settings** (v0.9.1) at the foot of DeRes's and the ASCII studio's

@@ -1,5 +1,5 @@
 import { ApngWriter, encodeApng, type ApngFrame } from './apng'
-import { encodeGif, encodeRgbGif, GifWriter, NearestColour, rgbFramesPalette, type GifFrame, type RgbGifFrame } from './gif'
+import { encodeGif, encodeRgbGif, GifWriter, NearestColour, PaletteSamples, rgbFramesPalette, type GifFrame, type RgbGifFrame } from './gif'
 import { DEFAULT_FX, fxRenderer, type Fx } from './fx'
 import { exportSize, MAX_EXPORT_PIXELS, type DeresSettings, type Rendered } from './pipeline'
 import { FX_MIN_MULTIPLIER } from './export'
@@ -534,11 +534,11 @@ export interface FramesExportOptions {
    */
   indexed: boolean
   sharedPalette: boolean
-  onProgress?: (done: number, total: number) => void
+  /** Frames done so far, of how many; `note` names a pass that only reads the frames. */
+  onProgress?: (done: number, total: number, note?: string) => void
   /**
-   * Pixels a full-colour GIF may hold at once for one palette shared by every
-   * frame (MAX_ANIMATION_BUDGET); past it, each frame gets its own. A test
-   * can set it low.
+   * Pixels a full-colour GIF may hold at once (MAX_ANIMATION_BUDGET); past
+   * it, the frames are made twice instead. A test can set it low.
    */
   budget?: number
 }
@@ -551,8 +551,9 @@ export function apngPlays(loopCount: number | null): number {
 /**
  * An animated GIF's own frames, each through the current settings, as a GIF
  * or APNG with the GIF's delays and loop count. Frames go into the encoder
- * as they're made, so any number of them fit; only a full-colour GIF holds
- * them (once, while they fit the budget) until its shared palette is known.
+ * as they're made, so any number of them fit. A full-colour GIF needs every
+ * frame for its shared palette: it holds them while they fit the budget,
+ * and past it makes them twice (once for their colours, once to write).
  */
 export async function generateFramesExport(o: FramesExportOptions): Promise<AnimatedExportResult> {
   const total = o.delaysMs.length
@@ -612,9 +613,9 @@ export async function generateFramesExport(o: FramesExportOptions): Promise<Anim
     return { data: writer.finish(), format: 'gif', mimeType, width, height, frameCount: total }
   }
 
-  // Full colour, while every frame fits the budget: one palette for them all
-  // (so still parts don't shimmer), which needs every frame first. Each is
-  // let go once it's written.
+  // Full colour: one palette for every frame (so still parts don't shimmer),
+  // which needs every frame first. While they fit the budget they're held,
+  // and each is let go once it's written.
   if (width * height * total > (o.budget ?? MAX_ANIMATION_BUDGET)) return streamRgbGif()
   const frames: (Uint8Array | null)[] = []
   for (let k = 0; k < total; k++) {
@@ -631,18 +632,22 @@ export async function generateFramesExport(o: FramesExportOptions): Promise<Anim
   return { data: writer.finish(), format: 'gif', mimeType, width, height, frameCount: total }
 
   /**
-   * Full colour past the budget: each frame gets its own palette (a local
-   * colour table) as it's made, and is let go once it's written.
+   * Full colour past the budget: every frame is made twice. The first time
+   * only its colours are sampled (the same samples the held frames give),
+   * and it's let go; the second time it goes into the file with the shared
+   * palette. One frame is held at a time.
    */
   function streamRgbGif(): AnimatedExportResult {
-    const writer = new GifWriter(width, height, { loop: o.loopCount })
-    let colours: NearestColour | null = null
+    const samples = new PaletteSamples(total * width * height)
     for (let k = 0; k < total; k++) {
-      const rgb = rgbFrame(frameAt(k), k)
-      const palette = rgbFramesPalette([rgb], width * height)
-      if (colours) colours.setPalette(palette)
-      else colours = new NearestColour(palette)
-      writer.add({ width, height, delayMs: o.delaysMs[k], indices: colours.map(rgb), palette })
+      samples.add(rgbFrame(frameAt(k), k), width * height)
+      o.onProgress?.(k + 1, total, 'reading the colours')
+    }
+    const palette = samples.palette()
+    const colours = new NearestColour(palette)
+    const writer = new GifWriter(width, height, { loop: o.loopCount, palette })
+    for (let k = 0; k < total; k++) {
+      writer.add({ width, height, delayMs: o.delaysMs[k], indices: colours.map(rgbFrame(frameAt(k), k)) })
       progress(k + 1)
     }
     return { data: writer.finish(), format: 'gif', mimeType, width, height, frameCount: total }

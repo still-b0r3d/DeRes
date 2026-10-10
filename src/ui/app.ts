@@ -1012,7 +1012,8 @@ export function startApp(): void {
         fitted ?? settings.multiplier,
         fxOk,
         picture.base,
-        (done, total) => controls.status(`${making} frame ${done} of ${total}${done === total ? ', putting them together' : ''}`),
+        (done, total, note) =>
+          controls.status(`${making} ${note ? `${note}, ` : ''}frame ${done} of ${total}${done === total && !note ? ', putting them together' : ''}`),
         signalOn ? { frames: settings.loopFrames, fps: settings.loopFps } : undefined,
         player.frame
       )

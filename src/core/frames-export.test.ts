@@ -182,13 +182,22 @@ describe('a full-colour GIF of an animated GIF’s frames', () => {
     expect(decodeGifFrames(res.data).frames).toHaveLength(4)
   })
 
-  it('past the budget, gives every frame its own palette and keeps the delays and loop count', async () => {
-    const seen: number[] = []
+  it('past the budget, makes every frame twice: the same GIF, one frame held at a time', async () => {
+    const seen: string[] = []
+    const made: number[] = []
     // 8×4 at 2×: four frames are 128 pixels, past a budget of 100.
-    const res = await generateFramesExport(full({ budget: 100, onProgress: (d) => seen.push(d) }))
-    expect(seen).toEqual([1, 2, 3, 4])
-    // The first frame's palette is the global table; every other frame carries its own.
-    expect(localTables(res.data)).toEqual([false, true, true, true])
+    const res = await generateFramesExport(
+      full({
+        budget: 100,
+        render: (k) => (made.push(k), colourful(k)),
+        onProgress: (d, t, note) => seen.push(`${note ?? 'writing'} ${d}/${t}`)
+      })
+    )
+    expect(made).toEqual([0, 1, 2, 3, 1, 2, 3])
+    expect(seen).toEqual(['reading the colours 1/4', 'reading the colours 2/4', 'reading the colours 3/4', 'reading the colours 4/4', 'writing 1/4', 'writing 2/4', 'writing 3/4', 'writing 4/4'])
+    // One shared palette, exactly as when the frames are held.
+    expect(localTables(res.data)).toEqual([false, false, false, false])
+    expect(Buffer.from(res.data).equals(Buffer.from((await generateFramesExport(full())).data))).toBe(true)
     const { reader, frames } = decodeGifFrames(res.data)
     expect(reader.loopCount).toBe(3)
     expect(frames.map((f) => f.delayMs)).toEqual([70, 60, 80, 50])

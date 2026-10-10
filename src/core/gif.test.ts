@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { encodeGif, encodeRgbGif, NearestColour } from './gif'
+import { encodeGif, encodeRgbGif, PaletteSamples, rgbFramesPalette } from './gif'
 
 /**
  * Reference GIF LZW decompressor used to verify compressed frame data.
@@ -320,13 +320,11 @@ describe('RGB GIF colour lookup', () => {
     expect(Buffer.from(encodeRgbGif(frames, { loop: 0, palette })).equals(Buffer.from(expected))).toBe(true)
   })
 
-  it('moves to a new palette and forgets what it remembered from the old one', () => {
-    const colours = new NearestColour(Uint8Array.of(0, 0, 0, 255, 255, 255))
-    const rgb = Uint8Array.of(250, 250, 250, 10, 10, 10, 250, 250, 250)
-    expect([...colours.map(rgb)]).toEqual([1, 0, 1])
-    // Same pixels, a palette in the other order: the remembered answers are gone.
-    colours.setPalette(Uint8Array.of(255, 255, 255, 0, 0, 0, 128, 128, 128))
-    expect([...colours.map(rgb)]).toEqual([0, 1, 0])
-    expect([...colours.map(Uint8Array.of(120, 130, 125))]).toEqual([2])
+  it('samples frames one at a time into the same palette as all of them at once', () => {
+    const w = 211
+    const frames = [0, 1, 2, 3].map((f) => Uint8Array.from({ length: w * w * 3 }, (_, i) => (i * 7 + f * 31 + (i >> 9)) % 256))
+    const samples = new PaletteSamples(frames.length * w * w)
+    for (const rgb of frames) samples.add(rgb, w * w)
+    expect([...samples.palette()]).toEqual([...rgbFramesPalette(frames, w * w)])
   })
 })

@@ -288,20 +288,39 @@ export function encodeGif(frames: readonly GifFrame[], options?: GifOptions): Ui
  * up to 32,768 pixels sampled evenly across all of them.
  */
 export function rgbFramesPalette(frames: readonly Uint8Array[], pixelsPerFrame: number): Uint8Array {
-  const sampleLimit = 32768
-  const totalPixels = frames.length * pixelsPerFrame
-  const step = Math.max(1, Math.floor(totalPixels / sampleLimit))
-  const linSamples: number[] = []
-  let sampleCounter = 0
-  for (const rgb of frames) {
-    for (let p = 0; p < pixelsPerFrame; p++) {
-      if (sampleCounter++ % step === 0) {
+  const samples = new PaletteSamples(frames.length * pixelsPerFrame)
+  for (const rgb of frames) samples.add(rgb, pixelsPerFrame)
+  return samples.palette()
+}
+
+/**
+ * The samples rgbFramesPalette makes its palette from, taken a frame at a
+ * time: frames can be let go as soon as they're added, and the palette is
+ * the same as from all of them at once.
+ */
+export class PaletteSamples {
+  private readonly step: number
+  private readonly linSamples: number[] = []
+  private counter = 0
+
+  /** `totalPixels`: every pixel of every frame that will be added. */
+  constructor(totalPixels: number) {
+    this.step = Math.max(1, Math.floor(totalPixels / 32768))
+  }
+
+  add(rgb: Uint8Array, pixels: number): void {
+    const { step, linSamples } = this
+    for (let p = 0; p < pixels; p++) {
+      if (this.counter++ % step === 0) {
         const idx = p * 3
         linSamples.push(BYTE_TO_LINEAR[rgb[idx]], BYTE_TO_LINEAR[rgb[idx + 1]], BYTE_TO_LINEAR[rgb[idx + 2]])
       }
     }
   }
-  return quantizeRgb(new Float32Array(linSamples), 256, 8)
+
+  palette(): Uint8Array {
+    return quantizeRgb(new Float32Array(this.linSamples), 256, 8)
+  }
 }
 
 /**
@@ -310,27 +329,16 @@ export function rgbFramesPalette(frames: readonly Uint8Array[], pixelsPerFrame: 
  * colours a great deal, and the search covers up to 256 entries. The memory
  * is a fixed table over every 24-bit colour (16 MB + a 2 MB "seen" bit set),
  * not a Map: a noisy signal loop holds a million distinct colours, and a Map
- * of them took over 100 MB. One is made per GIF: setPalette moves it to
- * another palette without making those tables again.
+ * of them took over 100 MB.
  */
 export class NearestColour {
   private readonly nearest = new Uint8Array(1 << 24)
   private readonly seen = new Uint8Array(1 << 21)
-  private palR = new Uint8Array(0)
-  private palG = new Uint8Array(0)
-  private palB = new Uint8Array(0)
+  private readonly palR: Uint8Array
+  private readonly palG: Uint8Array
+  private readonly palB: Uint8Array
 
-  constructor(palette: Uint8Array) {
-    this.load(palette)
-  }
-
-  /** Maps to `palette` from now on: every colour remembered so far is forgotten. */
-  setPalette(palette: Uint8Array): void {
-    this.load(palette)
-    this.seen.fill(0)
-  }
-
-  private load(palette: Uint8Array): void {
+  constructor(readonly palette: Uint8Array) {
     const n = palette.length / 3
     this.palR = new Uint8Array(n)
     this.palG = new Uint8Array(n)

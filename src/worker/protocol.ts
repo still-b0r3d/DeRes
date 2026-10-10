@@ -161,5 +161,5 @@ export type FromWorker =
       frameCount: number
     }
   /** An animation on its way: frames made so far, and how many in all. */
-  | { type: 'progress'; id: number; done: number; total: number }
+  | { type: 'progress'; id: number; done: number; total: number; note?: string }
   | { type: 'error'; job?: number; id?: number; gen: number; message: string }

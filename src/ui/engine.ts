@@ -17,7 +17,7 @@ export interface RenderRequest {
 interface Pending {
   resolve: (v: never) => void
   reject: (e: Error) => void
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number, note?: string) => void
 }
 
 export class Engine {
@@ -123,7 +123,7 @@ export class Engine {
     multiplier: number,
     withFx: boolean,
     base: string,
-    onProgress?: (done: number, total: number) => void,
+    onProgress?: (done: number, total: number, note?: string) => void,
     loop?: { frames: number; fps: number },
     frame = 0
   ): Promise<AnimatedExportResult> {
@@ -133,7 +133,7 @@ export class Engine {
     )
   }
 
-  private request<T>(make: (id: number) => ToWorker, onProgress?: (done: number, total: number) => void): Promise<T> {
+  private request<T>(make: (id: number) => ToWorker, onProgress?: (done: number, total: number, note?: string) => void): Promise<T> {
     const id = ++this.requestId
     this.post(make(id))
     return new Promise<T>((resolve, reject) => this.pending.set(id, { resolve: resolve as (v: never) => void, reject, onProgress }))
@@ -214,7 +214,7 @@ export class Engine {
         this.settle(msg.id, { data: new Uint8Array(msg.data), filename: msg.filename, mimeType: msg.mimeType })
         return
       case 'progress':
-        this.pending.get(msg.id)?.onProgress?.(msg.done, msg.total)
+        this.pending.get(msg.id)?.onProgress?.(msg.done, msg.total, msg.note)
         return
     }
   }
