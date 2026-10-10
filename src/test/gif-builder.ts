@@ -183,3 +183,52 @@ export function pixelAt(rgba: ArrayLike<number>, width: number, x: number, y: nu
   const o = (y * width + x) * 4
   return [rgba[o], rgba[o + 1], rgba[o + 2], rgba[o + 3]]
 }
+
+const ascii = (text: string) => [...text].map((c) => c.charCodeAt(0))
+
+/** Bytes as sub-blocks of up to 255, with the 0 that ends them. */
+export function subBlocks(bytes: ArrayLike<number>): number[] {
+  const out: number[] = []
+  for (let i = 0; i < bytes.length; i += 255) {
+    const n = Math.min(255, bytes.length - i)
+    out.push(n)
+    for (let k = 0; k < n; k++) out.push(bytes[i + k])
+  }
+  out.push(0)
+  return out
+}
+
+/** A comment block. */
+export function gifComment(text: string): { raw: number[] } {
+  return { raw: [0x21, 0xfe, ...subBlocks(new TextEncoder().encode(text))] }
+}
+
+/** A plain text block (a 12-byte text grid, then the text). */
+export function gifPlainText(text: string): { raw: number[] } {
+  return { raw: [0x21, 0x01, 12, 0, 0, 0, 0, 8, 0, 8, 0, 8, 8, 1, 0, ...subBlocks(ascii(text)).slice(0)] }
+}
+
+/** An application block: an 11-byte name, then data in sub-blocks. */
+export function gifApp(name: string, data: ArrayLike<number>): { raw: number[] } {
+  return { raw: [0x21, 0xff, 11, ...ascii(name.padEnd(11).slice(0, 11)), ...subBlocks(data)] }
+}
+
+/** XMP the way GIFs carry it: raw text after the name, then the 257-byte "magic trailer". */
+export function gifXmp(xmp: string): { raw: number[] } {
+  const trailer = [1]
+  for (let b = 255; b >= 0; b--) trailer.push(b)
+  return { raw: [0x21, 0xff, 11, ...ascii('XMP DataXMP'), ...new TextEncoder().encode(xmp), ...trailer, 0] }
+}
+
+/** An XMP packet with the given properties as attributes of its rdf:Description. */
+export function xmpPacket(props: Record<string, string>): string {
+  const attrs = Object.entries(props)
+    .map(([k, v]) => ` ${k}="${v}"`)
+    .join('')
+  return (
+    '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/">' +
+    '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""' +
+    ' xmlns:exif="http://ns.adobe.com/exif/1.0/" xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/"' +
+    ` xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"${attrs}/></rdf:RDF></x:xmpmeta><?xpacket end="w"?>`
+  )
+}

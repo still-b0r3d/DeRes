@@ -190,12 +190,12 @@ describe('exif parser & inspector', () => {
 
 describe('file types the inspector cannot read', () => {
   it("say so, instead of claiming there's no location", () => {
-    // A 1×1 GIF: it opens in browsers, but the inspector doesn't read GIF.
-    const gif = new Uint8Array([
-      0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0x80, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff,
-      0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b
+    // A 1×1 BMP: it opens in browsers, but the inspector doesn't read BMP.
+    const bmp = new Uint8Array([
+      0x42, 0x4d, 58, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, 40, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 24, 0,
+      0, 0, 0, 0, 4, 0, 0, 0, 0x13, 0x0b, 0, 0, 0x13, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x20, 0x40, 0x80, 0
     ])
-    const meta = inspectMetadata(gif)
+    const meta = inspectMetadata(bmp)
     expect(meta.format).toBe('unknown')
     const text = getMetadataNarrative(meta)
     expect(text).not.toMatch(/no GPS/i)

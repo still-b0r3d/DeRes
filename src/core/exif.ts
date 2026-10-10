@@ -1,6 +1,8 @@
 // EXIF & Metadata Parser
 // Extracts camera, GPS coordinates, timestamps, exposure settings, thumbnails,
-// and trailer data across JPEG, PNG, WebP, and HEIC files without external dependencies.
+// and trailer data across JPEG, PNG, WebP, and HEIC files without external
+// dependencies. GIFs hold no EXIF, but their comments, XMP and other blocks
+// are read too.
 
 import { decodeCharsetText, formatTagValue, getTagName, type TagCategory, type TagValue } from './exif-dictionary'
 import { detectAiMarkers, findContentCredentials, type AiMarkerReport } from './ai-detect'
@@ -17,7 +19,7 @@ export interface ParsedExifTag {
   tagId: number
   tagHex: string
   name: string
-  category: TagCategory | 'XMP' | 'Text' | 'C2PA'
+  category: TagCategory | 'XMP' | 'Text' | 'C2PA' | 'GIF'
   /** The decoded value (read when first asked for). */
   rawValue: unknown
   displayValue: string
@@ -61,7 +63,7 @@ function addTag(meta: ImageMetadata, tag: ParsedExifTag): void {
 }
 
 export interface ImageMetadata {
-  format: 'jpeg' | 'png' | 'webp' | 'heic' | 'avif' | 'unknown'
+  format: 'jpeg' | 'png' | 'webp' | 'heic' | 'avif' | 'gif' | 'unknown'
   make?: string
   model?: string
   lensModel?: string
@@ -91,6 +93,18 @@ export interface ImageMetadata {
   textChunks?: Record<string, string>
   /** EXIF text that can carry an AI prompt (description, software, comments). */
   exifText?: string[]
+  /** A GIF's own details. */
+  gif?: GifDetails
+}
+
+export interface GifDetails {
+  version: '87a' | '89a'
+  width: number
+  height: number
+  frames: number
+  /** NETSCAPE2.0 loop count: 0 = forever, n = n more times; null = no loop block (plays once). */
+  loopCount: number | null
+  comments: number
 }
 
 /** Formats decimal GPS coordinates to human-readable DMS text. */
@@ -124,6 +138,7 @@ export function getMetadataNarrative(meta: ImageMetadata): string {
   if (meta.format === 'unknown') {
     return "This kind of file can't be read here, so its details (camera, date, location) are unknown."
   }
+  if (meta.gif) return gifNarrative(meta, meta.gif)
   const parts: string[] = []
 
   // Device
@@ -162,6 +177,7 @@ export function getMetadataNarrative(meta: ImageMetadata): string {
 /** Detects container image format from binary signature. */
 export function detectFormat(data: Uint8Array): ImageMetadata['format'] {
   if (data.length < 12) return 'unknown'
+  if (startsWithText(data, 0, 'GIF87a') || startsWithText(data, 0, 'GIF89a')) return 'gif'
   if (data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'jpeg'
   if (
     data[0] === 0x89 &&
@@ -612,6 +628,8 @@ export function inspectMetadata(data: Uint8Array): ImageMetadata {
   } else if (format === 'heic' || format === 'avif') {
     // Both are HEIF files and keep Exif the same way.
     inspectHeic(data, meta)
+  } else if (format === 'gif') {
+    inspectGif(data, meta)
   }
 
   const textBlocks: string[] = []
@@ -905,4 +923,202 @@ function inspectHeic(data: Uint8Array, meta: ImageMetadata): void {
       if (meta.rawTagCount > 0) break
     }
   }
+}
+
+/** "A GIF with 58 frames that loops forever. GIFs don't record a camera or date; …" */
+function gifNarrative(meta: ImageMetadata, g: GifDetails): string {
+  const frames = g.frames === 1 ? 'one frame' : `${g.frames} frames`
+  const loop = g.frames < 2 ? '' : g.loopCount === 0 ? ' that loops forever' : g.loopCount === null ? ' that plays once' : ` that plays ${g.loopCount + 1} times`
+  const where = meta.gps ? `its XMP gives a location: ${formatGpsDecimal(meta.gps)}` : 'no location found'
+  const comments = g.comments > 0 ? `, and ${g.comments === 1 ? 'a comment' : `${g.comments} comments`}` : ''
+  return `A GIF with ${frames}${loop}. GIFs don't record a camera or date; ${where}${comments}.`
+}
+
+/** The application blocks that hold a GIF's loop count. */
+export const GIF_LOOP_APPS = ['NETSCAPE2.0', 'ANIMEXTS1.0']
+/** How a GIF says an application block holds XMP. */
+export const GIF_XMP_APP = 'XMP DataXMP'
+
+/** Where a GIF's sub-blocks starting at `at` end (just past the 0 that ends them); -1 when the file ends first. */
+export function gifSubBlocksEnd(data: Uint8Array, at: number): number {
+  let p = at
+  while (p < data.length) {
+    const len = data[p++]
+    if (len === 0) return p
+    p += len
+  }
+  return -1
+}
+
+/** The data of a run of sub-blocks, joined. */
+function gifSubBlockData(data: Uint8Array, at: number, end: number): Uint8Array {
+  const parts: Uint8Array[] = []
+  for (let p = at; p < end - 1; ) {
+    const len = data[p++]
+    parts.push(data.subarray(p, Math.min(end - 1, p + len)))
+    p += len
+  }
+  const out = new Uint8Array(parts.reduce((n, x) => n + x.length, 0))
+  let o = 0
+  for (const x of parts) {
+    out.set(x, o)
+    o += x.length
+  }
+  return out
+}
+
+/**
+ * The XMP packet in a GIF's "XMP DataXMP" block. It's written as raw text
+ * straight after the name (not as sub-blocks), then a 257-byte "magic
+ * trailer" (1, 255, 254 … 0) that brings a sub-block reader to the end.
+ * `at` is the block's introducer (0x21), `end` where the block ends.
+ */
+export function gifXmpText(data: Uint8Array, at: number, end: number): string {
+  const textStart = at + 14
+  const trailer = end - 258
+  const decoder = new TextDecoder('utf-8')
+  if (trailer >= textStart && data[trailer] === 1 && data[trailer + 1] === 0xff && data[end - 2] === 0 && data[end - 1] === 0) {
+    return decoder.decode(data.subarray(textStart, trailer))
+  }
+  // Not written the usual way: read it as ordinary sub-blocks.
+  return decoder.decode(gifSubBlockData(data, at + 2, end).subarray(11))
+}
+
+/** Text from a GIF comment: meant to be ASCII, often UTF-8, sometimes Latin-1. */
+function gifText(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return new TextDecoder('latin1').decode(bytes)
+  }
+}
+
+/** Whether an XMP packet says where the picture was taken (GPS, or a place name). */
+export function xmpHasLocation(xmp: string): boolean {
+  return /GPSLatitude|GPSLongitude|photoshop:City|photoshop:State|photoshop:Country|Iptc4xmpCore:Location|Iptc4xmpExt:Location/.test(xmp)
+}
+
+/** One XMP GPS coordinate ("41,52.8N", "41,52,48N", or plain decimal degrees). */
+function xmpCoordinate(text: string, neg: string): number | undefined {
+  const m = /^\s*(-?\d+(?:\.\d+)?)(?:,(\d+(?:\.\d+)?))?(?:,(\d+(?:\.\d+)?))?\s*([NSEW])?\s*$/i.exec(text)
+  if (!m) return undefined
+  const value = Math.abs(Number(m[1])) + (m[2] ? Number(m[2]) / 60 : 0) + (m[3] ? Number(m[3]) / 3600 : 0)
+  const negative = (m[4] ?? '').toUpperCase() === neg || Number(m[1]) < 0
+  return Number.isFinite(value) ? (negative ? -value : value) : undefined
+}
+
+/** The GPS position in an XMP packet (exif:GPSLatitude and exif:GPSLongitude), if it has one. */
+export function xmpGps(xmp: string): GpsCoordinates | undefined {
+  const field = (name: string) => {
+    const m = new RegExp(`exif:${name}(?:\\s*=\\s*"([^"]*)"|>([^<]*)<)`).exec(xmp)
+    return m ? (m[1] ?? m[2]) : undefined
+  }
+  const latText = field('GPSLatitude')
+  const lonText = field('GPSLongitude')
+  if (!latText || !lonText) return undefined
+  const latitude = xmpCoordinate(latText, 'S')
+  const longitude = xmpCoordinate(lonText, 'W')
+  if (latitude === undefined || longitude === undefined) return undefined
+  const coords: GpsCoordinates = { latitude, longitude, latRef: latitude < 0 ? 'S' : 'N', lonRef: longitude < 0 ? 'W' : 'E' }
+  const alt = field('GPSAltitude')
+  if (alt) {
+    const [a, b] = alt.split('/').map(Number)
+    const value = b ? a / b : a
+    if (Number.isFinite(value)) coords.altitude = field('GPSAltitudeRef') === '1' ? -value : value
+  }
+  return coords
+}
+
+/**
+ * A GIF: no EXIF, but comments, plain text, XMP and other application blocks
+ * (a colour profile, Photoshop or IPTC data) can ride along with the frames.
+ * The loop block is part of the animation, not metadata.
+ */
+function inspectGif(data: Uint8Array, meta: ImageMetadata): void {
+  const n = data.length
+  const version = data[4] === 0x37 ? '87a' : '89a'
+  const width = data[6] | (data[7] << 8)
+  const height = data[8] | (data[9] << 8)
+  let p = 13
+  if (data[10] & 0x80) p += 3 << ((data[10] & 7) + 1)
+  const g: GifDetails = { version, width, height, frames: 0, loopCount: null, comments: 0 }
+  const texts: string[] = []
+
+  while (p < n) {
+    const block = data[p]
+    if (block === 0x3b) {
+      p++
+      break
+    }
+    if (block === 0x2c) {
+      // An image: descriptor, its own colour table, LZW size, data.
+      if (p + 10 > n) break
+      const flags = data[p + 9]
+      let q = p + 10
+      if (flags & 0x80) q += 3 << ((flags & 7) + 1)
+      const end = gifSubBlocksEnd(data, q + 1)
+      if (end < 0) break
+      g.frames++
+      p = end
+      continue
+    }
+    if (block !== 0x21) break
+    const label = data[p + 1]
+    const end = gifSubBlocksEnd(data, p + 2)
+    if (end < 0) break
+    if (label === 0xf9) {
+      // Graphic control (delay, disposal, transparency): part of the animation.
+    } else if (label === 0xfe) {
+      const text = gifText(gifSubBlockData(data, p + 2, end))
+      g.comments++
+      texts.push(text)
+      meta.rawTagCount++
+      textRow(meta, 'Comment', 'GIF Comment', 'Text', text, short(text))
+    } else if (label === 0x01) {
+      // Plain text: a 12-byte grid header, then the text to draw.
+      const text = gifText(gifSubBlockData(data, p + 2, end).subarray(12))
+      texts.push(text)
+      meta.rawTagCount++
+      textRow(meta, 'PlainText', 'GIF Plain Text', 'Text', text, short(text))
+    } else if (label === 0xff && data[p + 2] === 11) {
+      const name = String.fromCharCode(...data.subarray(p + 3, p + 14))
+      if (GIF_LOOP_APPS.includes(name)) {
+        if (g.loopCount === null && data[p + 14] >= 3 && data[p + 15] === 1) g.loopCount = data[p + 16] | (data[p + 17] << 8)
+      } else if (name === GIF_XMP_APP) {
+        const xmp = gifXmpText(data, p, end)
+        meta.xmpText = (meta.xmpText ?? '') + xmp
+        meta.rawTagCount++
+        textRow(meta, 'XMP', 'XMP Metadata Packet', 'XMP', xmp, `${xmp.length.toLocaleString()} characters`)
+      } else {
+        const bytes = end - p
+        meta.rawTagCount++
+        if (name.startsWith('ICCRGBG1')) meta.hasIccProfile = true
+        const what = name.startsWith('ICCRGBG1')
+          ? 'colour profile'
+          : name.startsWith('MGK8BIM')
+            ? 'Photoshop data'
+            : name.startsWith('MGKIPTC')
+              ? 'IPTC data'
+              : 'data'
+        textRow(meta, 'App', `Application block (${name.replace(/[^\x20-\x7e]/g, '?')})`, 'GIF', '', `${what}, ${bytes.toLocaleString()} bytes`)
+      }
+    } else {
+      meta.rawTagCount++
+      textRow(meta, `0x${label.toString(16).padStart(2, '0')}`, 'Unknown GIF extension', 'GIF', '', `${(end - p).toLocaleString()} bytes`)
+    }
+    p = end
+  }
+
+  // After the end marker, or from damage on: not part of the picture.
+  meta.trailerBytes = n - Math.min(p, n)
+  meta.gif = g
+  if (texts.length > 0) meta.textChunks = { Comment: texts.join('\n') }
+  if (meta.xmpText) meta.gps = xmpGps(meta.xmpText)
+  const loop = g.loopCount === null ? 'No loop block (plays once)' : g.loopCount === 0 ? 'Forever' : `${g.loopCount} more time${g.loopCount === 1 ? '' : 's'}`
+  meta.allTags.unshift(
+    { tagId: 0, tagHex: 'Version', name: 'GIF Version', category: 'GIF', rawValue: version, displayValue: version },
+    { tagId: 0, tagHex: 'Screen', name: 'Size', category: 'GIF', rawValue: [width, height], displayValue: `${width}×${height}` },
+    { tagId: 0, tagHex: 'Frames', name: 'Frames', category: 'GIF', rawValue: g.frames, displayValue: String(g.frames) },
+    { tagId: 0, tagHex: 'Loop', name: 'Loop Count', category: 'GIF', rawValue: g.loopCount, displayValue: loop }
+  )
 }

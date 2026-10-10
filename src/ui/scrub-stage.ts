@@ -478,28 +478,41 @@ export class ScrubStage {
       return
     }
 
-    const rows: [string, string][] = [
-      ['Format', meta.format.toUpperCase()],
-      ['Camera Make', meta.make || 'None'],
-      ['Camera Model', meta.model || 'None'],
-      ['Lens', meta.lensModel || 'None'],
-      ['Date & Time', meta.dateTime || 'None'],
-      ['Orientation', meta.orientation ? String(meta.orientation) : 'Standard (1)'],
-      [
-        'GPS Coordinates',
-        meta.gps ? `${formatGpsDms(meta.gps)} (${formatGpsDecimal(meta.gps)})` : 'None'
-      ],
-      ['Shutter Speed', meta.exposureTime || 'None'],
-      ['Aperture', meta.fNumber ? `f/${meta.fNumber}` : 'None'],
-      ['ISO', meta.iso ? String(meta.iso) : 'None'],
-      ['Focal Length', meta.focalLength ? `${meta.focalLength} mm` : 'None'],
-      ['Software', meta.software || 'None'],
-      ['Artist / Copyright', [meta.artist, meta.copyright].filter(Boolean).join(' / ') || 'None'],
-      ['Colour Profile', meta.hasIccProfile ? 'Colour profile present' : 'None'],
-      ['Embedded Thumbnail', meta.hasThumbnail ? 'Yes (may show the uncropped original)' : 'No'],
-      ['Trailing Bytes', meta.trailerBytes > 0 ? `${meta.trailerBytes.toLocaleString()} bytes` : '0 bytes'],
-      ['Total Raw Tags', `${meta.rawTagCount} metadata fields`]
-    ]
+    const g = meta.gif
+    const gps = meta.gps ? `${formatGpsDms(meta.gps)} (${formatGpsDecimal(meta.gps)})` : 'None'
+    // A GIF has no camera fields at all: show what it does hold.
+    const rows: [string, string][] = g
+      ? [
+          ['Format', `GIF (${g.version})`],
+          ['Size', `${g.width}×${g.height}`],
+          ['Frames', String(g.frames)],
+          ['Loop', g.loopCount === null ? 'Plays once' : g.loopCount === 0 ? 'Forever' : `${g.loopCount} more time${g.loopCount === 1 ? '' : 's'}`],
+          ['GPS Coordinates (XMP)', gps],
+          ['Comments', g.comments > 0 ? String(g.comments) : 'None'],
+          ['XMP', meta.xmpText ? `${meta.xmpText.length.toLocaleString()} characters` : 'None'],
+          ['Colour Profile', meta.hasIccProfile ? 'Colour profile present' : 'None'],
+          ['Trailing Bytes', meta.trailerBytes > 0 ? `${meta.trailerBytes.toLocaleString()} bytes` : '0 bytes'],
+          ['Total Raw Tags', `${meta.rawTagCount} metadata fields`]
+        ]
+      : [
+          ['Format', meta.format.toUpperCase()],
+          ['Camera Make', meta.make || 'None'],
+          ['Camera Model', meta.model || 'None'],
+          ['Lens', meta.lensModel || 'None'],
+          ['Date & Time', meta.dateTime || 'None'],
+          ['Orientation', meta.orientation ? String(meta.orientation) : 'Standard (1)'],
+          ['GPS Coordinates', gps],
+          ['Shutter Speed', meta.exposureTime || 'None'],
+          ['Aperture', meta.fNumber ? `f/${meta.fNumber}` : 'None'],
+          ['ISO', meta.iso ? String(meta.iso) : 'None'],
+          ['Focal Length', meta.focalLength ? `${meta.focalLength} mm` : 'None'],
+          ['Software', meta.software || 'None'],
+          ['Artist / Copyright', [meta.artist, meta.copyright].filter(Boolean).join(' / ') || 'None'],
+          ['Colour Profile', meta.hasIccProfile ? 'Colour profile present' : 'None'],
+          ['Embedded Thumbnail', meta.hasThumbnail ? 'Yes (may show the uncropped original)' : 'No'],
+          ['Trailing Bytes', meta.trailerBytes > 0 ? `${meta.trailerBytes.toLocaleString()} bytes` : '0 bytes'],
+          ['Total Raw Tags', `${meta.rawTagCount} metadata fields`]
+        ]
 
     this.tableEl.replaceChildren(
       h('thead', null, h('tr', null, h('th', null, 'Field'), h('th', null, 'Value'))),

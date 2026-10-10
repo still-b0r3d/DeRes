@@ -7,10 +7,23 @@
 // - Strips EXIF, XMP chunks from WebP; clears VP8X flags; updates RIFF size.
 //   No orientation is kept for WebP: Chromium 147 and WebKit 26.4 both ignore
 //   the EXIF Orientation of a WebP (checked 2026-10-07), so it changes nothing.
+// - Strips comments, XMP, plain text and other application blocks from GIF,
+//   keeping the colour tables, loop block, frame timing and image data
+//   byte for byte; truncates after the end marker.
 // - Zero network requests, 100% in-browser client-side execution.
 
 import { crc32 } from './png'
-import { detectFormat, inspectMetadata, webpRiffEnd, type ImageMetadata } from './exif'
+import {
+  detectFormat,
+  GIF_LOOP_APPS,
+  GIF_XMP_APP,
+  gifSubBlocksEnd,
+  gifXmpText,
+  inspectMetadata,
+  webpRiffEnd,
+  xmpHasLocation,
+  type ImageMetadata
+} from './exif'
 
 export interface ScrubOptions {
   /** 'all' strips all metadata (camera, GPS, comments, trailers); 'location_only' preserves camera/settings while wiping GPS. Default 'all'. */
@@ -638,6 +651,82 @@ export function scrubWebp(data: Uint8Array): Uint8Array {
 }
 
 /**
+ * Strips metadata from a GIF at the byte level. "Remove everything" keeps the
+ * header, colour tables, loop block, graphic control blocks and image data
+ * exactly as they were, and drops comments, XMP, plain text and every other
+ * application block (a colour profile among them). "Location only" drops just
+ * the XMP blocks that say where the picture was taken. Anything after the end
+ * marker, or from damage on, is cut.
+ */
+export function scrubGif(data: Uint8Array, options?: ScrubOptions): Uint8Array {
+  if (detectFormat(data) !== 'gif') throw new Error('Not a valid GIF image: signature mismatch')
+  const all = (options?.mode ?? 'all') === 'all'
+  const n = data.length
+  const parts: Uint8Array[] = []
+  let p = 13
+  if (data[10] & 0x80) p += 3 << ((data[10] & 7) + 1)
+  parts.push(data.subarray(0, Math.min(p, n)))
+
+  /** The next drawn block after `at` (skipping other extensions): an image, plain text, or neither. */
+  const nextDrawn = (at: number): 'image' | 'text' | null => {
+    for (let q = at; q < n; ) {
+      if (data[q] === 0x2c) return 'image'
+      if (data[q] !== 0x21) return null
+      if (data[q + 1] === 0x01) return 'text'
+      const end = gifSubBlocksEnd(data, q + 2)
+      if (end < 0) return null
+      q = end
+    }
+    return null
+  }
+
+  while (p < n) {
+    const block = data[p]
+    if (block === 0x3b) break
+    if (block === 0x2c) {
+      if (p + 10 > n) break
+      const flags = data[p + 9]
+      let q = p + 10
+      if (flags & 0x80) q += 3 << ((flags & 7) + 1)
+      const end = gifSubBlocksEnd(data, q + 1)
+      if (end < 0) break
+      parts.push(data.subarray(p, end))
+      p = end
+      continue
+    }
+    if (block !== 0x21) break
+    const label = data[p + 1]
+    const end = gifSubBlocksEnd(data, p + 2)
+    if (end < 0) break
+    let keep: boolean
+    if (label === 0xf9) {
+      // Frame timing belongs to the drawn block after it; when that's plain
+      // text being dropped, the timing goes too (or it would move to the next frame).
+      keep = !(all && nextDrawn(end) === 'text')
+    } else if (label === 0xff && data[p + 2] === 11) {
+      const name = String.fromCharCode(...data.subarray(p + 3, p + 14))
+      if (GIF_LOOP_APPS.includes(name)) keep = true
+      else if (name === GIF_XMP_APP) keep = !all && !xmpHasLocation(gifXmpText(data, p, end))
+      else keep = !all
+    } else {
+      // Comments, plain text, and anything unknown.
+      keep = !all
+    }
+    if (keep) parts.push(data.subarray(p, end))
+    p = end
+  }
+  parts.push(Uint8Array.of(0x3b))
+
+  const out = new Uint8Array(parts.reduce((t, x) => t + x.length, 0))
+  let o = 0
+  for (const x of parts) {
+    out.set(x, o)
+    o += x.length
+  }
+  return out
+}
+
+/**
  * Re-reads and self-verifies that metadata has been stripped and expectations are met.
  */
 export function verifyScrubbed(
@@ -682,6 +771,7 @@ export function verifyScrubbed(
   if (mode === 'all') {
     if (isClean) summaryParts.push('Checked: 0 GPS coordinates, 0 camera tags, 0 trailing bytes found.')
     const kept: string[] = []
+    if (scrubbedMeta.gif) kept.push(scrubbedMeta.gif.frames > 1 ? 'every frame, its timing and the loop' : 'the picture')
     if (scrubbedMeta.hasIccProfile) kept.push('colour profile')
     if (scrubbedMeta.orientation && scrubbedMeta.orientation > 1) kept.push('orientation')
     if (kept.length > 0) {
@@ -698,6 +788,7 @@ export function verifyScrubbed(
     if (scrubbedMeta.dateTime) kept.push('date')
     if (scrubbedMeta.orientation && scrubbedMeta.orientation > 1) kept.push('orientation')
     if (scrubbedMeta.hasIccProfile) kept.push('colour profile')
+    if (scrubbedMeta.gif?.comments) kept.push(scrubbedMeta.gif.comments === 1 ? 'comment' : 'comments')
     if (kept.length > 0) {
       summaryParts.push(`Kept: ${kept.join(', ')}.`)
     }
@@ -734,16 +825,18 @@ export function scrubImage(data: Uint8Array, options?: ScrubOptions): ScrubResul
     scrubbedData = scrubPng(data, options)
   } else if (format === 'webp') {
     scrubbedData = scrubWebp(data)
+  } else if (format === 'gif') {
+    scrubbedData = scrubGif(data, options)
   } else if (format === 'heic') {
     throw new Error(
       'HEIC files cannot be safely scrubbed at the byte level in the browser without re-encoding. Convert to JPEG or WebP to scrub metadata.'
     )
   } else if (format === 'avif') {
     throw new Error(
-      'AVIF files cannot be scrubbed here yet: only JPEG, PNG and WebP can. Convert to one of those to scrub metadata.'
+      'AVIF files cannot be scrubbed here yet: only JPEG, PNG, WebP and GIF can. Convert to one of those to scrub metadata.'
     )
   } else {
-    throw new Error('Unsupported image format. Supported formats: JPEG, PNG, WebP.')
+    throw new Error('Unsupported image format. Supported formats: JPEG, PNG, WebP, GIF.')
   }
 
   const report = verifyScrubbed(originalMeta, data.byteLength, scrubbedData, options)

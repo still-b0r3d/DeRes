@@ -362,7 +362,9 @@ export function buildInjectControls(ctx: InjectControlsContext): {
     formatNote.textContent =
       cur.meta.format === 'unknown'
         ? "The injector writes into JPEG and PNG files, and this kind of file can't be read here."
-        : `The injector writes into JPEG and PNG files. This one is ${cur.meta.format.toUpperCase()}, so its EXIF can be read in the Scrubber but not changed here.`
+        : cur.meta.format === 'gif'
+          ? "GIFs can't hold EXIF, so there's nothing to edit here."
+          : `The injector writes into JPEG and PNG files. This one is ${cur.meta.format.toUpperCase()}, so its EXIF can be read in the Scrubber but not changed here.`
 
     // A new photo: start from what it has. (Switching tabs keeps your edits.)
     if (cur.bytes !== loadedBytes) {
