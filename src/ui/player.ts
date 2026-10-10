@@ -10,7 +10,9 @@ import type { Engine } from './engine'
 // the settings stay the same, so after the first pass it loops at the GIF's
 // own speed. Any change drops them. The kept frames stay inside the same
 // budget as an exported animation; past it, the rest are made again on each
-// pass. Paused, the frame on screen is the one the downloads use.
+// pass. A slider goes to any frame (dragging it while playing pauses, and
+// playing goes on from there when it's let go). Paused, the frame on screen
+// is the one the downloads use.
 
 export interface PlayerHost {
   /** The settings to play with, and the preview's enlargement while playing. */
@@ -18,7 +20,7 @@ export interface PlayerHost {
   /** Puts a frame on the stage. */
   show(view: RenderedView): void
   started(): void
-  /** Playback stopped on this frame. */
+  /** Playback stopped on this frame, or the slider moved to it while paused. */
   paused(frame: number): void
   problem(message: string): void
 }
@@ -27,6 +29,9 @@ export class Player {
   readonly el: HTMLElement
   private readonly button: HTMLButtonElement
   private readonly counter: HTMLElement
+  private readonly slider: HTMLInputElement
+  /** Playing when the slider was grabbed: it goes on when the slider is let go. */
+  private resumeAfterDrag = false
   private delays: number[] = []
   private current = 0
   private isPlaying = false
@@ -48,7 +53,28 @@ export class Player {
   ) {
     this.button = h('button', { type: 'button', class: 'play-btn', 'data-testid': 'play', 'aria-pressed': 'false', onclick: () => this.toggle() }, '▶ Play')
     this.counter = h('span', { class: 'frame-counter', 'data-testid': 'frame-counter', 'aria-live': 'off' })
-    this.el = h('div', { class: 'playbar', hidden: true }, this.button, this.counter)
+    this.slider = h('input', { type: 'range', class: 'frame-slider', min: 0, max: 1, step: 1, value: 0, 'aria-label': 'Frame', 'data-testid': 'frame-slider' })
+    const resume = () => {
+      if (!this.resumeAfterDrag) return
+      this.resumeAfterDrag = false
+      this.play()
+    }
+    this.slider.addEventListener('pointerdown', () => {
+      if (!this.isPlaying) return
+      this.resumeAfterDrag = true
+      this.pause()
+      // Let go anywhere (even off the slider, or without moving it).
+      const letGo = () => {
+        window.removeEventListener('pointerup', letGo)
+        window.removeEventListener('pointercancel', letGo)
+        resume()
+      }
+      window.addEventListener('pointerup', letGo)
+      window.addEventListener('pointercancel', letGo)
+    })
+    this.slider.addEventListener('input', () => this.seek(Number(this.slider.value)))
+    this.slider.addEventListener('change', resume)
+    this.el = h('div', { class: 'playbar', hidden: true }, this.button, this.slider, this.counter)
   }
 
   /** The frame on screen (the one downloads use). */
@@ -98,6 +124,25 @@ export class Player {
     this.stop()
     this.update()
     this.host.paused(this.current)
+  }
+
+  /**
+   * Goes to frame k, shown straight away if it has been made. Playing, it
+   * plays on from there; paused, it's the frame the downloads use.
+   */
+  seek(k: number): void {
+    const n = this.delays.length
+    if (n < 2) return
+    this.current = Math.max(0, Math.min(n - 1, Math.round(k)))
+    const view = this.ready(this.current)
+    if (view) this.host.show(view)
+    this.update()
+    if (this.isPlaying) {
+      this.shownAt = performance.now()
+      this.pump()
+    } else {
+      this.host.paused(this.current)
+    }
   }
 
   /** Stops quietly (a new picture is on its way), keeping the frame on screen. */
@@ -194,9 +239,11 @@ export class Player {
     )
   }
 
-  /** "12 / 58", or "Rendering 12 / 58…" while waiting for that frame. */
+  /** "12 / 58", or "Rendering 12 / 58…" while waiting for that frame; the slider follows. */
   private update(waitingFor: number | null = null): void {
     const n = this.delays.length
     this.counter.textContent = waitingFor !== null ? `Rendering ${waitingFor + 1} / ${n}…` : `${this.current + 1} / ${n}`
+    this.slider.max = String(Math.max(1, n - 1))
+    this.slider.value = String(this.current)
   }
 }

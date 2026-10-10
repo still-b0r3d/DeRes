@@ -34,7 +34,8 @@ images.
   long edge; past that, the first frames that fit are kept and the picture
   info says "first 256 of 300 frames"). The first frame is the picture every
   control works on, and the picture info reads "58 frames · 3.9 s".
-  - **Play / Pause** under the preview, with a frame counter. Each frame goes
+  - **Play / Pause** under the preview, with a slider to any frame (back to
+    the first in one move) and a frame counter. Each frame goes
     through the current settings, Signal and screen effect included
     ("Rendering 12 / 58…" on the first pass), then it loops at the GIF's own
     speed until a setting changes. Paused, the frame on screen is the one the

@@ -68,6 +68,49 @@ test('Play and Pause: the frames move at the GIF’s speed and stop where paused
   if (paused! > 2) expect(await resultPixels(page), `paused at ${paused}`).not.toBe(still)
 })
 
+test('the frame slider goes back to the first frame, or anywhere, paused or playing', async ({ page }) => {
+  await openSample(page)
+  const slider = page.getByTestId('frame-slider')
+  await expect(slider).toBeVisible()
+  await expect(slider).toHaveAttribute('max', '57')
+  const first = await resultPixels(page)
+  await page.getByTestId('play').click()
+  await expect(playbar(page)).toHaveAttribute('data-cached', '58', { timeout: 20_000 })
+  // The slider follows the frames.
+  await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(5)
+  await page.getByTestId('play').click()
+
+  // Paused: back to the first frame, which is what the preview shows again.
+  await slider.fill('0')
+  await expect(counter(page)).toHaveText('1 / 58')
+  await ready(page)
+  expect(await resultPixels(page)).toBe(first)
+
+  // Anywhere else: the downloads follow.
+  await slider.fill('29')
+  await expect(counter(page)).toHaveText('30 / 58')
+  await ready(page)
+  await page.locator('.seg[aria-label="Size"] button[data-value="1"]').click()
+  const { download: d } = await download(page, page.getByRole('button', { name: 'Download PNG' }))
+  expect(d.suggestedFilename()).toBe('rukus-breaks-out-frame30-gameboy-160x144-1x.png')
+
+  // Playing: it jumps there and plays on.
+  await page.getByTestId('play').click()
+  await slider.fill('0')
+  await expect(page.getByTestId('play')).toHaveAttribute('aria-pressed', 'true')
+  expect(await shownFrame(page)).toBeLessThan(15)
+  await expect.poll(async () => (await shownFrame(page)) ?? 0).toBeGreaterThan(3)
+
+  // Dragging while playing pauses, and it plays on when let go.
+  const box = (await slider.boundingBox())!
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height / 2)
+  await page.mouse.down()
+  await expect(page.getByTestId('play')).toHaveAttribute('aria-pressed', 'false')
+  await page.mouse.move(box.x + 2, box.y + box.height / 2, { steps: 5 })
+  await page.mouse.up()
+  await expect(page.getByTestId('play')).toHaveAttribute('aria-pressed', 'true')
+})
+
 test('a settings change drops the frames made so far; an export setting doesn’t', async ({ page }) => {
   await openSample(page)
   await page.getByTestId('play').click()

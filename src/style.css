@@ -516,7 +516,8 @@ button:disabled {
   font-size: 0.85rem;
 }
 
-.slider input[type='range'] {
+.slider input[type='range'],
+.frame-slider {
   grid-column: 1 / -1;
   width: 100%;
   margin: 4px 0;
@@ -527,19 +528,22 @@ button:disabled {
   appearance: none;
 }
 
-.slider input[type='range']::-webkit-slider-runnable-track {
+.slider input[type='range']::-webkit-slider-runnable-track,
+.frame-slider::-webkit-slider-runnable-track {
   height: 4px;
   background: var(--line);
   border-radius: 2px;
 }
 
-.slider input[type='range']::-moz-range-track {
+.slider input[type='range']::-moz-range-track,
+.frame-slider::-moz-range-track {
   height: 4px;
   background: var(--line);
   border-radius: 2px;
 }
 
-.slider input[type='range']::-webkit-slider-thumb {
+.slider input[type='range']::-webkit-slider-thumb,
+.frame-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 22px;
@@ -551,7 +555,8 @@ button:disabled {
   box-shadow: 0 0 0 1px var(--cyan);
 }
 
-.slider input[type='range']::-moz-range-thumb {
+.slider input[type='range']::-moz-range-thumb,
+.frame-slider::-moz-range-thumb {
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -1981,6 +1986,11 @@ button:disabled {
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 4px;
+}
+
+.frame-slider {
+  flex: 1;
+  min-width: 0;
 }
 
 .play-btn:hover {
