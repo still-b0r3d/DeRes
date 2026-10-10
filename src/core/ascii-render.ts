@@ -7,6 +7,21 @@ import { encodeRgbPng } from './png'
 export const ASCII_CELL_WIDTH = 8
 export const ASCII_CELL_HEIGHT = 16
 
+/** The size of the rendered picture (PNG, GIF, APNG) of art `columns` × `rows` cells at a multiplier. */
+export function asciiImageSize(columns: number, rows: number, multiplier: number): [number, number] {
+  const m = Math.max(1, Math.floor(multiplier))
+  return [columns * ASCII_CELL_WIDTH * m, rows * ASCII_CELL_HEIGHT * m]
+}
+
+/**
+ * Whether the rendered picture is drawn with the font (on a canvas, see
+ * renderAsciiToCanvas); half-block art is plain pixels (asciiPixels), so it
+ * can be made anywhere.
+ */
+export function drawnWithFont(result: AsciiResult): boolean {
+  return result.settings.mode !== 'half-block'
+}
+
 /**
  * Renders half-block or Teletext mosaic art directly to PNG using pixel drawing.
  */
@@ -14,15 +29,29 @@ export async function renderHalfBlockPng(
   result: AsciiResult,
   multiplier = 1
 ): Promise<{ png: Uint8Array<ArrayBuffer>; width: number; height: number }> {
+  const [outW, outH] = asciiImageSize(result.width, result.height, multiplier)
+  const png = await encodeRgbPng(outW, outH, pixelRow(result, multiplier))
+  return { png, width: outW, height: outH }
+}
+
+/** Half-block or Teletext mosaic art as r, g, b pixels: the same as its PNG (one frame of a GIF or APNG). */
+export function asciiPixels(result: AsciiResult, multiplier = 1): Uint8Array {
+  const [w, h] = asciiImageSize(result.width, result.height, multiplier)
+  const rgb = new Uint8Array(w * h * 3)
+  const row = pixelRow(result, multiplier)
+  for (let y = 0; y < h; y++) row(y, rgb.subarray(y * w * 3, (y + 1) * w * 3))
+  return rgb
+}
+
+/** Fills one row of the pixel-drawn picture (r, g, b). */
+function pixelRow(result: AsciiResult, multiplier: number): (y: number, out: Uint8Array) => void {
   const m = Math.max(1, Math.floor(multiplier))
   const cellW = ASCII_CELL_WIDTH * m
   const cellH = ASCII_CELL_HEIGHT * m
   const halfH = cellH / 2
-
   const outW = result.width * cellW
-  const outH = result.height * cellH
 
-  const png = await encodeRgbPng(outW, outH, (y, out) => {
+  return (y, out) => {
     const rowIdx = Math.floor(y / cellH)
     const row = result.cells[rowIdx]
     if (!row) return
@@ -71,9 +100,7 @@ export async function renderHalfBlockPng(
       out[x * 3 + 1] = rgb[1]
       out[x * 3 + 2] = rgb[2]
     }
-  })
-
-  return { png, width: outW, height: outH }
+  }
 }
 
 /**

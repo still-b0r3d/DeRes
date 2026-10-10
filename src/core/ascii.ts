@@ -904,50 +904,61 @@ function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-/**
- * Builds CP437 raw byte buffer with ANSI escapes and optional SAUCE record.
- */
-export function toAnsiBytes(result: AsciiResult, sauceInfo?: SauceInfo): Uint8Array {
-  const chunks: number[] = []
+/** A byte buffer that grows as it's written (a plain number[] costs 8 bytes a byte). */
+class ByteBuffer {
+  private buf = new Uint8Array(1 << 14)
+  length = 0
 
-  let lastFg = -1
-  let lastBg = -1
-
-  for (const row of result.cells) {
-    for (const cell of row) {
-      if (cell.fgAnsi !== undefined && cell.bgAnsi !== undefined) {
-        if (cell.fgAnsi !== lastFg || cell.bgAnsi !== lastBg) {
-          const fgCode = cell.fgAnsi >= 8 ? `1;3${ANSI_TO_DOS_CODE[cell.fgAnsi - 8]}` : `0;3${ANSI_TO_DOS_CODE[cell.fgAnsi]}`
-          const bgCode = `4${ANSI_TO_DOS_CODE[cell.bgAnsi % 8]}`
-          const escStr = `\x1b[${fgCode};${bgCode}m`
-          for (let i = 0; i < escStr.length; i++) chunks.push(escStr.charCodeAt(i))
-          lastFg = cell.fgAnsi
-          lastBg = cell.bgAnsi
-        }
-      }
-
-      // Convert character to CP437 byte
-      let byte = CP437_BYTE_MAP[cell.char]
-      if (byte === undefined) {
-        const code = cell.char.charCodeAt(0)
-        byte = code >= 32 && code <= 126 ? code : 0x20
-      }
-      chunks.push(byte)
+  push(b: number): void {
+    if (this.length === this.buf.length) {
+      const bigger = new Uint8Array(this.buf.length * 2)
+      bigger.set(this.buf)
+      this.buf = bigger
     }
-
-    // Line break in DOS ANSI is \r\n
-    chunks.push(0x0d, 0x0a)
-    lastFg = -1
-    lastBg = -1
+    this.buf[this.length++] = b
   }
 
-  // End with reset
-  const resetStr = '\x1b[0m'
-  for (let i = 0; i < resetStr.length; i++) chunks.push(resetStr.charCodeAt(i))
+  /** Plain ASCII text (escape codes). */
+  text(s: string): void {
+    for (let i = 0; i < s.length; i++) this.push(s.charCodeAt(i))
+  }
 
-  const rawBytes = new Uint8Array(chunks)
+  bytes(): Uint8Array {
+    return this.buf.slice(0, this.length)
+  }
+}
 
-  const meta: SauceInfo = {
+/**
+ * One row of the art as .ans bytes: CP437 characters, with an ANSI colour
+ * code wherever the colours change (and at the start of the row).
+ */
+function writeAnsiRow(row: readonly AsciiCell[], out: ByteBuffer): void {
+  let lastFg = -1
+  let lastBg = -1
+  for (const cell of row) {
+    if (cell.fgAnsi !== undefined && cell.bgAnsi !== undefined) {
+      if (cell.fgAnsi !== lastFg || cell.bgAnsi !== lastBg) {
+        const fgCode = cell.fgAnsi >= 8 ? `1;3${ANSI_TO_DOS_CODE[cell.fgAnsi - 8]}` : `0;3${ANSI_TO_DOS_CODE[cell.fgAnsi]}`
+        const bgCode = `4${ANSI_TO_DOS_CODE[cell.bgAnsi % 8]}`
+        out.text(`\x1b[${fgCode};${bgCode}m`)
+        lastFg = cell.fgAnsi
+        lastBg = cell.bgAnsi
+      }
+    }
+
+    // Convert character to CP437 byte
+    let byte = CP437_BYTE_MAP[cell.char]
+    if (byte === undefined) {
+      const code = cell.char.charCodeAt(0)
+      byte = code >= 32 && code <= 126 ? code : 0x20
+    }
+    out.push(byte)
+  }
+}
+
+/** The SAUCE record's fields for art of this size (the visitor made it, so no author unless given). */
+function ansiSauce(result: AsciiResult, sauceInfo?: SauceInfo): SauceInfo {
+  return {
     title: sauceInfo?.title ?? 'B0r3d ANSI Art',
     author: sauceInfo?.author ?? '',
     group: sauceInfo?.group ?? 'b0r3d.org',
@@ -956,8 +967,64 @@ export function toAnsiBytes(result: AsciiResult, sauceInfo?: SauceInfo): Uint8Ar
     fontName: 'IBM VGA',
     ...sauceInfo
   }
+}
 
-  return attachSauce(rawBytes, meta)
+/**
+ * Builds CP437 raw byte buffer with ANSI escapes and optional SAUCE record.
+ */
+export function toAnsiBytes(result: AsciiResult, sauceInfo?: SauceInfo): Uint8Array {
+  const out = new ByteBuffer()
+  for (const row of result.cells) {
+    writeAnsiRow(row, out)
+    // Line break in DOS ANSI is \r\n
+    out.text('\r\n')
+  }
+  // End with reset
+  out.text('\x1b[0m')
+  return attachSauce(out.bytes(), ansiSauce(result, sauceInfo))
+}
+
+/** Puts the cursor top left: every frame of an ANSImation starts with it. */
+export const ANSI_HOME = '\x1b[H'
+
+/**
+ * An ANSImation (.ans): frames of the same size, each drawn over the last.
+ * The screen is cleared once, at the start; every frame then begins with
+ * cursor-home and is drawn in place, with no clear in between, so it doesn't
+ * flicker. Rows after the first start with the cursor put at their line
+ * (ESC[row;1H) instead of following a CR LF: a row as wide as the screen
+ * wraps the cursor by itself in some viewers, and a CR LF after it would
+ * then skip a line and scroll the picture. A .ans has no timing: it plays as
+ * fast as the viewer (or the modem) sends it. One SAUCE record at the end
+ * gives one frame's size.
+ */
+export class AnsimationWriter {
+  private readonly out = new ByteBuffer()
+  private first: AsciiResult | null = null
+  frames = 0
+
+  constructor() {
+    this.out.text('\x1b[0m\x1b[2J')
+  }
+
+  add(result: AsciiResult): void {
+    if (this.first && (result.width !== this.first.width || result.height !== this.first.height)) {
+      throw new Error('Every frame of an ANSImation has to be the same size.')
+    }
+    this.first ??= result
+    result.cells.forEach((row, r) => {
+      this.out.text(r === 0 ? ANSI_HOME : `\x1b[${r + 1};1H`)
+      writeAnsiRow(row, this.out)
+    })
+    this.frames++
+  }
+
+  /** The whole file, with its SAUCE record. */
+  finish(sauceInfo?: SauceInfo): Uint8Array {
+    if (!this.first) throw new Error('An ANSImation needs at least one frame.')
+    this.out.text('\x1b[0m')
+    return attachSauce(this.out.bytes(), ansiSauce(this.first, sauceInfo))
+  }
 }
 
 /**
