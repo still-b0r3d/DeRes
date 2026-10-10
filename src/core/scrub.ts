@@ -8,8 +8,8 @@
 //   No orientation is kept for WebP: Chromium 147 and WebKit 26.4 both ignore
 //   the EXIF Orientation of a WebP (checked 2026-10-07), so it changes nothing.
 // - Strips comments, XMP, plain text and other application blocks from GIF,
-//   keeping the colour tables, loop block, frame timing and image data
-//   byte for byte; truncates after the end marker.
+//   keeping the colour tables, loop block, frame timing, image data and
+//   colour profile byte for byte; truncates after the end marker.
 // - Zero network requests, 100% in-browser client-side execution.
 
 import { crc32 } from './png'
@@ -652,11 +652,11 @@ export function scrubWebp(data: Uint8Array): Uint8Array {
 
 /**
  * Strips metadata from a GIF at the byte level. "Remove everything" keeps the
- * header, colour tables, loop block, graphic control blocks and image data
- * exactly as they were, and drops comments, XMP, plain text and every other
- * application block (a colour profile among them). "Location only" drops just
- * the XMP blocks that say where the picture was taken. Anything after the end
- * marker, or from damage on, is cut.
+ * header, colour tables, loop block, graphic control blocks, image data and
+ * the colour profile exactly as they were, and drops comments, XMP, plain
+ * text and every other application block. "Location only" drops just the XMP
+ * blocks that say where the picture was taken. Anything after the end marker,
+ * or from damage on, is cut.
  */
 export function scrubGif(data: Uint8Array, options?: ScrubOptions): Uint8Array {
   if (detectFormat(data) !== 'gif') throw new Error('Not a valid GIF image: signature mismatch')
@@ -705,7 +705,7 @@ export function scrubGif(data: Uint8Array, options?: ScrubOptions): Uint8Array {
       keep = !(all && nextDrawn(end) === 'text')
     } else if (label === 0xff && data[p + 2] === 11) {
       const name = String.fromCharCode(...data.subarray(p + 3, p + 14))
-      if (GIF_LOOP_APPS.includes(name)) keep = true
+      if (GIF_LOOP_APPS.includes(name) || name.startsWith('ICCRGBG1')) keep = true
       else if (name === GIF_XMP_APP) keep = !all && !xmpHasLocation(gifXmpText(data, p, end))
       else keep = !all
     } else {

@@ -54,14 +54,14 @@ test('the scrubber reads a GIF: frames, loop, comment and the location in its XM
   await expect(table).toContainText('ICCRGBG1012')
 })
 
-test('Remove everything: a clean GIF with every frame as it was', async ({ page }) => {
+test('Remove everything: a clean GIF with every frame as it was, and its colour profile', async ({ page }) => {
   await openGif(page)
   const { download: d, bytes } = await download(page, page.getByTestId('scrub-download-btn'))
   expect(d.suggestedFilename()).toBe('tagged-clean.gif')
   await expect(page.getByTestId('scrub-check-badge')).toHaveText('✓ Verified Clean')
   const meta = inspectMetadata(bytes)
   expect(meta.format).toBe('gif')
-  expect([meta.rawTagCount, meta.gif?.comments, meta.hasIccProfile, meta.gps]).toEqual([0, 0, false, undefined])
+  expect([meta.rawTagCount, meta.gif?.comments, meta.hasIccProfile, meta.gps]).toEqual([0, 0, true, undefined])
   expect(frames(bytes)).toEqual(frames(taggedGif()))
   // And the browser still opens it.
   const size = await page.evaluate(async (data) => {

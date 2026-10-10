@@ -2,8 +2,9 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { buildGif, gifApp, gifComment, gifPlainText, gifXmp, xmpPacket, type Block } from '../test/gif-builder'
-import { getMetadataNarrative, inspectMetadata, xmpGps, xmpHasLocation } from './exif'
+import { getMetadataNarrative, inspectMetadata, PNG_XMP_KEYWORD, xmpGps, xmpHasLocation } from './exif'
 import { decodeGifFrames } from './gif-decode'
+import { chunk, encodeRgbPng } from './png'
 import { scrubBatch, createScrubBatchItem, scrubImage } from './scrub'
 
 // GIFs in the EXIF tools: what the inspector reads, and what the scrubber
@@ -46,7 +47,8 @@ describe('GIF metadata', () => {
   it('reads comments, plain text, XMP and other application blocks, and the bytes after the end', () => {
     const meta = inspectMetadata(busyGif())
     expect(meta.gif).toMatchObject({ frames: 3, loopCount: 0, comments: 1 })
-    expect(meta.rawTagCount).toBe(5)
+    // The colour profile is part of the picture, not a field (the scrubber keeps it).
+    expect(meta.rawTagCount).toBe(4)
     expect(meta.trailerBytes).toBe(5)
     expect(meta.hasIccProfile).toBe(true)
     expect(meta.xmpText).toBe(CHICAGO)
@@ -93,7 +95,7 @@ describe('GIF metadata', () => {
 })
 
 describe('scrubbing a GIF', () => {
-  it('"Remove everything" drops every metadata block and keeps every frame exactly', () => {
+  it('"Remove everything" drops every metadata block, keeps the colour profile, and keeps every frame exactly', () => {
     const gif = busyGif()
     const res = scrubImage(gif, { mode: 'all' })
     expect(res.format).toBe('gif')
@@ -101,15 +103,15 @@ describe('scrubbing a GIF', () => {
     const after = inspectMetadata(res.data)
     expect(after.rawTagCount).toBe(0)
     expect(after.xmpText).toBeUndefined()
-    expect(after.hasIccProfile).toBe(false)
+    expect(after.hasIccProfile).toBe(true)
     expect(after.gps).toBeUndefined()
     expect(after.trailerBytes).toBe(0)
     expect(after.gif).toMatchObject({ frames: 3, loopCount: 0, comments: 0 })
     expect(res.report.isClean).toBe(true)
     expect(res.report.leftovers).toEqual([])
-    expect(res.report.summary).toContain('Kept: every frame, its timing and the loop.')
-    // What's left is what was there, byte for byte: header, table, loop block, frames, end.
-    const plain = buildGif({ width: 4, height: 3, globalTable: RGBK, loop: 0, blocks: [frame(0), frame(1), frame(2, { disposal: 2 })] })
+    expect(res.report.summary).toContain('Kept: every frame, its timing and the loop, colour profile.')
+    // What's left is what was there, byte for byte: header, table, loop block, frames, profile, end.
+    const plain = buildGif({ width: 4, height: 3, globalTable: RGBK, loop: 0, blocks: [frame(0), ICC, frame(1), frame(2, { disposal: 2 })] })
     expect([...res.data]).toEqual([...plain])
   })
 
@@ -151,5 +153,20 @@ describe('scrubbing a GIF', () => {
     const { zipEntries } = scrubBatch(items)
     expect(zipEntries.map((e) => e.name)).toEqual(['one-clean.gif', 'One-clean-2.gif'])
     expect(items.every((it) => it.status === 'scrubbed' && it.report?.isClean)).toBe(true)
+  })
+})
+
+describe('a location kept only in XMP', () => {
+  it('is found in other formats too (here a PNG), and the scrub removes it', async () => {
+    const png = await encodeRgbPng(4, 4, (_y, row) => row.fill(128))
+    const text = new TextEncoder().encode(`${PNG_XMP_KEYWORD}     ${CHICAGO}`)
+    const iend = png.length - 12
+    const tagged = Uint8Array.from([...png.subarray(0, iend), ...chunk('iTXt', text), ...png.subarray(iend)])
+    const meta = inspectMetadata(tagged)
+    expect(meta.gps?.latitude).toBeCloseTo(41.88, 6)
+    expect(getMetadataNarrative(meta)).toContain('at coordinates 41.880000, -87.630000')
+    const res = scrubImage(tagged, { mode: 'location_only' })
+    expect(inspectMetadata(res.data).gps).toBeUndefined()
+    expect(res.report.isClean).toBe(true)
   })
 })

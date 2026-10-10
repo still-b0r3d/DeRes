@@ -632,6 +632,9 @@ export function inspectMetadata(data: Uint8Array): ImageMetadata {
     inspectGif(data, meta)
   }
 
+  // A location kept only in XMP (no EXIF GPS) is still a location.
+  if (!meta.gps && meta.xmpText) meta.gps = xmpGps(meta.xmpText)
+
   const textBlocks: string[] = []
   if (meta.xmpText) textBlocks.push(meta.xmpText)
   if (meta.textChunks) {
@@ -1091,8 +1094,10 @@ function inspectGif(data: Uint8Array, meta: ImageMetadata): void {
         textRow(meta, 'XMP', 'XMP Metadata Packet', 'XMP', xmp, `${xmp.length.toLocaleString()} characters`)
       } else {
         const bytes = end - p
-        meta.rawTagCount++
+        // A colour profile is part of how the picture looks (kept by the
+        // scrubber, as in JPEG and PNG), so it doesn't count as a field.
         if (name.startsWith('ICCRGBG1')) meta.hasIccProfile = true
+        else meta.rawTagCount++
         const what = name.startsWith('ICCRGBG1')
           ? 'colour profile'
           : name.startsWith('MGK8BIM')
@@ -1113,7 +1118,6 @@ function inspectGif(data: Uint8Array, meta: ImageMetadata): void {
   meta.trailerBytes = n - Math.min(p, n)
   meta.gif = g
   if (texts.length > 0) meta.textChunks = { Comment: texts.join('\n') }
-  if (meta.xmpText) meta.gps = xmpGps(meta.xmpText)
   const loop = g.loopCount === null ? 'No loop block (plays once)' : g.loopCount === 0 ? 'Forever' : `${g.loopCount} more time${g.loopCount === 1 ? '' : 's'}`
   meta.allTags.unshift(
     { tagId: 0, tagHex: 'Version', name: 'GIF Version', category: 'GIF', rawValue: version, displayValue: version },
