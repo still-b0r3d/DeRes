@@ -7,7 +7,10 @@ import { defineConfig, devices } from '@playwright/test'
 //   pnpm test:e2e                      # Chromium
 //   pnpm test:e2e --project=webkit     # Safari's engine
 //   pnpm test:e2e --project=firefox
-const PORT = 5190
+//
+// E2E_PORT picks another port, so a second copy of the repository (a git
+// worktree) can run its own server instead of reusing the first one's.
+const PORT = Number(process.env.E2E_PORT ?? 5190)
 
 export default defineConfig({
   testDir: 'tests/e2e',
