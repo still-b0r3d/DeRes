@@ -1176,7 +1176,7 @@ export function startApp(): void {
 }
 
 /** Where the code lives (MIT, so anyone can read it and host a copy). */
-const SOURCE_URL = 'https://github.com/still-b0r3d/img.b0r3d.org'
+const SOURCE_URL = 'https://github.com/still-b0r3d/DeRes'
 
 function footer(): void {
   const version = import.meta.env.VITE_APP_VERSION || 'dev'

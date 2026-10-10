@@ -59,7 +59,7 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.9.1')
   await expect(page.getByTestId('app-version').getByRole('link', { name: 'Source' })).toHaveAttribute(
     'href',
-    'https://github.com/still-b0r3d/img.b0r3d.org'
+    'https://github.com/still-b0r3d/DeRes'
   )
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
