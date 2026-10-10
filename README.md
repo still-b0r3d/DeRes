@@ -14,11 +14,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.9.1 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v0.9.2 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.9.1)
+## What it does (v0.9.2)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try a sample: Rukus, who carries made-up,
@@ -35,11 +35,12 @@ images.
   info says "first 256 of 300 frames"). The first frame is the picture every
   control works on, and the picture info reads "58 frames · 3.9 s".
   - **Play / Pause** under the preview, with a slider to any frame (back to
-    the first in one move) and a frame counter. Each frame goes
-    through the current settings, Signal and screen effect included
-    ("Rendering 12 / 58…" on the first pass), then it loops at the GIF's own
-    speed until a setting changes. Paused, the frame on screen is the one the
-    PNG, wallpaper and emulator downloads use, and Compare shows that frame.
+    the first in one move) and a frame counter ("12 / 58": always the same
+    width, dimmed while the next frame is still being made). Each frame goes
+    through the current settings, Signal and screen effect included, then it
+    loops at the GIF's own speed until a setting changes. Paused, the frame on
+    screen is the one the PNG, wallpaper and emulator downloads use, and
+    Compare shows that frame.
   - **GIF frames** in the Animation choices (only while an animated GIF is
     open, and chosen then): the GIF or APNG download runs every frame through
     the pipeline and keeps the GIF's delays and loop count. The frames go into the
@@ -123,7 +124,7 @@ images.
   - **Clipboard copy:** one-click copy as raw text, GitHub Markdown, terminal ANSI escape codes, or formatted HTML `<pre>`.
   - **BBS `.ans` export:** native CP437 bytes with DOS ANSI escape sequences and 128-byte SAUCE metadata record (title, group `b0r3d.org`, date, dimensions; the author is left blank for the artist).
   - **Rendered PNG export:** crisp 1×, 2×, 4× image export rendered with the bundled CP437 font (pick the size, then download).
-  - **Animated GIFs:** a play bar under the art (Play / Pause, a frame slider,
+  - **Animated GIFs (v0.9.2):** a play bar under the art (Play / Pause, a frame slider,
     "12 / 58"), as in DeRes. The worker turns each frame into text art with the
     current settings and the page keeps them (14 bytes a cell), so after the
     first pass it loops at the GIF's own speed; only the rows that change are
@@ -131,7 +132,7 @@ images.
     uses, with "-frame12" in the file names past the first. The dial-up modem
     ("Dial up", "Redial") types out the frame on screen; it and the play bar
     never run at once.
-  - **Animated exports:** GIF and APNG of the rendered art, each frame the same
+  - **Animated exports (v0.9.2):** GIF and APNG of the rendered art, each frame the same
     pixels as its PNG, with the GIF's delays and loop count, through the
     streaming writers. When all the frames use 256 colours or fewer (ANSI 16,
     C64, Teletext, greys) the file is indexed with exactly those colours.
@@ -368,6 +369,7 @@ built from) and a link to this repository.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.9.2 | 2026-10-10 | Animated GIFs in the ASCII / ANSI studio: Play/Pause and a frame slider under the art, each frame through the current settings, looping from memory after the first pass; the paused frame is the one every copy and download uses ("-frame12" in the names), and DeRes and the studio open on each other's paused frame. New downloads: GIF and APNG of the rendered art (each frame the same pixels as its PNG, with the GIF's delays and loop count, dropping to the biggest size that fits an animation) and an ANSImation .ans (every frame drawn over the last, one SAUCE record). The modem's buttons are "Dial up", "Hang up" and "Redial", and it never types while the GIF plays. The studio's PNG size is picked first, then downloaded. Also includes what went live unversioned since 0.9.1: a slider to any frame in DeRes's play bar; GIF and APNG drop to the biggest Size that fits and say so; "GIF frames" takes any number of frames (past the memory budget a full-colour GIF is made in two passes, one shared palette); a steady play bar (the counter keeps its width and dims instead of saying "Rendering"), every frame kept so loops stay smooth, and room for the play bar on screen; share links go on the clipboard and leave the address bar alone. |
 | 0.9.1 | 2026-10-09 | GIFs across the tools, and Reset. Samples: Rukus, or a GIF of him breaking out of his hamster ball. Animated GIFs open with every frame (DeRes's own decoder, checked against the browser's pixel for pixel), held within the animation memory budget; Play/Pause in the preview, through every setting and the Signal (its noise at the GIF's own speed); "GIF frames" export to GIF or APNG with the GIF's delays and loop count, streamed frame by frame; the paused frame is the one the downloads use. EXIF tools: GIFs are inspected and scrubbed (frames kept byte for byte), and a location kept only in XMP is found in every format. "Reset settings" in DeRes and the ASCII studio. Saved ASCII settings are checked field by field; a change made just before leaving the page is still saved. |
 | 0.9.0 | 2026-10-09 | Signal: the picture through a real analog TV signal (the ntsc-rs engine, built to WebAssembly and loaded only when it's on). RF, composite and VHS SP/LP/EP plus each machine's own connection, a wear slider, colour, sharpening and the TV's decoder. Every machine goes out at its real pixel clock and line timing, so dithers blend or turn to rainbows as they did and 228-cycle machines keep their fringes still. CGA Composite gets its colours from the signal itself, dithered to the colours the signal really makes. PNG, wallpaper and animation exports keep it; loops get real moving noise, and the Screen FX loop can be 16, 32 or 48 frames at 15 or 30 fps. GIF encoding about 40% faster with far less memory on noisy loops. |
 | 0.8.5 | 2026-10-08 | Includes what went live unversioned earlier on 2026-10-08 (phone layout fix, All Tags list, AI markers, EXIF Injector tab, sample metadata), then fixes from its review. AI markers: Content Credentials alone are no longer called AI (cameras sign photos too) and are shown as a neutral note with who wrote them; AI-edited pictures, a PNG's XMP and prompts in PNG iTXt are found; WebP credentials are read and scrubbed. Injector: edits instead of replacing the whole EXIF (before, changing one field on a phone photo lost its rotation, camera and location), checks every value, says up front which formats it can't write, offers to remove a contradicting XMP block, updates the batch. All Tags: full values (every coordinate part, signed numbers, versions, comments), at most 2,000 tags listed and 500 shown. Sample: a real sRGB profile instead of an empty one, a white-background thumbnail, `pnpm sample` to rebuild it. A location preset tooltip reworded. |
