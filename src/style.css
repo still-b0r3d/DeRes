@@ -181,6 +181,14 @@ button:disabled {
   -webkit-touch-callout: none;
 }
 
+/* With an animated GIF open, the play bar (44 px) sits under the preview:
+   the preview gives up that much height, so the page's top, the preview and
+   the play bar all fit in the window together. */
+.deres-stage-slot:has(> .playbar:not([hidden])) .stage {
+  height: calc(100vh - 194px);
+  height: calc(100dvh - 194px);
+}
+
 .frame {
   position: relative;
   flex: none;
@@ -992,6 +1000,12 @@ button:disabled {
     height: 45svh;
     min-height: 220px;
     padding: 6px;
+  }
+
+  /* The pinned preview stays the same height with the play bar under it. */
+  .deres-stage-slot:has(> .playbar:not([hidden])) .stage {
+    height: calc(45vh - 44px);
+    height: calc(45svh - 44px);
   }
 
   .seg button {
@@ -1991,6 +2005,8 @@ button:disabled {
 .frame-slider {
   flex: 1;
   min-width: 0;
+  /* A sideways drag stays the slider's (a phone doesn't take it for a scroll). */
+  touch-action: pan-y;
 }
 
 .play-btn:hover {
@@ -2002,10 +2018,19 @@ button:disabled {
   border-color: var(--cyan);
 }
 
+/* Its width is set for the longest count, so the slider never changes size. */
 .frame-counter {
+  flex: none;
   font-family: var(--brand-font);
   font-size: 0.85rem;
   color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The next frame is still being made. */
+.frame-counter.waiting {
+  opacity: 0.45;
 }
 
 .seg.anim-styles button {

@@ -3,7 +3,7 @@ import { exportPng, exportWallpaper, wallpaperPresetById } from '../core/export'
 import { exportFilename } from '../core/filename'
 import { renderFxRgba } from '../core/fx'
 import { openAnimatedGif, type AnimatedGif } from '../core/gif-frames'
-import { colourTotal, Deres, exportSize, type DeresSettings, type Rendered } from '../core/pipeline'
+import { colourTotal, Deres, previewFxSize, type DeresSettings, type Rendered } from '../core/pipeline'
 import { profileById, type Profile } from '../core/profiles'
 import {
   artifactPalette,
@@ -129,18 +129,11 @@ async function renderView(settings: DeresSettings, fxScale: number, frame: numbe
   const s = await forRender(settings)
   const r = renderFor(s, frame)
   const shown = current
-  const rgba = new Uint8ClampedArray(r.width * r.height * 4)
-  for (let i = 0, n = r.width * r.height; i < n; i++) {
-    rgba[i * 4] = r.rgb[i * 3]
-    rgba[i * 4 + 1] = r.rgb[i * 3 + 1]
-    rgba[i * 4 + 2] = r.rgb[i * 3 + 2]
-    rgba[i * 4 + 3] = 255
-  }
   let fx: { width: number; height: number; rgba: ArrayBuffer } | null = null
   const sig = await signalFor(s, r, shown)
   const phase = phaseOf(shown)
   if ((s.fx.screen !== 'off' || sig) && fxScale > 0) {
-    const [fw, fh] = exportSize(r.width, r.height, r.geometry.par, fxScale, s.pixelShape === 'tv')
+    const [fw, fh] = previewFxSize(r.width, r.height, r.geometry.par, fxScale, s.pixelShape === 'tv')
     let img: Uint8ClampedArray
     if (sig) {
       // The signal shown at the preview's size, through the screen effect if there is one.
@@ -161,15 +154,25 @@ async function renderView(settings: DeresSettings, fxScale: number, frame: numbe
     }
     fx = { width: fw, height: fh, rgba: img.buffer as ArrayBuffer }
   }
-  const transfer: Transferable[] = [rgba.buffer]
-  if (fx) transfer.push(fx.rgba)
+  // The picture at its own size, only when it's what the preview shows.
+  let rgba: Uint8ClampedArray | null = null
+  if (!fx) {
+    rgba = new Uint8ClampedArray(r.width * r.height * 4)
+    for (let i = 0, n = r.width * r.height; i < n; i++) {
+      rgba[i * 4] = r.rgb[i * 3]
+      rgba[i * 4 + 1] = r.rgb[i * 3 + 1]
+      rgba[i * 4 + 2] = r.rgb[i * 3 + 2]
+      rgba[i * 4 + 3] = 255
+    }
+  }
+  const transfer: Transferable[] = [fx ? fx.rgba : rgba!.buffer]
   const prof = profileById(settings.profileId)
   return {
     view: {
       frame: shown,
       width: r.width,
       height: r.height,
-      rgba: rgba.buffer,
+      rgba: rgba ? (rgba.buffer as ArrayBuffer) : null,
       fx,
       used: r.used,
       colours: prof ? colourTotal(prof, r.palette) : r.palette.length / 3,

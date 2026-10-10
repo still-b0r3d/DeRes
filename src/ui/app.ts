@@ -19,7 +19,7 @@ import { baseName } from '../core/filename'
 import { planGeometry, type Geometry } from '../core/geometry'
 import { gifFrameCount } from '../core/gif-info'
 import { exportPaletteHex, parsePalettePng, parsePaletteText } from '../core/palette-file'
-import { colourCount, type DeresSettings } from '../core/pipeline'
+import { colourCount, previewFxSize, type DeresSettings } from '../core/pipeline'
 import { PROFILES, profileById } from '../core/profiles'
 import type { DitherId } from '../core/dither'
 import { quantizeRgb } from '../core/quantize'
@@ -34,7 +34,6 @@ import {
 } from '../core/scrub'
 import { createZip } from '../core/zip'
 import { injectExif } from '../core/inject'
-import { MAX_ANIMATION_BUDGET } from '../core/animate'
 import type { RenderedView } from '../worker/protocol'
 import { buildAsciiControls } from './ascii-controls'
 import { AsciiStage } from './ascii-stage'
@@ -54,7 +53,7 @@ import {
   type WorkingCopy
 } from './loader'
 import { DEFAULT_SAMPLE, sampleById } from './samples'
-import { Player } from './player'
+import { Player, playScale } from './player'
 import { defaultSettings, loadSettings, saveSettings, settingsFromHash, type Settings } from './settings'
 import { Stage } from './stage'
 
@@ -355,13 +354,9 @@ export function startApp(): void {
     const g = geometry()
     if (!g || !shownLarger()) return 0
     const tv = settings.pixelShape === 'tv'
-    let s = stage.fxScaleFor(g.width, g.height, g.par, tv)
+    const s = stage.fxScaleFor(g.width, g.height, g.par, tv)
     const frames = picture?.animation?.frames ?? 1
-    if (playing && frames > 1) {
-      const ratio = tv ? g.par[0] / g.par[1] : 1
-      while (s > 2 && g.width * s * ratio * g.height * s * frames > MAX_ANIMATION_BUDGET) s--
-    }
-    return s
+    return playing && frames > 1 ? playScale(s, frames, (k) => previewFxSize(g.width, g.height, g.par, k, tv)) : s
   }
 
   // What the played frames were made with: when it changes, they're dropped.
@@ -818,9 +813,12 @@ export function startApp(): void {
   scrubControls.sync()
   injectControls.sync()
 
-  // A render asked for before playback started is old news once it has.
+  // A render asked for before playback started is old news once it has, and
+  // so is one of a frame the slider has since moved off. While the slider is
+  // held, it shows only frames at the playing size (the full-size one is
+  // made when it's let go).
   engine.onRendered = (m) => {
-    if (!player.playing) showResult(m)
+    if (!player.playing && !player.holding && m.frame === player.frame) showResult(m)
   }
 
   function showResult(m: RenderedView): void {

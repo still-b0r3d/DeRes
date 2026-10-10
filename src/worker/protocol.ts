@@ -103,8 +103,8 @@ export interface RenderedView {
   frame: number
   width: number
   height: number
-  /** The picture at its real size, r, g, b, a per pixel. */
-  rgba: ArrayBuffer
+  /** The picture at its real size, r, g, b, a per pixel; null when fx is there (the preview shows only that). */
+  rgba: ArrayBuffer | null
   fx: { width: number; height: number; rgba: ArrayBuffer } | null
   used: number
   /** How many colours the machine's list holds; null when it has no list. */

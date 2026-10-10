@@ -31,7 +31,7 @@ async function resultPixels(page: Page): Promise<string> {
   })
 }
 
-/** The frame the counter shows (from 1), or null while it says "Rendering". */
+/** The frame the counter shows (from 1). */
 async function shownFrame(page: Page): Promise<number | null> {
   const m = /^(\d+) \/ 58$/.exec((await counter(page).textContent()) ?? '')
   return m ? Number(m[1]) : null
@@ -126,19 +126,126 @@ test('a settings change drops the frames made so far; an export setting doesn’
   await expect(readout(page)).toContainText('256×240')
 })
 
-test('the first pass says which frame it is rendering', async ({ page }) => {
+test('while a frame is still being made the counter dims, and the slider never changes width', async ({ page }) => {
   await openSample(page)
   // The signal makes each frame slow enough to catch it.
   await page.locator('details.sec > summary', { hasText: /^Signal$/ }).click()
   await page.locator('.seg[aria-label="Signal"] button', { hasText: 'VHS EP' }).click()
   await ready(page)
-  const seen = new Set<string>()
+  // Every change of the counter, with the slider's width at that moment.
+  await page.evaluate(() => {
+    const seen: [string, boolean, number][] = []
+    ;(window as unknown as { seen: typeof seen }).seen = seen
+    const c = document.querySelector('.frame-counter')!
+    const s = document.querySelector('.frame-slider')!
+    new MutationObserver(() => seen.push([c.textContent ?? '', c.classList.contains('waiting'), s.getBoundingClientRect().width])).observe(c, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributes: true
+    })
+  })
   await page.getByTestId('play').click()
-  for (let i = 0; i < 60 && (await playbar(page).getAttribute('data-cached')) !== '58'; i++) {
-    seen.add((await counter(page).textContent()) ?? '')
-    await page.waitForTimeout(20)
+  await expect(playbar(page)).toHaveAttribute('data-cached', '58', { timeout: 30_000 })
+  await page.waitForTimeout(1500)
+  const seen = await page.evaluate(() => (window as unknown as { seen: [string, boolean, number][] }).seen)
+  expect(seen.length).toBeGreaterThan(20)
+  expect(seen.some(([, waiting]) => waiting)).toBe(true)
+  expect(seen.every(([text]) => /^\d+ \/ 58$/.test(text))).toBe(true)
+  expect([...new Set(seen.map(([, , w]) => w))]).toHaveLength(1)
+})
+
+test('held, the slider shows the frames already made, and the sharp one comes once it’s let go', async ({ page }) => {
+  await openSample(page)
+  await page.locator('summary', { hasText: 'Screen' }).click()
+  await page.locator('.seg[aria-label="Screen effect"] button[data-value="crt"]').click()
+  const shown = () =>
+    page.evaluate(() => {
+      const c = document.querySelector<HTMLCanvasElement>('canvas.result')!
+      return `${c.width}x${c.height}`
+    })
+  await expect.poll(shown).not.toBe('160x144')
+  await ready(page)
+  // Every picture the preview draws, by size.
+  await page.evaluate(() => {
+    const drawn: string[] = []
+    ;(window as unknown as { drawn: string[] }).drawn = drawn
+    const proto = CanvasRenderingContext2D.prototype as unknown as { putImageData: (this: CanvasRenderingContext2D, img: ImageData, ...rest: number[]) => void }
+    const put = proto.putImageData
+    proto.putImageData = function (img, ...rest) {
+      if (this.canvas.classList.contains('result')) drawn.push(`${img.width}x${img.height}`)
+      put.call(this, img, ...rest)
+    }
+  })
+  const drawn = () => page.evaluate(() => (window as unknown as { drawn: string[] }).drawn.splice(0))
+  const slider = page.getByTestId('frame-slider')
+  const box = (await slider.boundingBox())!
+  const drag = async () => {
+    await page.mouse.move(box.x + 11, box.y + box.height / 2)
+    await page.mouse.down()
+    for (let i = 1; i <= 20; i++) {
+      await page.mouse.move(box.x + 11 + ((box.width - 22) * i) / 20, box.y + box.height / 2)
+      await page.waitForTimeout(40)
+    }
   }
-  expect([...seen].some((t) => /^Rendering \d+ \/ 58…$/.test(t))).toBe(true)
+
+  // Never played: frames are made at the playing size as the slider passes them.
+  await drawn()
+  await drag()
+  await page.waitForTimeout(500)
+  const first = await drawn()
+  expect(first.length).toBeGreaterThan(0)
+  expect([...new Set(first)], JSON.stringify(first)).toHaveLength(1)
+  await page.mouse.up()
+  await ready(page)
+  await expect(counter(page)).toHaveText('58 / 58')
+
+  // Played once, then paused: the drag shows only kept frames, all one size,
+  // and the full-size frame comes after.
+  await page.getByTestId('play').click()
+  await expect(playbar(page)).toHaveAttribute('data-cached', '58', { timeout: 30_000 })
+  await page.getByTestId('play').click()
+  await ready(page)
+  await drawn()
+  await drag()
+  const held = await drawn()
+  expect(held.length).toBeGreaterThan(10)
+  expect([...new Set(held)], JSON.stringify(held)).toHaveLength(1)
+  await page.mouse.up()
+  await expect.poll(shown).not.toBe(held[0])
+  await ready(page)
+})
+
+test('on a 320×240 machine with a screen effect, every frame is kept, so it loops smoothly', async ({ page }) => {
+  await openSample(page)
+  await page.locator('.card[data-profile="vhs"]').click()
+  await ready(page, '320×240')
+  await page.getByTestId('play').click()
+  // Before, only 43 of the 58 fitted and the rest were made again on every pass.
+  await expect(playbar(page)).toHaveAttribute('data-cached', '58', { timeout: 30_000 })
+  // Playing a little under 2×, all in memory.
+  const size = await page.evaluate(() => {
+    const c = document.querySelector<HTMLCanvasElement>('canvas.result')!
+    return [c.width, c.height]
+  })
+  expect(size).toEqual([608, 456])
+})
+
+test('the play bar fits in the window with the top of the page, and the pinned phone preview stays its size', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 })
+  await openSample(page)
+  const bottom = await page.evaluate(() => document.querySelector('.playbar')!.getBoundingClientRect().bottom)
+  expect(bottom).toBeLessThanOrEqual(768)
+
+  // On a phone, the pinned part (preview, play bar, readout) is as tall as with a still.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const pinned = () => page.evaluate(() => Math.round(document.querySelector('.stage-col')!.getBoundingClientRect().height))
+  const withGif = await pinned()
+  await page.locator('[data-sample="rukus"]').first().click()
+  await ready(page)
+  await expect(playbar(page)).toBeHidden()
+  expect(Math.abs((await pinned()) - withGif)).toBeLessThanOrEqual(2)
 })
 
 test('paused, the downloads use the frame on screen', async ({ page }) => {

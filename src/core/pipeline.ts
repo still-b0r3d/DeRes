@@ -719,5 +719,17 @@ export function exportSize(
   return [w, height * multiplier]
 }
 
+/** The screen-effect preview's size at an enlargement, which can be in between whole sizes (while a GIF plays). */
+export function previewFxSize(
+  width: number,
+  height: number,
+  par: readonly [number, number],
+  scale: number,
+  tv: boolean
+): [number, number] {
+  const [w, h] = exportSize(width, height, par, scale, tv)
+  return [Math.round(w), Math.round(h)]
+}
+
 /** Exports above this many pixels are refused (phones can't hold them). */
 export const MAX_EXPORT_PIXELS = 4096 * 4096

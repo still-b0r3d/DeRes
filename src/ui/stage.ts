@@ -9,7 +9,8 @@ import { h, show } from './dom'
 export interface View {
   width: number
   height: number
-  rgba: ArrayBuffer
+  /** Null when fx is there: only that is drawn. */
+  rgba: ArrayBuffer | null
   fx: { width: number; height: number; rgba: ArrayBuffer } | null
   par: readonly [number, number]
   src: Rect
@@ -114,10 +115,11 @@ export class Stage {
 
   /** Shows a result. `background` is what transparent parts of the original sit on. */
   show(view: View, tv: boolean, background: string): void {
+    const img = view.fx ?? (view.rgba ? { width: view.width, height: view.height, rgba: view.rgba } : null)
+    if (!img) return
     this.view = view
     this.tv = tv
     this.background = background
-    const img = view.fx ?? view
     if (this.result.width !== img.width || this.result.height !== img.height) {
       this.result.width = img.width
       this.result.height = img.height
