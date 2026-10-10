@@ -4,6 +4,8 @@
 // doesn't. When an axis is enlarged instead, the window is one source pixel
 // wide, which is the same as linear interpolation.
 
+import { BYTE_TO_LINEAR, linearToByte } from './color'
+
 export interface Rect {
   x: number
   y: number
@@ -122,6 +124,59 @@ export function resampleArea(
       const s = (yw.src[j] - yw.min) * span
       const w = yw.weight[j]
       for (let k = 0; k < span; k++) out[o + k] += tmp[s + k] * w
+    }
+  }
+  return out
+}
+
+/**
+ * Shrinks an sRGB picture (r, g, b, a bytes per pixel) to `dw`×`dh` by area
+ * average in linear light, transparency included (premultiplied, so a
+ * transparent pixel's colour can't bleed in). It works a row at a time, so a
+ * big frame never becomes a float copy of itself. Returns a new buffer; the
+ * same size makes a plain copy.
+ */
+export function shrinkRgba(src: Uint8Array | Uint8ClampedArray, sw: number, sh: number, dw: number, dh: number): Uint8ClampedArray {
+  if (dw === sw && dh === sh) return Uint8ClampedArray.from(src)
+  const xw = axisWeights(sw, 0, sw, dw)
+  const yw = axisWeights(sh, 0, sh, dh)
+  const out = new Uint8ClampedArray(dw * dh * 4)
+  const sum = new Float32Array(dw * 4)
+  const across = new Float32Array(dw * 4)
+  const { start, src: xs, weight: xws } = xw
+  for (let y = 0; y < dh; y++) {
+    sum.fill(0)
+    for (let j = yw.start[y]; j < yw.start[y + 1]; j++) {
+      // One source row, shrunk across.
+      const rowBase = yw.src[j] * sw
+      for (let i = 0, o = 0; i < dw; i++, o += 4) {
+        let r = 0
+        let g = 0
+        let b = 0
+        let a = 0
+        for (let k = start[i], end = start[i + 1]; k < end; k++) {
+          const s = (rowBase + xs[k]) << 2
+          const alpha = (src[s + 3] / 255) * xws[k]
+          r += BYTE_TO_LINEAR[src[s]] * alpha
+          g += BYTE_TO_LINEAR[src[s + 1]] * alpha
+          b += BYTE_TO_LINEAR[src[s + 2]] * alpha
+          a += alpha
+        }
+        across[o] = r
+        across[o + 1] = g
+        across[o + 2] = b
+        across[o + 3] = a
+      }
+      const w = yw.weight[j]
+      for (let k = 0; k < sum.length; k++) sum[k] += across[k] * w
+    }
+    for (let i = 0, o = y * dw * 4; i < dw; i++, o += 4) {
+      const a = sum[i * 4 + 3]
+      if (a <= 0) continue
+      out[o] = linearToByte(sum[i * 4] / a)
+      out[o + 1] = linearToByte(sum[i * 4 + 1] / a)
+      out[o + 2] = linearToByte(sum[i * 4 + 2] / a)
+      out[o + 3] = Math.round(a * 255)
     }
   }
   return out

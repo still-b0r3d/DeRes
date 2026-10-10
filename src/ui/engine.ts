@@ -1,5 +1,5 @@
 import type { DeresSettings } from '../core/pipeline'
-import type { FromWorker, RenderedMessage, ToWorker } from '../worker/protocol'
+import type { FromWorker, LoadedGif, RenderedMessage, ToWorker } from '../worker/protocol'
 import type { WorkingCopy } from './loader'
 
 // The page's side of the image worker. Rendering is "latest wins": one job in
@@ -20,6 +20,7 @@ export class Engine {
   private exportId = 0
   private readonly exports = new Map<number, { resolve: (v: ExportResult) => void; reject: (e: Error) => void }>()
   private loading: ((hasAlpha: boolean) => void) | null = null
+  private loadingGif: ((gif: LoadedGif | null) => void) | null = null
 
   onRendered: (r: RenderedMessage) => void = () => {}
   onError: (message: string) => void = () => {}
@@ -38,6 +39,8 @@ export class Engine {
     this.gen++
     this.queued = null
     this.busy = false
+    this.loadingGif?.(null)
+    this.loadingGif = null
     const rgba = copy.rgba.slice().buffer as ArrayBuffer
     this.post(
       {
@@ -52,6 +55,21 @@ export class Engine {
       [rgba]
     )
     return new Promise((resolve) => (this.loading = resolve))
+  }
+
+  /**
+   * Hands an animated GIF's bytes to the worker, which decodes every frame
+   * and keeps them. Resolves with frame 0 and the timing, or null when it
+   * doesn't open as an animation (then load() it as a still).
+   */
+  loadGif(bytes: Uint8Array, maxEdge: number): Promise<LoadedGif | null> {
+    this.gen++
+    this.queued = null
+    this.busy = false
+    this.loadingGif?.(null)
+    const copy = bytes.slice().buffer as ArrayBuffer
+    this.post({ type: 'load-gif', gen: this.gen, bytes: copy, maxEdge }, [copy])
+    return new Promise((resolve) => (this.loadingGif = resolve))
   }
 
   render(req: RenderRequest): void {
@@ -139,6 +157,12 @@ export class Engine {
         if (msg.gen === this.gen) {
           this.loading?.(msg.hasAlpha)
           this.loading = null
+        }
+        return
+      case 'loaded-gif':
+        if (msg.gen === this.gen) {
+          this.loadingGif?.(msg.gif)
+          this.loadingGif = null
         }
         return
       case 'rendered':

@@ -2,6 +2,7 @@ import { NEUTRAL } from '../core/adjust'
 import { DITHERS } from '../core/dither'
 import { FX_MIN_MULTIPLIER } from '../core/export'
 import type { Geometry } from '../core/geometry'
+import { framesText } from '../core/gif-info'
 import { MAX_ANIMATION_BUDGET, MAX_ANIMATION_PIXELS } from '../core/animate'
 import { colourCount, ditherApplies, ditherNote, exportSize, MAX_EXPORT_PIXELS, maxColourCount, paletteBytes } from '../core/pipeline'
 import { PROFILES, profileById, representativePalette } from '../core/profiles'
@@ -38,7 +39,16 @@ export interface ControlsContext {
   grabPalette(): void
   shareLink(): void
   /** What's loaded, or null. */
-  picture(): { name: string; origW: number; origH: number; hasAlpha: boolean; frames: number } | null
+  picture(): {
+    name: string
+    origW: number
+    origH: number
+    hasAlpha: boolean
+    /** Images in the file (a GIF can hold many). */
+    frames: number
+    /** An animated GIF; null for a still (or a GIF opened as one). */
+    animation: { frames: number; total: number; durationMs: number } | null
+  } | null
   geometry(): Geometry | null
 }
 
@@ -575,7 +585,7 @@ export function buildControls(ctx: ControlsContext): {
     const g = ctx.geometry()
 
     pictureInfo.textContent = pic
-      ? `${pic.name} · ${pic.origW}×${pic.origH}${pic.frames > 1 ? ` · first of ${pic.frames} frames` : ''}`
+      ? [`${pic.name} · ${pic.origW}×${pic.origH}`, framesText(pic.frames, pic.animation)].filter(Boolean).join(' · ')
       : 'No picture yet'
     resolution.set(s.resolution)
     const native = resolution.buttons.get('native')!

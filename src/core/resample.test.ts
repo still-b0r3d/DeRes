@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resampleArea } from './resample'
+import { resampleArea, shrinkRgba } from './resample'
 
 /** A one-channel image from rows of numbers. */
 const img = (rows: number[][]) => Float32Array.from(rows.flat())
@@ -56,5 +56,34 @@ describe('area-average resampling', () => {
     const src = Float32Array.from([1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1])
     const out = resampleArea(src, 2, 2, { x: 0, y: 0, w: 2, h: 2 }, 1, 1, 4)
     expect([...out]).toEqual([0.5, 0.5, 0.5, 1])
+  })
+})
+
+describe('shrinkRgba', () => {
+  const px = (r: number, g: number, b: number, a: number) => [r, g, b, a]
+
+  it('copies a picture that is already the size', () => {
+    const src = Uint8ClampedArray.from([...px(1, 2, 3, 255), ...px(4, 5, 6, 0)])
+    const out = shrinkRgba(src, 2, 1, 2, 1)
+    expect([...out]).toEqual([...src])
+    expect(out).not.toBe(src)
+  })
+
+  it('keeps a flat colour flat', () => {
+    const src = new Uint8ClampedArray(9 * 7 * 4)
+    for (let i = 0; i < 63; i++) src.set(px(200, 100, 50, 255), i * 4)
+    const out = shrinkRgba(src, 9, 7, 4, 3)
+    for (let i = 0; i < 12; i++) expect([...out.subarray(i * 4, i * 4 + 4)]).toEqual([200, 100, 50, 255])
+  })
+
+  it('averages in linear light', () => {
+    const out = shrinkRgba(Uint8ClampedArray.from([...px(0, 0, 0, 255), ...px(255, 255, 255, 255)]), 2, 1, 1, 1)
+    expect([...out]).toEqual([188, 188, 188, 255])
+  })
+
+  it('lets no colour in from transparent pixels', () => {
+    const src = Uint8ClampedArray.from([...px(255, 255, 255, 255), ...px(0, 0, 0, 0), ...px(255, 255, 255, 255), ...px(0, 0, 0, 0)])
+    expect([...shrinkRgba(src, 2, 2, 1, 1)]).toEqual([255, 255, 255, 128])
+    expect([...shrinkRgba(new Uint8ClampedArray(16), 2, 2, 1, 1)]).toEqual([0, 0, 0, 0])
   })
 })

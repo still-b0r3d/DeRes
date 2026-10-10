@@ -2,6 +2,7 @@ import { generateAnimatedExport } from '../core/animate'
 import { exportPng, exportWallpaper, wallpaperPresetById } from '../core/export'
 import { exportFilename } from '../core/filename'
 import { renderFxRgba } from '../core/fx'
+import { openAnimatedGif, type AnimatedGif } from '../core/gif-frames'
 import { colourTotal, Deres, exportSize, type DeresSettings, type Rendered } from '../core/pipeline'
 import { profileById } from '../core/profiles'
 import { artifactPalette, resolveConnection, runSignal, signalMachine, signalRenderer, type SignalImage } from '../core/signal'
@@ -15,6 +16,8 @@ const deres = new Deres()
 let gen = 0
 let last: { key: string; rendered: Rendered } | null = null
 let sourceCopy: { width: number; height: number; rgba: Uint8Array } | null = null
+/** An animated GIF's frames, while one is open (frame 0 is also the source above). */
+let animation: AnimatedGif | null = null
 
 function post(msg: FromWorker, transfer: Transferable[] = []): void {
   self.postMessage(msg, { transfer })
@@ -70,10 +73,50 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
   if (msg.type === 'load') {
     gen = msg.gen
     last = null
+    animation = null
     const rawRgba = new Uint8Array(msg.rgba)
     sourceCopy = { width: msg.width, height: msg.height, rgba: rawRgba.slice() }
     const { hasAlpha } = deres.setSource(rawRgba, msg.width, msg.height, msg.origW, msg.origH)
     post({ type: 'loaded', gen, hasAlpha })
+    return
+  }
+  if (msg.type === 'load-gif') {
+    let gif: AnimatedGif | null = null
+    try {
+      gif = openAnimatedGif(new Uint8Array(msg.bytes), msg.maxEdge)
+    } catch {
+      gif = null
+    }
+    gen = msg.gen
+    if (!gif) {
+      post({ type: 'loaded-gif', gen, gif: null })
+      return
+    }
+    last = null
+    animation = gif
+    const first = new Uint8Array(animation.frames[0].buffer)
+    sourceCopy = { width: gif.width, height: gif.height, rgba: first }
+    deres.setSource(first, gif.width, gif.height, gif.origW, gif.origH)
+    const rgba = first.slice().buffer
+    post(
+      {
+        type: 'loaded-gif',
+        gen,
+        gif: {
+          width: gif.width,
+          height: gif.height,
+          origW: gif.origW,
+          origH: gif.origH,
+          rgba,
+          hasAlpha: gif.hasAlpha,
+          frames: gif.frames.length,
+          total: gif.total,
+          delaysMs: gif.delaysMs,
+          loopCount: gif.loopCount
+        }
+      },
+      [rgba]
+    )
     return
   }
   if (msg.type === 'render') {

@@ -4,6 +4,7 @@ import {
   type AsciiRampPreset,
   type AsciiSettings
 } from '../core/ascii'
+import { framesText } from '../core/gif-info'
 import { h, segmented, show, slider } from './dom'
 import { sampleLinks } from './samples'
 
@@ -21,7 +22,13 @@ export interface AsciiControlsContext {
   downloadPetsciiPrg(): void
   downloadTeletext(): void
   downloadPng(multiplier: number): void
-  picture(): { name: string; origW: number; origH: number; frames: number } | null
+  picture(): {
+    name: string
+    origW: number
+    origH: number
+    frames: number
+    animation: { frames: number; total: number; durationMs: number } | null
+  } | null
 }
 
 function section(title: string, open: boolean, ...body: (Node | null)[]): HTMLDetailsElement {
@@ -351,7 +358,9 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     const p = ctx.picture()
 
     if (p) {
-      pictureInfo.textContent = `${p.name} · ${p.origW}×${p.origH} px${p.frames > 1 ? ` · first of ${p.frames} frames` : ''}`
+      // The studio works on the first frame of an animated GIF.
+      const frames = framesText(p.frames, p.animation)
+      pictureInfo.textContent = [`${p.name} · ${p.origW}×${p.origH} px`, frames, p.animation ? 'uses the first frame' : ''].filter(Boolean).join(' · ')
     } else {
       pictureInfo.textContent = 'No picture loaded.'
     }

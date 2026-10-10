@@ -104,6 +104,17 @@ export async function decodeToWorkingCopy(blob: Blob): Promise<WorkingCopy> {
   return { canvas, width, height, origW, origH, rgba }
 }
 
+/** A working copy from pixels already decoded (an animated GIF's first frame, from the worker). */
+export function workingCopyFromRgba(rgba: Uint8ClampedArray, width: number, height: number, origW: number, origH: number): WorkingCopy {
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) throw new DecodeError('too-big')
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0)
+  return { canvas, width, height, origW, origH, rgba }
+}
+
 /** The picture in a paste or drop, if there is one. */
 export function imageFromTransfer(data: DataTransfer | null): File | null {
   if (!data) return null

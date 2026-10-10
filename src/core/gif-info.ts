@@ -1,6 +1,5 @@
 // How many frames a GIF holds, from its block structure alone (nothing is
-// decoded). The app opens a GIF as one still picture, its first frame, and
-// says so when there are more.
+// decoded), and the words the picture info uses for a GIF's frames.
 
 /** The number of images in a GIF file; 0 when it isn't one. A damaged file counts what it has. */
 export function gifFrameCount(bytes: Uint8Array): number {
@@ -46,4 +45,26 @@ export function gifFrameCount(bytes: Uint8Array): number {
     }
   }
   return frames
+}
+
+/** "3.9 s", "42 s", "2 min 5 s". */
+export function durationText(ms: number): string {
+  const s = ms / 1000
+  if (s < 10) return `${s.toFixed(1)} s`
+  if (s < 60) return `${Math.round(s)} s`
+  const whole = Math.round(s)
+  return `${Math.floor(whole / 60)} min ${whole % 60} s`
+}
+
+/**
+ * What the picture info says about a GIF's frames: "58 frames · 3.9 s" for
+ * an animation, "first 40 of 300 frames · 2.7 s" when some were cut (the
+ * time is what was kept), "first of 58 frames" when it opened as a still.
+ */
+export function framesText(fileFrames: number, animation: { frames: number; total: number; durationMs: number } | null): string {
+  if (animation) {
+    const count = animation.frames < animation.total ? `first ${animation.frames} of ${animation.total} frames` : `${animation.frames} frames`
+    return `${count} · ${durationText(animation.durationMs)}`
+  }
+  return fileFrames > 1 ? `first of ${fileFrames} frames` : ''
 }

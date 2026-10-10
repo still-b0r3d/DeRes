@@ -42,7 +42,15 @@ import { buildInjectControls } from './inject-controls'
 import { ScrubStage } from './scrub-stage'
 import { h, show } from './dom'
 import { Engine } from './engine'
-import { decodeToWorkingCopy, DecodeError, DECODE_MESSAGES, imageFromTransfer, type WorkingCopy } from './loader'
+import {
+  decodeToWorkingCopy,
+  DecodeError,
+  DECODE_MESSAGES,
+  imageFromTransfer,
+  workingCopyFromRgba,
+  WORKING_MAX,
+  type WorkingCopy
+} from './loader'
 import { DEFAULT_SAMPLE, sampleById } from './samples'
 import { loadSettings, saveSettings, settingsFromHash, type Settings } from './settings'
 import { Stage } from './stage'
@@ -55,8 +63,20 @@ interface Picture {
   name: string
   base: string
   hasAlpha: boolean
-  /** Images in the file: a GIF can hold many, and it opens as its first. */
+  /** Images in the file: a GIF can hold many. */
   frames: number
+  /** An animated GIF the worker holds (copy is its first frame); null for a still. */
+  animation: PictureAnimation | null
+}
+
+interface PictureAnimation {
+  /** Frames held, and in the file (more when some were cut to fit). */
+  frames: number
+  total: number
+  delaysMs: number[]
+  durationMs: number
+  /** 0 = forever, null = the file plays once. */
+  loopCount: number | null
 }
 
 /** The file the scrubber works on outside batch mode, as opened (the raw bytes). */
@@ -371,7 +391,8 @@ export function startApp(): void {
         origW: picture.copy.origW,
         origH: picture.copy.origH,
         hasAlpha: picture.hasAlpha,
-        frames: picture.frames
+        frames: picture.frames,
+        animation: picture.animation
       },
     geometry
   })
@@ -524,7 +545,8 @@ export function startApp(): void {
         name: picture.name,
         origW: picture.copy.origW,
         origH: picture.copy.origH,
-        frames: picture.frames
+        frames: picture.frames,
+        animation: picture.animation
       }
   })
 
@@ -770,37 +792,44 @@ export function startApp(): void {
       // The decode below reports it.
     }
 
-    let copy: WorkingCopy
-    try {
-      copy = await decodeToWorkingCopy(blob)
-    } catch (err) {
+    const frames = bytes ? gifFrameCount(bytes) : 0
+    let copy: WorkingCopy | null = null
+    let hasAlpha = false
+    let animation: PictureAnimation | null = null
+    if (bytes && frames > 1) {
+      // An animated GIF: the worker decodes every frame, and the first is the
+      // picture. If it won't open that way, it opens as a still below.
+      const gif = await engine.loadGif(bytes, WORKING_MAX)
       if (ticket !== opening) return
-      const text = err instanceof DecodeError ? DECODE_MESSAGES[err.problem] : DECODE_MESSAGES.unreadable
-      if (!picture) {
-        stage.message('Choose a photo to start.')
-        asciiStage.message('Choose a photo to start.')
-        scrubStage.message('Choose a photo to start.')
+      if (gif) {
+        try {
+          copy = workingCopyFromRgba(new Uint8ClampedArray(gif.rgba), gif.width, gif.height, gif.origW, gif.origH)
+          hasAlpha = gif.hasAlpha
+          animation = {
+            frames: gif.frames,
+            total: gif.total,
+            delaysMs: gif.delaysMs,
+            durationMs: gif.delaysMs.reduce((a, b) => a + b, 0),
+            loopCount: gif.loopCount
+          }
+        } catch {
+          copy = null
+        }
       }
-      // The scrubber reads the file itself, so it can still inspect a photo
-      // this browser can't show (HEIC outside Safari), just with no preview.
-      const meta = bytes ? inspectMetadata(bytes) : null
-      if (bytes && meta && meta.format !== 'unknown') {
-        setScrubFile({ bytes, meta, url: null, name })
-        showScrub()
-      } else {
-        showScrub()
-        scrubStage.problem(text)
-      }
-      stage.problem(text)
-      asciiStage.problem(text)
-      controls.sync()
-      asciiControls.sync()
-      return
     }
-    if (ticket !== opening) return
-    const hasAlpha = await engine.load(copy)
-    if (ticket !== opening) return
-    picture = { copy, name, base: baseName(name), hasAlpha, frames: bytes ? gifFrameCount(bytes) : 0 }
+    if (!copy) {
+      try {
+        copy = await decodeToWorkingCopy(blob)
+      } catch (err) {
+        if (ticket !== opening) return
+        openFailed(err, bytes, name)
+        return
+      }
+      if (ticket !== opening) return
+      hasAlpha = await engine.load(copy)
+      if (ticket !== opening) return
+    }
+    picture = { copy, name, base: baseName(name), hasAlpha, frames, animation }
     if (bytes) setScrubFile({ bytes, meta: inspectMetadata(bytes), url: URL.createObjectURL(blob), name })
     stage.setSource(copy.canvas)
     controls.sync()
@@ -813,6 +842,30 @@ export function startApp(): void {
     } else {
       render()
     }
+  }
+
+  /** The picture didn't open: say why, and let the scrubber still read the file if it can. */
+  function openFailed(err: unknown, bytes: Uint8Array | null, name: string): void {
+    const text = err instanceof DecodeError ? DECODE_MESSAGES[err.problem] : DECODE_MESSAGES.unreadable
+    if (!picture) {
+      stage.message('Choose a photo to start.')
+      asciiStage.message('Choose a photo to start.')
+      scrubStage.message('Choose a photo to start.')
+    }
+    // The scrubber reads the file itself, so it can still inspect a photo
+    // this browser can't show (HEIC outside Safari), just with no preview.
+    const meta = bytes ? inspectMetadata(bytes) : null
+    if (bytes && meta && meta.format !== 'unknown') {
+      setScrubFile({ bytes, meta, url: null, name })
+      showScrub()
+    } else {
+      showScrub()
+      scrubStage.problem(text)
+    }
+    stage.problem(text)
+    asciiStage.problem(text)
+    controls.sync()
+    asciiControls.sync()
   }
 
   async function loadSample(id = DEFAULT_SAMPLE.id): Promise<void> {

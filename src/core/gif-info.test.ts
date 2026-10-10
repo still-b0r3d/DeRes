@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { encodeGif } from './gif'
-import { gifFrameCount } from './gif-info'
+import { durationText, framesText, gifFrameCount } from './gif-info'
 
 const palette = new Uint8Array([0, 0, 0, 255, 255, 255])
 const frame = (k: number) => ({ width: 4, height: 3, delayMs: 100, indices: new Uint8Array(12).fill(k & 1) })
@@ -28,5 +28,22 @@ describe('gifFrameCount', () => {
     const junk = gif.slice()
     junk[13 + palette.length] = 0x99 // where the first block starts
     expect(gifFrameCount(junk)).toBe(0)
+  })
+})
+
+describe('the picture info for GIF frames', () => {
+  it('says how long an animation runs', () => {
+    expect(durationText(3870)).toBe('3.9 s')
+    expect(durationText(100)).toBe('0.1 s')
+    expect(durationText(42_400)).toBe('42 s')
+    expect(durationText(125_000)).toBe('2 min 5 s')
+  })
+
+  it('counts the frames, and says when some were cut', () => {
+    expect(framesText(58, { frames: 58, total: 58, durationMs: 3870 })).toBe('58 frames · 3.9 s')
+    expect(framesText(300, { frames: 40, total: 300, durationMs: 2700 })).toBe('first 40 of 300 frames · 2.7 s')
+    expect(framesText(58, null)).toBe('first of 58 frames')
+    expect(framesText(1, null)).toBe('')
+    expect(framesText(0, null)).toBe('')
   })
 })
