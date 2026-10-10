@@ -16,7 +16,7 @@ import {
   type LoopFrames
 } from '../core/signal'
 import type { HardwareFitReport } from '../core/tiles'
-import { h, segmented, show, slider } from './dom'
+import { h, segmented, show, slider, twoStepButton } from './dom'
 import { sampleLinks } from './samples'
 import { MULTIPLIERS, type Settings } from './settings'
 
@@ -41,6 +41,8 @@ export interface ControlsContext {
   /** With an animated GIF open: whether the animation export uses its own frames (the default). */
   gifFrames(): boolean
   setGifFrames(on: boolean): void
+  /** Every setting back to its default (the picture stays). */
+  resetSettings(): void
   /** What's loaded, or null. */
   picture(): {
     name: string
@@ -585,7 +587,24 @@ export function buildControls(ctx: ControlsContext): {
     statusLine
   )
 
-  const el = h('div', { class: 'controls-inner' }, imageSec, hardwareSec, adjustSec, ditherSec, signalSec, screenSec, exportSec)
+  const resetBtn = twoStepButton({
+    label: 'Reset settings',
+    confirmLabel: 'Reset everything?',
+    testid: 'reset-settings',
+    onConfirm: () => ctx.resetSettings()
+  })
+  const el = h(
+    'div',
+    { class: 'controls-inner' },
+    imageSec,
+    hardwareSec,
+    adjustSec,
+    ditherSec,
+    signalSec,
+    screenSec,
+    exportSec,
+    h('div', { class: 'reset-row' }, resetBtn)
+  )
 
   function sync(): void {
     const s = ctx.get()

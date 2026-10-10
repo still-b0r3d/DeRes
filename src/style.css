@@ -2002,3 +2002,14 @@ button:disabled {
   padding: 6px 4px;
   line-height: 1.15;
 }
+
+/* "Reset settings": asks once before it acts */
+.reset-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.reset-btn.confirming {
+  color: var(--magenta);
+  border-color: var(--magenta);
+}

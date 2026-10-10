@@ -12,6 +12,7 @@ import {
   type AsciiResult,
   type AsciiSettings
 } from '../core/ascii'
+import { loadAsciiSettings, saveAsciiSettings } from './ascii-settings'
 import { renderAsciiToCanvas, renderHalfBlockPng } from '../core/ascii-render'
 import { BYTE_TO_LINEAR, rgbToHex } from '../core/color'
 import { baseName } from '../core/filename'
@@ -54,7 +55,7 @@ import {
 } from './loader'
 import { DEFAULT_SAMPLE, sampleById } from './samples'
 import { Player } from './player'
-import { loadSettings, saveSettings, settingsFromHash, type Settings } from './settings'
+import { defaultSettings, loadSettings, saveSettings, settingsFromHash, type Settings } from './settings'
 import { Stage } from './stage'
 
 // Wires the page together: one loaded picture, the image worker, the preview
@@ -98,26 +99,6 @@ const MIME: Record<ImageMetadata['format'], string> = {
   avif: 'image/avif',
   gif: 'image/gif',
   unknown: 'application/octet-stream'
-}
-
-const ASCII_STORAGE_KEY = 'b0r3d_ascii_settings'
-
-function loadAsciiSettings(): AsciiSettings {
-  try {
-    const raw = localStorage.getItem(ASCII_STORAGE_KEY)
-    if (raw) return { ...DEFAULT_ASCII_SETTINGS, ...JSON.parse(raw) }
-  } catch {
-    // Storage disabled or quota
-  }
-  return { ...DEFAULT_ASCII_SETTINGS }
-}
-
-function saveAsciiSettings(settings: AsciiSettings): void {
-  try {
-    localStorage.setItem(ASCII_STORAGE_KEY, JSON.stringify(settings))
-  } catch {
-    // Storage disabled or quota
-  }
 }
 
 export function startApp(): void {
@@ -318,6 +299,11 @@ export function startApp(): void {
     }
   }
 
+  /** Takes a "#s=…" share link off the address, so a reload doesn't bring its settings back. */
+  function dropShareLink(): void {
+    if (window.location.hash.startsWith('#s=')) history.replaceState(history.state, '', window.location.pathname + window.location.search)
+  }
+
   function shareLink(): void {
     const hash = encodeSettings(settings)
     window.location.hash = hash
@@ -457,6 +443,17 @@ export function startApp(): void {
       gifFramesChosen = on
       controls.sync()
     },
+    resetSettings() {
+      // Every setting back to how a first visit starts (palettes grabbed or
+      // loaded go too); the picture stays.
+      settings = defaultSettings()
+      gifFramesChosen = true
+      saveSettings(settings, true)
+      dropShareLink()
+      controls.sync()
+      render()
+      controls.status('Settings reset.')
+    },
     picture: () =>
       picture && {
         name: picture.name,
@@ -476,6 +473,13 @@ export function startApp(): void {
       saveAsciiSettings(asciiSettings)
       asciiControls.sync()
       renderAscii()
+    },
+    resetSettings() {
+      asciiSettings = { ...DEFAULT_ASCII_SETTINGS }
+      saveAsciiSettings(asciiSettings)
+      asciiControls.sync()
+      renderAscii()
+      asciiControls.status('Settings reset.')
     },
     openFile: () => fileInput.click(),
     loadSample,

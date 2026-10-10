@@ -5,7 +5,7 @@ import {
   type AsciiSettings
 } from '../core/ascii'
 import { framesText } from '../core/gif-info'
-import { h, segmented, show, slider } from './dom'
+import { h, segmented, show, slider, twoStepButton } from './dom'
 import { sampleLinks } from './samples'
 
 export interface AsciiControlsContext {
@@ -22,6 +22,8 @@ export interface AsciiControlsContext {
   downloadPetsciiPrg(): void
   downloadTeletext(): void
   downloadPng(multiplier: number): void
+  /** Every setting back to its default (the picture stays). */
+  resetSettings(): void
   picture(): {
     name: string
     origW: number
@@ -350,7 +352,17 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     teletextSec,
     colorSec,
     adjustSec,
-    exportSec
+    exportSec,
+    h(
+      'div',
+      { class: 'reset-row' },
+      twoStepButton({
+        label: 'Reset settings',
+        confirmLabel: 'Reset everything?',
+        testid: 'ascii-reset-settings',
+        onConfirm: () => ctx.resetSettings()
+      })
+    )
   )
 
   const sync = () => {

@@ -82,3 +82,38 @@ export function slider(o: {
     }
   }
 }
+
+/**
+ * A button that asks before it acts: the first press turns it into
+ * `confirmLabel` for a few seconds, and only a second press in that time
+ * calls `onConfirm` (no browser dialog).
+ */
+export function twoStepButton(o: { label: string; confirmLabel: string; onConfirm: () => void; testid: string; ms?: number }): HTMLButtonElement {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const calm = () => {
+    clearTimeout(timer)
+    timer = undefined
+    b.textContent = o.label
+    b.classList.remove('confirming')
+  }
+  const b = h(
+    'button',
+    {
+      type: 'button',
+      class: 'small reset-btn',
+      'data-testid': o.testid,
+      onclick: () => {
+        if (timer === undefined) {
+          b.textContent = o.confirmLabel
+          b.classList.add('confirming')
+          timer = setTimeout(calm, o.ms ?? 4000)
+          return
+        }
+        calm()
+        o.onConfirm()
+      }
+    },
+    o.label
+  )
+  return b
+}

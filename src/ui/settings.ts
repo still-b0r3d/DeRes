@@ -22,7 +22,8 @@ export interface Settings extends DeresSettings {
   loopFps: LoopFps
 }
 
-const KEY = 'b0r3d-deres:settings'
+export const SETTINGS_KEY = 'b0r3d-deres:settings'
+const KEY = SETTINGS_KEY
 
 export function defaultSettings(): Settings {
   const p = profileById(DEFAULT_PROFILE)!
@@ -150,15 +151,27 @@ export function loadSettings(): Settings {
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined
+/** Settings waiting to be written. */
+let pending: Settings | null = null
 
-/** Saves a moment later, so a slider drag writes once. */
-export function saveSettings(s: Settings): void {
+function writePending(): void {
   clearTimeout(timer)
-  timer = setTimeout(() => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(s))
-    } catch {
-      // Storage unavailable: settings just won't be remembered.
-    }
-  }, 300)
+  if (!pending) return
+  try {
+    localStorage.setItem(KEY, JSON.stringify(pending))
+  } catch {
+    // Storage unavailable: settings just won't be remembered.
+  }
+  pending = null
+}
+
+// Leaving or reloading the page right after a change still keeps it.
+if (typeof window !== 'undefined') window.addEventListener('pagehide', writePending)
+
+/** Saves a moment later, so a slider drag writes once (or straight away, when `now`). */
+export function saveSettings(s: Settings, now = false): void {
+  pending = s
+  clearTimeout(timer)
+  if (now) writePending()
+  else timer = setTimeout(writePending, 300)
 }

@@ -64,7 +64,8 @@ test('Play and Pause: the frames move at the GIF’s speed and stop where paused
   expect(await shownFrame(page)).toBe(paused)
   await expect(page.locator('.compare-btn')).toBeEnabled()
   await ready(page)
-  if (paused !== 1) expect(await resultPixels(page)).not.toBe(still)
+  // A later frame shows on its own (frame 2 happens to look just like frame 1 on a Game Boy).
+  if (paused! > 2) expect(await resultPixels(page), `paused at ${paused}`).not.toBe(still)
 })
 
 test('a settings change drops the frames made so far; an export setting doesn’t', async ({ page }) => {
