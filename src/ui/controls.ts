@@ -16,6 +16,7 @@ import {
 } from '../core/signal'
 import type { HardwareFitReport } from '../core/tiles'
 import { h, segmented, show, slider } from './dom'
+import { sampleLinks } from './samples'
 import { MULTIPLIERS, type Settings } from './settings'
 
 // The control column, in pipeline order: Image -> Hardware -> Adjust ->
@@ -27,7 +28,7 @@ export interface ControlsContext {
   set(patch: Partial<Settings>): void
   pickProfile(id: string): void
   openFile(): void
-  loadSample(): void
+  loadSample(id?: string): void
   download(): void
   downloadAnimated?: (format: 'apng' | 'gif') => void
   downloadEmulator?: (format: 'scr' | 'koa' | 'chr') => void
@@ -37,7 +38,7 @@ export interface ControlsContext {
   grabPalette(): void
   shareLink(): void
   /** What's loaded, or null. */
-  picture(): { name: string; origW: number; origH: number; hasAlpha: boolean } | null
+  picture(): { name: string; origW: number; origH: number; hasAlpha: boolean; frames: number } | null
   geometry(): Geometry | null
 }
 
@@ -109,7 +110,7 @@ export function buildControls(ctx: ControlsContext): {
     h(
       'p',
       { class: 'hint' },
-      h('button', { type: 'button', class: 'linkish', onclick: () => ctx.loadSample() }, 'Try the sample'),
+      sampleLinks((id) => ctx.loadSample(id)),
       h('span', { class: 'desktop-only' }, ' · or drop a photo on the page, or paste one')
     ),
     pictureInfo,
@@ -573,7 +574,9 @@ export function buildControls(ctx: ControlsContext): {
     const pic = ctx.picture()
     const g = ctx.geometry()
 
-    pictureInfo.textContent = pic ? `${pic.name} · ${pic.origW}×${pic.origH}` : 'No picture yet'
+    pictureInfo.textContent = pic
+      ? `${pic.name} · ${pic.origW}×${pic.origH}${pic.frames > 1 ? ` · first of ${pic.frames} frames` : ''}`
+      : 'No picture yet'
     resolution.set(s.resolution)
     const native = resolution.buttons.get('native')!
     native.textContent = `Native ${p.width}×${p.height === 'auto' ? 'auto' : p.height}`

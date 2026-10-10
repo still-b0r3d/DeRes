@@ -16,6 +16,7 @@ import { renderAsciiToCanvas, renderHalfBlockPng } from '../core/ascii-render'
 import { BYTE_TO_LINEAR, rgbToHex } from '../core/color'
 import { baseName } from '../core/filename'
 import { planGeometry, type Geometry } from '../core/geometry'
+import { gifFrameCount } from '../core/gif-info'
 import { exportPaletteHex, parsePalettePng, parsePaletteText } from '../core/palette-file'
 import { colourCount, type DeresSettings } from '../core/pipeline'
 import { PROFILES, profileById } from '../core/profiles'
@@ -32,7 +33,6 @@ import {
 } from '../core/scrub'
 import { createZip } from '../core/zip'
 import { injectExif } from '../core/inject'
-import rukusUrl from '../../b0r3d-brand/rukus.png'
 import type { RenderedMessage } from '../worker/protocol'
 import { buildAsciiControls } from './ascii-controls'
 import { AsciiStage } from './ascii-stage'
@@ -43,6 +43,7 @@ import { ScrubStage } from './scrub-stage'
 import { h, show } from './dom'
 import { Engine } from './engine'
 import { decodeToWorkingCopy, DecodeError, DECODE_MESSAGES, imageFromTransfer, type WorkingCopy } from './loader'
+import { DEFAULT_SAMPLE, sampleById } from './samples'
 import { loadSettings, saveSettings, settingsFromHash, type Settings } from './settings'
 import { Stage } from './stage'
 
@@ -54,6 +55,8 @@ interface Picture {
   name: string
   base: string
   hasAlpha: boolean
+  /** Images in the file: a GIF can hold many, and it opens as its first. */
+  frames: number
 }
 
 /** The file the scrubber works on outside batch mode, as opened (the raw bytes). */
@@ -367,7 +370,8 @@ export function startApp(): void {
         name: picture.name,
         origW: picture.copy.origW,
         origH: picture.copy.origH,
-        hasAlpha: picture.hasAlpha
+        hasAlpha: picture.hasAlpha,
+        frames: picture.frames
       },
     geometry
   })
@@ -519,7 +523,8 @@ export function startApp(): void {
       picture && {
         name: picture.name,
         origW: picture.copy.origW,
-        origH: picture.copy.origH
+        origH: picture.copy.origH,
+        frames: picture.frames
       }
   })
 
@@ -795,7 +800,7 @@ export function startApp(): void {
     if (ticket !== opening) return
     const hasAlpha = await engine.load(copy)
     if (ticket !== opening) return
-    picture = { copy, name, base: baseName(name), hasAlpha }
+    picture = { copy, name, base: baseName(name), hasAlpha, frames: bytes ? gifFrameCount(bytes) : 0 }
     if (bytes) setScrubFile({ bytes, meta: inspectMetadata(bytes), url: URL.createObjectURL(blob), name })
     stage.setSource(copy.canvas)
     controls.sync()
@@ -810,10 +815,11 @@ export function startApp(): void {
     }
   }
 
-  async function loadSample(): Promise<void> {
+  async function loadSample(id = DEFAULT_SAMPLE.id): Promise<void> {
+    const sample = sampleById(id)
     try {
-      const res = await fetch(rukusUrl)
-      await open(await res.blob(), 'rukus.png')
+      const res = await fetch(sample.url)
+      await open(await res.blob(), sample.name)
     } catch {
       stage.problem("The sample picture didn't load. Choose a photo of your own instead.")
       asciiStage.problem("The sample picture didn't load. Choose a photo of your own instead.")

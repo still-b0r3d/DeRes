@@ -5,12 +5,13 @@ import {
   type AsciiSettings
 } from '../core/ascii'
 import { h, segmented, show, slider } from './dom'
+import { sampleLinks } from './samples'
 
 export interface AsciiControlsContext {
   get(): AsciiSettings
   set(patch: Partial<AsciiSettings>): void
   openFile(): void
-  loadSample(): void
+  loadSample(id?: string): void
   copyText(): void
   copyMarkdown(): void
   copyAnsi(): void
@@ -20,7 +21,7 @@ export interface AsciiControlsContext {
   downloadPetsciiPrg(): void
   downloadTeletext(): void
   downloadPng(multiplier: number): void
-  picture(): { name: string; origW: number; origH: number } | null
+  picture(): { name: string; origW: number; origH: number; frames: number } | null
 }
 
 function section(title: string, open: boolean, ...body: (Node | null)[]): HTMLDetailsElement {
@@ -48,7 +49,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     h(
       'p',
       { class: 'hint' },
-      h('button', { type: 'button', class: 'linkish', onclick: () => ctx.loadSample() }, 'Try the sample'),
+      sampleLinks((id) => ctx.loadSample(id)),
       h('span', { class: 'desktop-only' }, ' · or drop a photo on the page, or paste one')
     ),
     pictureInfo
@@ -350,7 +351,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     const p = ctx.picture()
 
     if (p) {
-      pictureInfo.textContent = `${p.name} · ${p.origW}×${p.origH} px`
+      pictureInfo.textContent = `${p.name} · ${p.origW}×${p.origH} px${p.frames > 1 ? ` · first of ${p.frames} frames` : ''}`
     } else {
       pictureInfo.textContent = 'No picture loaded.'
     }

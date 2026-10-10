@@ -63,6 +63,18 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
+test('the samples: Rukus, and the GIF of him breaking out (opened as its first frame)', async ({ page }) => {
+  await page.locator('[data-sample="rukus-gif"]').first().click()
+  await expect(page.getByTestId('picture-info')).toHaveText('rukus-breaks-out.gif · 512×384 · first of 58 frames')
+  await ready(page)
+  await page.getByRole('tab', { name: 'ASCII / ANSI Studio' }).click()
+  await expect(page.getByTestId('ascii-picture-info')).toHaveText('rukus-breaks-out.gif · 512×384 px · first of 58 frames')
+  await page.locator('[data-sample="rukus"]:visible').click()
+  await expect(page.getByTestId('ascii-picture-info')).toHaveText('rukus.png · 256×256 px')
+  await page.getByRole('tab', { name: 'DeRes' }).click()
+  await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
+})
+
 test('every machine renders at its size using only its colours', async ({ page }) => {
   for (const p of PROFILES) {
     await pick(page, p.id)

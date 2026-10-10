@@ -21,9 +21,11 @@ images.
 ## What it does (v0.9.0)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
-  it (Ctrl+V / Cmd+V), or try the sample (Rukus, who carries made-up,
+  it (Ctrl+V / Cmd+V), or try a sample: Rukus, who carries made-up,
   site-themed EXIF, a thumbnail and a colour profile so every tool has
-  something to show). It's decoded once into a
+  something to show, or a GIF of him breaking out of his hamster ball in
+  z0mbie crystal. A GIF opens as its first frame (the picture info says how
+  many frames it holds), and the EXIF tools can't read GIFs. It's decoded once into a
   working copy no bigger than 2048 px on its long edge (big phone photos would
   otherwise break the page on iPhones), with the photo's rotation applied.
 - **Hardware profiles**, not just palettes: each machine has its native
