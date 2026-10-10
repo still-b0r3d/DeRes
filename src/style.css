@@ -184,9 +184,15 @@ button:disabled {
 /* With an animated GIF open, the play bar (44 px) sits under the preview:
    the preview gives up that much height, so the page's top, the preview and
    the play bar all fit in the window together. */
-.deres-stage-slot:has(> .playbar:not([hidden])) .stage {
+.deres-stage-slot:has(> .playbar:not([hidden])) .stage,
+.ascii-stage-container:has(> .playbar:not([hidden])) .ascii-stage {
   height: calc(100vh - 194px);
   height: calc(100dvh - 194px);
+}
+
+/* The ASCII studio's stage already has a gap under it. */
+.ascii-stage-container > .playbar {
+  padding-top: 0;
 }
 
 .frame {
@@ -1023,6 +1029,11 @@ button:disabled {
     min-height: 220px;
     padding: 6px;
   }
+
+  .ascii-stage-container:has(> .playbar:not([hidden])) .ascii-stage {
+    height: calc(45vh - 44px);
+    height: calc(45svh - 44px);
+  }
 }
 
 /* CP437 VGA font from The Ultimate Oldschool PC Font Pack by VileR (CC BY-SA 4.0) */
@@ -1820,6 +1831,7 @@ button:disabled {
 }
 
 .baud-progress {
+  white-space: pre;
   font-family: 'IBM VGA 8x16', monospace;
   font-size: 0.75rem;
   color: var(--muted);

@@ -67,7 +67,7 @@ test('the sample GIF opens with all its frames', async ({ page }) => {
   await expect(page.getByTestId('picture-info')).toHaveText('rukus-breaks-out.gif · 512×384 · 58 frames · 3.9 s')
   await ready(page)
   await page.getByRole('tab', { name: 'ASCII / ANSI Studio' }).click()
-  await expect(page.getByTestId('ascii-picture-info')).toHaveText('rukus-breaks-out.gif · 512×384 px · 58 frames · 3.9 s · uses the first frame')
+  await expect(page.getByTestId('ascii-picture-info')).toHaveText('rukus-breaks-out.gif · 512×384 px · 58 frames · 3.9 s')
 })
 
 test('a long GIF keeps the first frames that fit and says so', async ({ page }) => {

@@ -8,7 +8,8 @@ import { download, freshPage, readout, ready } from './helpers'
 // run headless: a hidden browser window can stall the timers playback uses.
 
 const counter = (page: Page) => page.getByTestId('frame-counter')
-const playbar = (page: Page) => page.locator('.playbar')
+// DeRes's play bar (the ASCII studio has its own).
+const playbar = (page: Page) => page.locator('.deres-stage-slot .playbar')
 
 test.beforeEach(async ({ page }) => {
   await freshPage(page)
@@ -136,8 +137,8 @@ test('while a frame is still being made the counter dims, and the slider never c
   await page.evaluate(() => {
     const seen: [string, boolean, number][] = []
     ;(window as unknown as { seen: typeof seen }).seen = seen
-    const c = document.querySelector('.frame-counter')!
-    const s = document.querySelector('.frame-slider')!
+    const c = document.querySelector('.deres-stage-slot .frame-counter')!
+    const s = document.querySelector('.deres-stage-slot .frame-slider')!
     new MutationObserver(() => seen.push([c.textContent ?? '', c.classList.contains('waiting'), s.getBoundingClientRect().width])).observe(c, {
       childList: true,
       characterData: true,
@@ -234,7 +235,7 @@ test('on a 320×240 machine with a screen effect, every frame is kept, so it loo
 test('the play bar fits in the window with the top of the page, and the pinned phone preview stays its size', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 })
   await openSample(page)
-  const bottom = await page.evaluate(() => document.querySelector('.playbar')!.getBoundingClientRect().bottom)
+  const bottom = await page.evaluate(() => document.querySelector('.deres-stage-slot .playbar')!.getBoundingClientRect().bottom)
   expect(bottom).toBeLessThanOrEqual(768)
 
   // On a phone, the pinned part (preview, play bar, readout) is as tall as with a still.

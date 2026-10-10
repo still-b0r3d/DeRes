@@ -1,3 +1,5 @@
+import type { AsciiSettings } from '../core/ascii'
+import type { PackedAscii } from '../core/ascii-pack'
 import type { Rect } from '../core/resample'
 import type { DeresSettings } from '../core/pipeline'
 import type { HardwareFitReport } from '../core/tiles'
@@ -6,6 +8,7 @@ import type { HardwareFitReport } from '../core/tiles'
 // (load, or load-gif with the file's bytes for an animated GIF, which the
 // worker decodes); after that the page only sends settings. With an animated
 // GIF, every render and export names the frame it's about (0 otherwise).
+// The ASCII studio asks for frames of an animated GIF as text art too.
 
 export type AnimationStyle = 'screen-fx' | 'compare-wipe' | 'dither-shimmer' | 'gif-frames'
 
@@ -51,6 +54,14 @@ export type ToWorker =
       type: 'source-frame'
       id: number
       gen: number
+      frame: number
+    }
+  | {
+      /** A frame of an animated GIF (or the picture) as ASCII art, for the studio. */
+      type: 'ascii-frame'
+      id: number
+      gen: number
+      settings: AsciiSettings
       frame: number
     }
   | {
@@ -147,6 +158,7 @@ export type FromWorker =
   | RenderedMessage
   | { type: 'rendered-frame'; id: number; gen: number; view: RenderedView }
   | { type: 'source-frame'; id: number; gen: number; width: number; height: number; rgba: ArrayBuffer }
+  | { type: 'ascii-frame'; id: number; gen: number; art: PackedAscii }
   | { type: 'exported'; id: number; png: ArrayBuffer; filename: string; width: number; height: number }
   | { type: 'exported-emulator'; id: number; data: ArrayBuffer; filename: string; mimeType: string }
   | { type: 'exported-wallpaper'; id: number; png: ArrayBuffer; filename: string; width: number; height: number }

@@ -1,4 +1,6 @@
 import { generateAnimatedExport, generateFramesExport } from '../core/animate'
+import { generateAscii } from '../core/ascii'
+import { packAscii, packedBuffers } from '../core/ascii-pack'
 import { exportPng, exportWallpaper, wallpaperPresetById } from '../core/export'
 import { exportFilename } from '../core/filename'
 import { renderFxRgba } from '../core/fx'
@@ -20,7 +22,8 @@ import type { FromWorker, RenderedView, ToWorker } from './protocol'
 // The image worker. It keeps the working copy, so the page's slider moves
 // cost a settings message, and all pixel work happens off the page's thread.
 // With an animated GIF it keeps every frame, and the pipeline works on one at
-// a time: whichever frame a message names.
+// a time: whichever frame a message names. The ASCII studio's frames of a GIF
+// are made here too, from the frames it keeps.
 
 const deres = new Deres()
 let gen = 0
@@ -272,6 +275,20 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
     }
     const rgba = src.rgba.slice().buffer as ArrayBuffer
     post({ type: 'source-frame', id: msg.id, gen, width: src.width, height: src.height, rgba }, [rgba])
+    return
+  }
+  if (msg.type === 'ascii-frame') {
+    if (msg.gen !== gen) return post({ type: 'error', id: msg.id, gen: msg.gen, message: 'That picture is gone' })
+    try {
+      const a = animation
+      const k = Math.max(0, Math.min((a?.frames.length ?? 1) - 1, msg.frame))
+      const src = a ? { width: a.width, height: a.height, rgba: a.frames[k] } : sourceCopy
+      if (!src) throw new Error('No picture loaded')
+      const art = packAscii(generateAscii(src.rgba, src.width, src.height, msg.settings))
+      post({ type: 'ascii-frame', id: msg.id, gen, art }, packedBuffers(art))
+    } catch (err) {
+      post({ type: 'error', id: msg.id, gen, message: String((err as Error)?.message ?? err) })
+    }
     return
   }
 

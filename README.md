@@ -47,8 +47,9 @@ images.
     limited. A full-colour GIF always shares one palette across its frames, so
     still parts don't shimmer: past what the animation memory holds, each frame
     is made twice (once to read its colours, once to write it).
-  - The Signal's noise moves at the GIF's own speed. The ASCII studio uses the
-    first frame.
+  - The Signal's noise moves at the GIF's own speed. The ASCII studio plays
+    the GIF too (see below), and each preview opens on the frame the other
+    was paused on.
 - **Reset settings** (v0.9.1) at the foot of DeRes's and the ASCII studio's
   controls: one press asks "Reset everything?", a second within 4 seconds puts
   every setting back to its default (grabbed palettes and a share link in the
@@ -121,7 +122,25 @@ images.
   - **Colour profiles:** Vintage 16-color ANSI (CGA/PC text mode), Green CRT phosphor, Amber CRT phosphor, Monochrome, and RGB Truecolor.
   - **Clipboard copy:** one-click copy as raw text, GitHub Markdown, terminal ANSI escape codes, or formatted HTML `<pre>`.
   - **BBS `.ans` export:** native CP437 bytes with DOS ANSI escape sequences and 128-byte SAUCE metadata record (title, group `b0r3d.org`, date, dimensions; the author is left blank for the artist).
-  - **Rendered PNG export:** crisp 1×, 2×, 4× image export rendered with the bundled CP437 font.
+  - **Rendered PNG export:** crisp 1×, 2×, 4× image export rendered with the bundled CP437 font (pick the size, then download).
+  - **Animated GIFs:** a play bar under the art (Play / Pause, a frame slider,
+    "12 / 58"), as in DeRes. The worker turns each frame into text art with the
+    current settings and the page keeps them (14 bytes a cell), so after the
+    first pass it loops at the GIF's own speed; only the rows that change are
+    redrawn. Paused, the frame on screen is the one every copy and download
+    uses, with "-frame12" in the file names past the first. The dial-up modem
+    ("Dial up", "Redial") types out the frame on screen; it and the play bar
+    never run at once.
+  - **Animated exports:** GIF and APNG of the rendered art, each frame the same
+    pixels as its PNG, with the GIF's delays and loop count, through the
+    streaming writers. When all the frames use 256 colours or fewer (ANSI 16,
+    C64, Teletext, greys) the file is indexed with exactly those colours.
+    Frames are capped at 1024×1024 like DeRes's animations: past that they come
+    out at the biggest size that fits, and a line by the buttons says so. An
+    **ANSImation** `.ans` holds every frame, each drawn over the last from
+    cursor-home (no clears, so no flicker), with one SAUCE record; it plays as
+    fast as the viewer sends it. `.seq`, `.prg` and Teletext `.txt` stay one
+    frame.
 - **EXIF Scrubber (v0.5.0):**
   - **Byte-level stripping (no canvas re-encoding):** pixel streams remain bit-identical with zero generational quality loss, and the colour profile is kept.
   - **JPEG stripping:** strips APP1 (Exif, XMP), APP13 (Photoshop IRB / IPTC), COM, and APP2 MPF while preserving JFIF, Adobe APP14, and decoding tables, including metadata tucked between a progressive JPEG's scans.

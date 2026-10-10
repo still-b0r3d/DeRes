@@ -69,7 +69,7 @@ test('the samples: Rukus, and the GIF of him breaking out', async ({ page }) => 
   await expect(page.getByTestId('picture-info')).toHaveText('rukus-breaks-out.gif · 512×384 · 58 frames · 3.9 s')
   await ready(page)
   await page.getByRole('tab', { name: 'ASCII / ANSI Studio' }).click()
-  await expect(page.getByTestId('ascii-picture-info')).toHaveText('rukus-breaks-out.gif · 512×384 px · 58 frames · 3.9 s · uses the first frame')
+  await expect(page.getByTestId('ascii-picture-info')).toHaveText('rukus-breaks-out.gif · 512×384 px · 58 frames · 3.9 s')
   await page.locator('[data-sample="rukus"]:visible').click()
   await expect(page.getByTestId('ascii-picture-info')).toHaveText('rukus.png · 256×256 px')
   await page.getByRole('tab', { name: 'DeRes' }).click()
@@ -416,8 +416,10 @@ test('v0.4: ASCII studio downloads .ans with valid SAUCE record and rendered PNG
   }
 
   // 2. Download rendered PNG
+  await page.locator('.seg[aria-label="Picture size"] button[data-value="2"]').click()
+  await expect(page.getByTestId('ascii-export-size')).toHaveText(/^1280×\d+ px$/)
   const pngDownloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: '2× (1280px)' }).click()
+  await page.getByTestId('ascii-download-png').click()
   const pngDownload = await pngDownloadPromise
   expect(pngDownload.suggestedFilename()).toContain('rukus-ansi-')
   expect(pngDownload.suggestedFilename()).toContain('-2x.png')
@@ -789,13 +791,13 @@ test('v0.8: Dial-up baud rate playback simulation streams terminal art', async (
   await baudSelect.selectOption('9600')
   await expect(progress).toBeVisible()
 
-  // Replay
+  // Redial
   await replayBtn.click()
-  await expect(playBtn).toHaveText('Pause')
+  await expect(playBtn).toHaveText('Hang up')
 
-  // Pause
+  // Hang up
   await playBtn.click()
-  await expect(playBtn).toHaveText('Play')
+  await expect(playBtn).toHaveText('Dial up')
 })
 
 test('v0.8: Batch EXIF scrubber displays file queue and downloads clean ZIP', async ({ page }) => {

@@ -1,29 +1,37 @@
 import { MAX_ANIMATION_BUDGET } from '../core/animate'
-import type { DeresSettings } from '../core/pipeline'
-import type { RenderedView } from '../worker/protocol'
 import { h, show } from './dom'
-import type { Engine } from './engine'
 
-// Playing an animated GIF in the preview. Each frame goes through the current
-// settings in the worker (signal and screen effects included), one at a time,
-// a little ahead of the frame on screen; the results are kept for as long as
+// Playing an animated GIF in a preview (DeRes's, or the ASCII studio's). Each
+// frame goes through the current settings in the worker, one at a time, a
+// little ahead of the frame on screen; the results are kept for as long as
 // the settings stay the same, so after the first pass it loops at the GIF's
-// own speed. Any change drops them. The kept frames stay inside the same
-// budget as an exported animation (the preview plays smaller if need be, see
-// playScale); past it, the rest are made again on each pass. A slider goes
-// to any frame: while it's held, it shows the frames already made (making the
-// one under it if need be), and dragging it while playing pauses until it's
-// let go. Paused, the frame on screen is the one the downloads use.
+// own speed. Any change drops them. The kept frames stay inside a budget (for
+// DeRes, the same as an exported animation's: the preview plays smaller if
+// need be, see playScale); past it, the rest are made again on each pass. A
+// slider goes to any frame: while it's held, it shows the frames already made
+// (making the one under it if need be), and dragging it while playing pauses
+// until it's let go. Paused, the frame on screen is the one the downloads use.
 
-export interface PlayerHost {
-  /** The settings to play with, and the preview's enlargement while playing. */
-  request(): { settings: DeresSettings; fxScale: number }
-  /** Puts a frame on the stage. */
-  show(view: RenderedView): void
+export interface PlayerHost<V> {
+  /** Frame k through the current settings. Rejects if the picture changes first. */
+  make(frame: number): Promise<V>
+  /** What keeping a made frame costs, against the budget (pixels, cells…). */
+  size(view: V): number
+  /** Puts frame k on the stage. */
+  show(view: V, frame: number): void
   started(): void
   /** Playback stopped on this frame, or the slider moved to it (or was let go on it) while paused. */
   paused(frame: number): void
   problem(message: string): void
+}
+
+export interface PlayerOptions {
+  /** How much the kept frames may cost in all (see PlayerHost.size). */
+  budget: number
+  /** Changes with every new picture: frames made for an older one are dropped. */
+  picture(): number
+  /** Put before the test ids ("play", "frame-slider"…), to tell two players apart. */
+  testPrefix?: string
 }
 
 /**
@@ -50,7 +58,7 @@ export function playScale(
   return 1
 }
 
-export class Player {
+export class Player<V> {
   readonly el: HTMLElement
   private readonly button: HTMLButtonElement
   private readonly counter: HTMLElement
@@ -62,10 +70,10 @@ export class Player {
   private delays: number[] = []
   private current = 0
   private isPlaying = false
-  private cache: (RenderedView | null)[] = []
-  private cachedPixels = 0
+  private cache: (V | null)[] = []
+  private cachedSize = 0
   /** A frame made when the cache was full, waiting to be shown. */
-  private spare: RenderedView | null = null
+  private spare: { frame: number; view: V } | null = null
   /** A frame didn't fit: from then on, only the frame due next is made. */
   private full = false
   /** Bumped by every change, so frames made for older settings are dropped. */
@@ -75,12 +83,13 @@ export class Player {
   private timer: ReturnType<typeof setTimeout> | undefined
 
   constructor(
-    private readonly engine: Engine,
-    private readonly host: PlayerHost
+    private readonly host: PlayerHost<V>,
+    private readonly options: PlayerOptions
   ) {
-    this.button = h('button', { type: 'button', class: 'play-btn', 'data-testid': 'play', 'aria-pressed': 'false', onclick: () => this.toggle() }, '▶ Play')
-    this.counter = h('span', { class: 'frame-counter', 'data-testid': 'frame-counter', 'aria-live': 'off' })
-    this.slider = h('input', { type: 'range', class: 'frame-slider', min: 0, max: 1, step: 1, value: 0, 'aria-label': 'Frame', 'data-testid': 'frame-slider' })
+    const id = (name: string) => `${options.testPrefix ?? ''}${name}`
+    this.button = h('button', { type: 'button', class: 'play-btn', 'data-testid': id('play'), 'aria-pressed': 'false', onclick: () => this.toggle() }, '▶ Play')
+    this.counter = h('span', { class: 'frame-counter', 'data-testid': id('frame-counter'), 'aria-live': 'off' })
+    this.slider = h('input', { type: 'range', class: 'frame-slider', min: 0, max: 1, step: 1, value: 0, 'aria-label': 'Frame', 'data-testid': id('frame-slider') })
     this.slider.addEventListener('pointerdown', () => {
       if (this.delays.length < 2 || this.dragging) return
       this.dragging = true
@@ -111,6 +120,22 @@ export class Player {
   /** The slider is held down (frames shown are the ones made at the playing size). */
   get holding(): boolean {
     return this.dragging
+  }
+
+  /** Frame k as made with the current settings, if it's kept (or waiting to be shown). */
+  kept(k: number): V | null {
+    return this.cache[k] ?? (this.spare?.frame === k ? this.spare.view : null)
+  }
+
+  /**
+   * Goes to frame k quietly while paused (another preview was on it):
+   * nothing is shown or made, the host puts it on the stage itself.
+   */
+  setFrame(k: number): void {
+    const n = this.delays.length
+    if (n < 2 || this.dragging || this.isPlaying) return
+    this.current = Math.max(0, Math.min(n - 1, Math.round(k)))
+    this.update()
   }
 
   /** A new picture: the delays of its frames, or null for a still. */
@@ -170,8 +195,8 @@ export class Player {
     const n = this.delays.length
     if (n < 2) return
     this.current = Math.max(0, Math.min(n - 1, Math.round(k)))
-    const view = this.ready(this.current)
-    if (view) this.host.show(view)
+    const view = this.kept(this.current)
+    if (view) this.host.show(view, this.current)
     this.update(!view && this.dragging)
     if (this.isPlaying) {
       this.shownAt = performance.now()
@@ -214,14 +239,10 @@ export class Player {
   private drop(): void {
     this.epoch++
     this.cache = this.delays.map(() => null)
-    this.cachedPixels = 0
+    this.cachedSize = 0
     this.spare = null
     this.full = false
     this.el.dataset.cached = '0'
-  }
-
-  private ready(k: number): RenderedView | null {
-    return this.cache[k] ?? (this.spare?.frame === k ? this.spare : null)
   }
 
   /** Shows the next frame when it's due and made; asks for frames ahead. */
@@ -230,13 +251,13 @@ export class Player {
     if (!this.isPlaying) return
     const n = this.delays.length
     const next = (this.current + 1) % n
-    const view = this.ready(next)
+    const view = this.kept(next)
     const due = this.shownAt + this.delays[this.current]
     const now = performance.now()
     if (view && now >= due) {
       this.current = next
-      if (this.spare === view) this.spare = null
-      this.host.show(view)
+      if (this.spare?.view === view) this.spare = null
+      this.host.show(view, next)
       // Keep to the GIF's timing, unless the frame came late.
       this.shownAt = now - due < this.delays[next] ? due : now
       this.update()
@@ -252,11 +273,11 @@ export class Player {
 
   /** The frame to make next, or -1: playing, the next one ahead not yet made; held, the one under the slider. */
   private wanted(): number {
-    if (!this.isPlaying) return this.dragging && !this.ready(this.current) ? this.current : -1
+    if (!this.isPlaying) return this.dragging && !this.kept(this.current) ? this.current : -1
     const n = this.delays.length
     for (let i = 1; i <= n; i++) {
       const k = (this.current + i) % n
-      if (this.ready(k)) continue
+      if (this.kept(k)) continue
       // With no room left, only the frame that's due next is worth making.
       if (this.full && i > 1) return -1
       return k
@@ -264,30 +285,29 @@ export class Player {
     return -1
   }
 
-  /** Asks the worker for the frame wanted next, if nothing's on its way. */
+  /** Asks for the frame wanted next, if nothing's on its way. */
   private ask(): void {
     if (this.inFlight) return
     const frame = this.wanted()
     if (frame < 0) return
     const epoch = this.epoch
-    const picture = this.engine.picture
+    const picture = this.options.picture()
     this.inFlight = { frame, epoch }
-    const { settings, fxScale } = this.host.request()
-    this.engine.renderFrame(settings, fxScale, frame).then(
+    this.host.make(frame).then(
       (view) => {
         this.inFlight = null
-        const fresh = epoch === this.epoch && picture === this.engine.picture
+        const fresh = epoch === this.epoch && picture === this.options.picture()
         if (fresh) this.keep(frame, view)
         if (this.isPlaying) return this.pump()
         if (fresh && this.dragging && frame === this.current) {
-          this.host.show(view)
+          this.host.show(view, frame)
           this.update()
         }
         this.ask()
       },
       (err: Error) => {
         this.inFlight = null
-        if (epoch !== this.epoch || picture !== this.engine.picture || !this.isPlaying) return
+        if (epoch !== this.epoch || picture !== this.options.picture() || !this.isPlaying) return
         this.pause()
         this.host.problem(`Something went wrong: ${err.message}`)
       }
@@ -295,25 +315,26 @@ export class Player {
   }
 
   /** Keeps a frame while there's room in the budget, else holds it until it's shown. */
-  private keep(frame: number, view: RenderedView): void {
-    // With a screen effect or the signal, the enlarged picture is all a frame holds.
-    const pixels = view.fx ? view.fx.width * view.fx.height : view.width * view.height
-    if (this.cachedPixels + pixels <= MAX_ANIMATION_BUDGET) {
+  private keep(frame: number, view: V): void {
+    const size = this.host.size(view)
+    if (this.cachedSize + size <= this.options.budget) {
       this.cache[frame] = view
-      this.cachedPixels += pixels
+      this.cachedSize += size
       this.el.dataset.cached = String(this.cache.filter(Boolean).length)
     } else {
       this.full = true
-      this.spare = view
+      this.spare = { frame, view }
     }
   }
 
   /** "12 / 58", dimmed while the next frame is still being made; the slider follows. */
   private update(waiting = false): void {
     const n = this.delays.length
-    this.counter.textContent = `${this.current + 1} / ${n}`
+    // Written only when it changes: a timer that fires a hair early comes through here again.
+    const text = `${this.current + 1} / ${n}`
+    if (this.counter.textContent !== text) this.counter.textContent = text
     this.counter.classList.toggle('waiting', waiting)
     this.slider.max = String(Math.max(1, n - 1))
-    this.slider.value = String(this.current)
+    if (this.slider.value !== String(this.current)) this.slider.value = String(this.current)
   }
 }

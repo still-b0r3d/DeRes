@@ -1,12 +1,50 @@
+import { animationMultiplier } from '../core/animate'
 import {
   type AsciiColorMode,
   type AsciiMode,
   type AsciiRampPreset,
   type AsciiSettings
 } from '../core/ascii'
+import { asciiImageSize } from '../core/ascii-render'
 import { framesText } from '../core/gif-info'
 import { h, segmented, show, slider, twoStepButton } from './dom'
 import { sampleLinks } from './samples'
+
+/** The sizes the rendered picture (PNG, GIF, APNG) comes in. */
+export const ASCII_SCALES = [1, 2, 4] as const
+export type AsciiScale = (typeof ASCII_SCALES)[number]
+
+/** The size an animated GIF or APNG of the art comes out at, as DeRes's AnimationFit. */
+export interface AsciiAnimationFit {
+  /** The chosen size, or the biggest smaller one that fits. Null when none fits. */
+  multiplier: number | null
+  /** The next size up that doesn't fit (the smallest, when none does); null when the chosen one fits. */
+  next: number | null
+}
+
+/**
+ * Animations stop short of the PNG's size (MAX_ANIMATION_PIXELS a frame):
+ * they drop to the biggest size that fits instead. The frames go out one at
+ * a time, so only one frame's size counts.
+ */
+export function asciiAnimationFit(columns: number, rows: number, chosen: number): AsciiAnimationFit {
+  const size = (m: number) => asciiImageSize(columns, rows, m)
+  const multiplier = animationMultiplier(size, chosen, 0, ASCII_SCALES)
+  const next = ASCII_SCALES.find((m) => m <= chosen && (multiplier === null || m > multiplier)) ?? null
+  return { multiplier, next }
+}
+
+/** The line by the GIF and APNG buttons when they can't be made at the chosen size: what they come out at, and why. */
+export function asciiAnimationHint(columns: number, rows: number, chosen: number): string {
+  const fit = asciiAnimationFit(columns, rows, chosen)
+  if (fit.next === null) return ''
+  if (fit.multiplier === null) {
+    const [w, h] = asciiImageSize(columns, rows, fit.next)
+    return `GIF and APNG can't be made: even ${fit.next}× (${w}×${h} px) is too big for an animation. Pick fewer columns.`
+  }
+  const [w, h] = asciiImageSize(columns, rows, fit.multiplier)
+  return `GIF and APNG come out at ${fit.multiplier}× (${w}×${h} px): ${fit.next === chosen ? `${fit.next}× is` : `${fit.next}× and up are`} too big for an animation.`
+}
 
 export interface AsciiControlsContext {
   get(): AsciiSettings
@@ -21,7 +59,16 @@ export interface AsciiControlsContext {
   downloadPetsciiSeq(): void
   downloadPetsciiPrg(): void
   downloadTeletext(): void
-  downloadPng(multiplier: number): void
+  /** The paused frame (or the picture) at the chosen size. */
+  downloadPng(): void
+  /** Every frame of the animated GIF, as the art. */
+  downloadAnimated(format: 'apng' | 'gif'): void
+  downloadAnsimation(): void
+  /** The rendered picture's size (PNG, GIF, APNG). */
+  scale(): AsciiScale
+  setScale(scale: AsciiScale): void
+  /** The size of the art on screen, in cells; null before there is any. */
+  art(): { width: number; height: number } | null
   /** Every setting back to its default (the picture stays). */
   resetSettings(): void
   picture(): {
@@ -45,6 +92,8 @@ function section(title: string, open: boolean, ...body: (Node | null)[]): HTMLDe
 export function buildAsciiControls(ctx: AsciiControlsContext): {
   el: HTMLElement
   sync: () => void
+  /** Only the export sizes and buttons (the art changed size). */
+  syncExport: () => void
   status: (t: string) => void
 } {
   const set = ctx.set
@@ -285,6 +334,15 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     'Download .ANS (with SAUCE record)'
   )
 
+  // An animated GIF's every frame, drawn over each other (sync fills in the frame count).
+  const downloadAnsimationBtn = h('button', {
+    type: 'button',
+    class: 'btn-download',
+    'data-testid': 'ascii-download-ansimation',
+    hidden: true,
+    onclick: () => ctx.downloadAnsimation()
+  })
+
   const downloadPetsciiSeqBtn = h(
     'button',
     {
@@ -318,15 +376,32 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     'Download .TXT (Teletext as text)'
   )
 
-  const pngMultipliers = segmented<'1' | '2' | '4'>(
-    'PNG scale',
-    [
-      { value: '1', text: '1× (640px)' },
-      { value: '2', text: '2× (1280px)' },
-      { value: '4', text: '4× (2560px)' }
-    ] as const,
-    (v) => ctx.downloadPng(Number(v))
+  // The size is picked first (as in DeRes), then a PNG, GIF or APNG is made at it.
+  const scales = segmented(
+    'Picture size',
+    ASCII_SCALES.map((m) => ({ value: String(m), text: `${m}×` })),
+    (v) => ctx.setScale(Number(v) as AsciiScale)
   )
+  scales.el.classList.add('cols-3')
+  const sizeLine = h('p', { class: 'size-line', 'data-testid': 'ascii-export-size' })
+  const downloadPngBtn = h(
+    'button',
+    { type: 'button', class: 'download', 'data-testid': 'ascii-download-png', onclick: () => ctx.downloadPng() },
+    'Download PNG'
+  )
+  const downloadGifBtn = h(
+    'button',
+    { type: 'button', class: 'anim-btn', 'data-testid': 'ascii-download-gif', onclick: () => ctx.downloadAnimated('gif') },
+    '🎞️ Download GIF'
+  )
+  const downloadApngBtn = h(
+    'button',
+    { type: 'button', class: 'anim-btn', 'data-testid': 'ascii-download-apng', onclick: () => ctx.downloadAnimated('apng') },
+    '🎬 Download APNG'
+  )
+  const animActions = h('div', { class: 'anim-actions', hidden: true }, downloadGifBtn, downloadApngBtn)
+  // When GIF and APNG can't be made at the chosen size: what they come out at, and why.
+  const animHint = h('p', { class: 'hint anim-hint', 'data-testid': 'ascii-anim-hint', hidden: true })
 
   const exportSec = section(
     'Export & Clipboard',
@@ -335,11 +410,14 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     copyRow,
     h('h4', { class: 'subhead' }, 'BBS & Vintage download'),
     downloadAnsBtn,
+    downloadAnsimationBtn,
     downloadPetsciiSeqBtn,
     downloadPetsciiPrgBtn,
     downloadTeletextBtn,
-    h('h4', { class: 'subhead' }, 'Rendered PNG (Font graphics)'),
-    pngMultipliers.el,
+    h('h4', { class: 'subhead' }, 'Rendered picture (font graphics)'),
+    h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Size'), scales.el),
+    sizeLine,
+    h('div', { class: 'export-actions' }, downloadPngBtn, animActions, animHint),
     statusEl
   )
 
@@ -370,9 +448,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     const p = ctx.picture()
 
     if (p) {
-      // The studio works on the first frame of an animated GIF.
-      const frames = framesText(p.frames, p.animation)
-      pictureInfo.textContent = [`${p.name} · ${p.origW}×${p.origH} px`, frames, p.animation ? 'uses the first frame' : ''].filter(Boolean).join(' · ')
+      pictureInfo.textContent = [`${p.name} · ${p.origW}×${p.origH} px`, framesText(p.frames, p.animation)].filter(Boolean).join(' · ')
     } else {
       pictureInfo.textContent = 'No picture loaded.'
     }
@@ -410,11 +486,44 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     show(downloadPetsciiPrgBtn, s.mode === 'petscii')
     show(downloadTeletextBtn, s.mode === 'teletext')
     show(downloadAnsBtn, s.mode !== 'petscii' && s.mode !== 'teletext')
+    syncExport()
+  }
+
+  function syncExport(): void {
+    const s = ctx.get()
+    const p = ctx.picture()
+    const art = ctx.art()
+    const scale = ctx.scale()
+    scales.set(String(scale))
+    const frames = p?.animation?.frames ?? 0
+    const animated = frames > 1
+    downloadAnsimationBtn.textContent = `Download ANSImation .ANS (${frames} frames)`
+    show(downloadAnsimationBtn, animated && s.mode !== 'petscii' && s.mode !== 'teletext')
+    show(animActions, animated)
+    if (!p || !art) {
+      sizeLine.textContent = ''
+      show(animHint, false)
+      downloadPngBtn.disabled = true
+      downloadGifBtn.disabled = true
+      downloadApngBtn.disabled = true
+      return
+    }
+    // The size line is the PNG's; GIF and APNG have their own line by their buttons.
+    const [w, hh] = asciiImageSize(art.width, art.height, scale)
+    sizeLine.textContent = `${w}×${hh} px`
+    downloadPngBtn.disabled = false
+    const hint = animated ? asciiAnimationHint(art.width, art.height, scale) : ''
+    animHint.textContent = hint
+    show(animHint, hint !== '')
+    const none = asciiAnimationFit(art.width, art.height, scale).multiplier === null
+    downloadGifBtn.disabled = none
+    downloadApngBtn.disabled = none
   }
 
   return {
     el: root,
     sync,
+    syncExport,
     status(msg: string) {
       statusEl.textContent = msg
     }

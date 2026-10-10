@@ -8,12 +8,16 @@ import {
   exportPetsciiPrg,
   exportPetsciiSeq,
   exportTeletextPage,
+  AnsimationWriter,
   DEFAULT_ASCII_SETTINGS,
   type AsciiResult,
   type AsciiSettings
 } from '../core/ascii'
+import { packAscii, unpackAscii, type PackedAscii } from '../core/ascii-pack'
 import { loadAsciiSettings, saveAsciiSettings } from './ascii-settings'
-import { renderAsciiToCanvas, renderHalfBlockPng } from '../core/ascii-render'
+import { asciiImageSize, asciiPixels, drawnWithFont, renderAsciiToCanvas, renderHalfBlockPng } from '../core/ascii-render'
+import { MAX_ANIMATION_BUDGET } from '../core/animate'
+import { encodeRgbAnimation } from '../core/encode-animation'
 import { BYTE_TO_LINEAR, rgbToHex } from '../core/color'
 import { baseName } from '../core/filename'
 import { planGeometry, type Geometry } from '../core/geometry'
@@ -35,7 +39,7 @@ import {
 import { createZip } from '../core/zip'
 import { injectExif } from '../core/inject'
 import type { RenderedView } from '../worker/protocol'
-import { buildAsciiControls } from './ascii-controls'
+import { asciiAnimationFit, buildAsciiControls, type AsciiScale } from './ascii-controls'
 import { AsciiStage } from './ascii-stage'
 import { animationFit, buildControls } from './controls'
 import { buildScrubControls } from './scrub-controls'
@@ -90,6 +94,62 @@ interface ScrubFile {
   name: string
 }
 
+/**
+ * How many cells of the ASCII studio's frames are kept while a GIF plays: as
+ * much memory as DeRes keeps (a packed cell takes 14 bytes, a pixel 4).
+ */
+const ASCII_PLAY_BUDGET = Math.floor((MAX_ANIMATION_BUDGET * 4) / 14)
+
+/** The ASCII art on screen: which frame, made with which settings (JSON). */
+interface AsciiShown {
+  key: string
+  frame: number
+  art: PackedAscii
+  /** The art as cells, made the first time an export needs it. */
+  result?: AsciiResult
+}
+
+/**
+ * Waited for between an export's frames: once the page has been busy for a
+ * while, it gets a moment for other things. A message to itself, not a
+ * timer (a timer crawls in a background tab); only now and then, as each
+ * one costs about a frame's time in Safari.
+ */
+function breather(): () => Promise<void> {
+  let since = performance.now()
+  return async () => {
+    if (performance.now() - since < 25) return
+    await new Promise<void>((resolve) => {
+      const channel = new MessageChannel()
+      channel.port1.onmessage = () => resolve()
+      channel.port2.postMessage(null)
+    })
+    since = performance.now()
+  }
+}
+
+/** Starts a download of blob as filename. */
+function save(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+/** A canvas's pixels as r, g, b. */
+function canvasRgb(canvas: HTMLCanvasElement): Uint8Array {
+  const { data } = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height)
+  const rgb = new Uint8Array((data.length / 4) * 3)
+  for (let i = 0, o = 0; i < data.length; i += 4, o += 3) {
+    rgb[o] = data[i]
+    rgb[o + 1] = data[i + 1]
+    rgb[o + 2] = data[i + 2]
+  }
+  return rgb
+}
+
 const MIME: Record<ImageMetadata['format'], string> = {
   jpeg: 'image/jpeg',
   png: 'image/png',
@@ -106,7 +166,11 @@ export function startApp(): void {
   let asciiSettings: AsciiSettings = loadAsciiSettings()
   let scrubOptions: ScrubOptions = { mode: 'all', preserveOrientation: true }
   let picture: Picture | null = null
-  let currentAsciiResult: AsciiResult | null = null
+  let asciiShown: AsciiShown | null = null
+  // The size the ASCII studio's PNG, GIF and APNG are made at.
+  let asciiScale: AsciiScale = 1
+  // The frame of an animated GIF that a preview was last on: the other one opens there.
+  let sharedFrame = 0
   // The scrubber: one file (the last one opened), or a batch when several
   // photos were picked or dropped together. The sample never joins a batch,
   // and any new pick, drop or paste replaces the batch.
@@ -166,17 +230,40 @@ export function startApp(): void {
   const stage = new Stage()
   const asciiStage = new AsciiStage()
   const scrubStage = new ScrubStage()
-  const player = new Player(engine, {
-    request: () => ({ settings: deres(settings), fxScale: previewScale(true) }),
-    show: showResult,
-    started: () => stage.setPlaying(true),
-    paused(frame) {
-      stage.setPlaying(false)
-      showOriginal(frame)
-      render()
+  const player = new Player<RenderedView>(
+    {
+      make: (k) => engine.renderFrame(deres(settings), previewScale(true), k),
+      // With a screen effect or the signal, the enlarged picture is all a frame holds.
+      size: (v) => (v.fx ? v.fx.width * v.fx.height : v.width * v.height),
+      show: showResult,
+      started: () => stage.setPlaying(true),
+      paused(frame) {
+        stage.setPlaying(false)
+        showOriginal(frame)
+        render()
+      },
+      problem: (message) => stage.problem(message)
     },
-    problem: (message) => stage.problem(message)
-  })
+    { budget: MAX_ANIMATION_BUDGET, picture: () => engine.picture }
+  )
+  // The ASCII studio's own: its frames are made as text art in the worker.
+  // Playing stops the modem typing, and the modem dialling pauses it.
+  const asciiPlayer = new Player<PackedAscii>(
+    {
+      make: (k) => engine.asciiFrame(asciiSettings, k),
+      size: (art) => art.width * art.height,
+      show: (art, k) => showAscii(art, k, true),
+      started: () => asciiStage.setPlaying(true),
+      paused(frame) {
+        asciiStage.setPlaying(false)
+        if (!asciiShows(frame)) renderAsciiFrame(frame, true)
+      },
+      problem: (message) => asciiStage.problem(message)
+    },
+    { budget: ASCII_PLAY_BUDGET, picture: () => engine.picture, testPrefix: 'ascii-' }
+  )
+  asciiStage.addPlaybar(asciiPlayer.el)
+  asciiStage.onDial = () => asciiPlayer.pause()
 
   const readout = h('p', { class: 'readout', 'data-testid': 'readout' })
   const busy = h('span', { class: 'busy', hidden: true }, 'working…')
@@ -401,18 +488,123 @@ export function startApp(): void {
     }
   }
 
+  // What the ASCII studio's played frames were made with: when it changes, they're dropped.
+  const asciiKey = () => JSON.stringify(asciiSettings)
+  let asciiPlayKey = ''
   const renderAscii = () => {
     if (!picture) {
       asciiStage.message('Choose a photo to start.')
       return
     }
-    try {
-      const res = generateAscii(picture.copy.rgba, picture.copy.width, picture.copy.height, asciiSettings)
-      currentAsciiResult = res
-      asciiStage.show(res)
-    } catch (err) {
-      asciiStage.problem(`Error rendering ASCII: ${(err as Error).message}`)
+    const key = asciiKey()
+    if (key !== asciiPlayKey) {
+      asciiPlayKey = key
+      asciiPlayer.invalidate()
     }
+    if (asciiPlayer.playing) return
+    renderAsciiFrame(asciiPlayer.frame, false)
+  }
+
+  /** Whether the art on screen is frame k with the current settings. */
+  const asciiShows = (k: number) => asciiShown?.frame === k && asciiShown.key === asciiKey()
+
+  /**
+   * Frame k (or the picture) through the ASCII settings, onto the stage. The
+   * picture, an animated GIF's first frame included, is right here, so it's
+   * made at once; later frames come from the worker, which holds them.
+   * `instant`: shown whole even with a baud rate picked (a frame picked on
+   * the play bar isn't typed out).
+   */
+  let asciiTicket = 0
+  function renderAsciiFrame(k: number, instant: boolean): void {
+    const pic = picture
+    if (!pic) return
+    const ticket = ++asciiTicket
+    const kept = asciiPlayer.kept(k)
+    if (kept) return showAscii(kept, k, instant)
+    if (!pic.animation || k === 0) {
+      try {
+        showAscii(packAscii(generateAscii(pic.copy.rgba, pic.copy.width, pic.copy.height, asciiSettings)), 0, instant)
+      } catch (err) {
+        asciiStage.problem(`Error rendering ASCII: ${(err as Error).message}`)
+      }
+      return
+    }
+    const key = asciiKey()
+    // Old news once the settings, the frame or the picture moved on.
+    const current = () => ticket === asciiTicket && key === asciiKey() && picture === pic
+    engine.asciiFrame(asciiSettings, k).then(
+      (art) => {
+        if (current() && !asciiPlayer.playing && asciiPlayer.frame === k) showAscii(art, k, instant)
+      },
+      (err: Error) => {
+        if (current()) asciiStage.problem(`Error rendering ASCII: ${err.message}`)
+      }
+    )
+  }
+
+  function showAscii(art: PackedAscii, frame: number, instant: boolean): void {
+    const resized = asciiShown?.art.width !== art.width || asciiShown?.art.height !== art.height
+    asciiShown = { key: asciiKey(), frame, art }
+    if (instant) asciiStage.showFrame(art)
+    else asciiStage.show(art)
+    // Which frame is on screen (the tests wait for it).
+    asciiStage.el.dataset.frame = String(frame)
+    // The export sizes follow the art's.
+    if (resized) asciiControls.syncExport()
+  }
+
+  /**
+   * The ASCII art on screen as cells, for copying and saving, with the file
+   * name's start: a frame of an animated GIF past the first says which ("-frame12").
+   */
+  function asciiOnScreen(): { result: AsciiResult; base: string; of: string } | null {
+    if (!asciiShown || !picture) return null
+    asciiShown.result ??= unpackAscii(asciiShown.art)
+    const later = !!picture.animation && asciiShown.frame > 0
+    return {
+      result: asciiShown.result,
+      base: later ? `${picture.base}-frame${asciiShown.frame + 1}` : picture.base,
+      of: later ? ` of frame ${asciiShown.frame + 1}` : ''
+    }
+  }
+
+  /**
+   * The frames of the animated GIF as art with settings s, for an export:
+   * the play bar's own when it keeps them with these settings, else made in
+   * the worker, a few frames ahead of the one wanted (each answer takes a
+   * while to come back).
+   */
+  function asciiFrameSource(s: AsciiSettings, count: number): (k: number) => Promise<PackedAscii> {
+    const key = JSON.stringify(s)
+    const asked = new Map<number, Promise<PackedAscii>>()
+    const ask = (k: number): Promise<PackedAscii> => {
+      let art = asked.get(k)
+      if (!art) {
+        const kept = key === asciiKey() ? asciiPlayer.kept(k) : null
+        art = kept ? Promise.resolve(kept) : engine.asciiFrame(s, k)
+        // One that's never waited for (the export stopped) isn't an error.
+        art.catch(() => {})
+        asked.set(k, art)
+      }
+      return art
+    }
+    return (k) => {
+      for (let j = 1; j <= 3 && k + j < count; j++) ask(k + j)
+      const art = ask(k)
+      asked.delete(k)
+      return art
+    }
+  }
+
+  /** Copies text made from the art on screen; `what` names it in the status line. */
+  function copyAscii(what: string, make: (result: AsciiResult) => string): void {
+    const on = asciiOnScreen()
+    if (!on) return
+    navigator.clipboard.writeText(make(on.result)).then(
+      () => asciiControls.status(`Copied ${what}${on.of} to clipboard.`),
+      () => asciiControls.status('Failed to copy to clipboard.')
+    )
   }
 
   const controls = buildControls({
@@ -480,6 +672,7 @@ export function startApp(): void {
     },
     resetSettings() {
       asciiSettings = { ...DEFAULT_ASCII_SETTINGS }
+      asciiScale = 1
       saveAsciiSettings(asciiSettings)
       asciiControls.sync()
       renderAscii()
@@ -487,132 +680,81 @@ export function startApp(): void {
     },
     openFile: () => fileInput.click(),
     loadSample,
-    copyText: () => {
-      if (!currentAsciiResult) return
-      navigator.clipboard.writeText(toPlainText(currentAsciiResult)).then(
-        () => asciiControls.status('Copied plain text to clipboard.'),
-        () => asciiControls.status('Failed to copy to clipboard.')
-      )
-    },
-    copyMarkdown: () => {
-      if (!currentAsciiResult) return
-      navigator.clipboard.writeText(toMarkdown(currentAsciiResult)).then(
-        () => asciiControls.status('Copied Markdown code block to clipboard.'),
-        () => asciiControls.status('Failed to copy to clipboard.')
-      )
-    },
-    copyAnsi: () => {
-      if (!currentAsciiResult) return
-      navigator.clipboard.writeText(toAnsiText(currentAsciiResult)).then(
-        () => asciiControls.status('Copied ANSI escape sequence text to clipboard.'),
-        () => asciiControls.status('Failed to copy to clipboard.')
-      )
-    },
-    copyHtml: () => {
-      if (!currentAsciiResult) return
-      navigator.clipboard.writeText(toHtml(currentAsciiResult)).then(
-        () => asciiControls.status('Copied HTML <pre> block to clipboard.'),
-        () => asciiControls.status('Failed to copy to clipboard.')
-      )
-    },
+    // Copies and downloads are of the art on screen: the paused frame of an animated GIF.
+    copyText: () => copyAscii('plain text', toPlainText),
+    copyMarkdown: () => copyAscii('Markdown code block', toMarkdown),
+    copyAnsi: () => copyAscii('ANSI escape sequence text', toAnsiText),
+    copyHtml: () => copyAscii('HTML <pre> block', toHtml),
     downloadAns: () => {
-      if (!currentAsciiResult || !picture) return
+      const on = asciiOnScreen()
+      if (!on || !picture) return
       try {
         // The visitor made the art, so no author; the group names where it was made.
-        const bytes = toAnsiBytes(currentAsciiResult, {
+        const bytes = toAnsiBytes(on.result, {
           title: picture.base,
           author: '',
           group: 'b0r3d.org'
         })
-        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' })
-        const url = URL.createObjectURL(blob)
-        const a = h('a', { href: url, download: `${picture.base}.ans`, class: 'visually-hidden' })
-        document.body.append(a)
-        a.click()
-        a.remove()
-        setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        asciiControls.status(`Saved ${picture.base}.ans (${bytes.length.toLocaleString()} bytes with SAUCE record).`)
+        save(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' }), `${on.base}.ans`)
+        asciiControls.status(`Saved ${on.base}.ans (${bytes.length.toLocaleString()} bytes with SAUCE record).`)
       } catch (err) {
         asciiControls.status(`Couldn't export .ans: ${(err as Error).message}`)
       }
     },
+    downloadAnsimation,
     downloadPetsciiSeq: () => {
-      if (!currentAsciiResult || !picture) return
+      const on = asciiOnScreen()
+      if (!on) return
       try {
-        const bytes = exportPetsciiSeq(currentAsciiResult)
-        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' })
-        const url = URL.createObjectURL(blob)
-        const a = h('a', { href: url, download: `${picture.base}.seq`, class: 'visually-hidden' })
-        document.body.append(a)
-        a.click()
-        a.remove()
-        setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        asciiControls.status(`Saved ${picture.base}.seq (${bytes.length.toLocaleString()} bytes PETSCII stream).`)
+        const bytes = exportPetsciiSeq(on.result)
+        save(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' }), `${on.base}.seq`)
+        asciiControls.status(`Saved ${on.base}.seq (${bytes.length.toLocaleString()} bytes PETSCII stream).`)
       } catch (err) {
         asciiControls.status(`Couldn't export .seq: ${(err as Error).message}`)
       }
     },
     downloadPetsciiPrg: () => {
-      if (!currentAsciiResult || !picture) return
+      const on = asciiOnScreen()
+      if (!on) return
       try {
-        const bytes = exportPetsciiPrg(currentAsciiResult)
-        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' })
-        const url = URL.createObjectURL(blob)
-        const a = h('a', { href: url, download: `${picture.base}.prg`, class: 'visually-hidden' })
-        document.body.append(a)
-        a.click()
-        a.remove()
-        setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        asciiControls.status(`Saved ${picture.base}.prg (${bytes.length.toLocaleString()} bytes: on a C64, LOAD it and type RUN).`)
+        const bytes = exportPetsciiPrg(on.result)
+        save(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' }), `${on.base}.prg`)
+        asciiControls.status(`Saved ${on.base}.prg (${bytes.length.toLocaleString()} bytes: on a C64, LOAD it and type RUN).`)
       } catch (err) {
         asciiControls.status(`Couldn't export .prg: ${(err as Error).message}`)
       }
     },
     downloadTeletext: () => {
-      if (!currentAsciiResult || !picture) return
+      const on = asciiOnScreen()
+      if (!on) return
       try {
-        const text = exportTeletextPage(currentAsciiResult)
-        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-        const url = URL.createObjectURL(blob)
-        const a = h('a', { href: url, download: `${picture.base}.txt`, class: 'visually-hidden' })
-        document.body.append(a)
-        a.click()
-        a.remove()
-        setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        asciiControls.status(`Saved ${picture.base}.txt (the Teletext art as plain text).`)
+        const text = exportTeletextPage(on.result)
+        save(new Blob([text], { type: 'text/plain;charset=utf-8' }), `${on.base}.txt`)
+        asciiControls.status(`Saved ${on.base}.txt (the Teletext art as plain text).`)
       } catch (err) {
         asciiControls.status(`Couldn't save the .txt: ${(err as Error).message}`)
       }
     },
-    downloadPng: async (multiplier: number) => {
-      if (!currentAsciiResult || !picture) return
+    downloadPng: async () => {
+      const on = asciiOnScreen()
+      if (!on) return
+      const multiplier = asciiScale
       asciiControls.status(`Making ASCII PNG (${multiplier}×)…`)
       try {
-        if (currentAsciiResult.settings.mode === 'half-block') {
-          const res = await renderHalfBlockPng(currentAsciiResult, multiplier)
-          const blob = new Blob([res.png.buffer as ArrayBuffer], { type: 'image/png' })
-          const url = URL.createObjectURL(blob)
-          const filename = `${picture.base}-ansi-${res.width}x${res.height}-${multiplier}x.png`
-          const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
-          document.body.append(a)
-          a.click()
-          a.remove()
-          setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        if (!drawnWithFont(on.result)) {
+          const res = await renderHalfBlockPng(on.result, multiplier)
+          const filename = `${on.base}-ansi-${res.width}x${res.height}-${multiplier}x.png`
+          save(new Blob([res.png.buffer as ArrayBuffer], { type: 'image/png' }), filename)
           asciiControls.status(`Saved ${filename} (${res.width}×${res.height}).`)
         } else {
-          const canvas = renderAsciiToCanvas(currentAsciiResult, multiplier)
+          const canvas = renderAsciiToCanvas(on.result, multiplier)
           canvas.toBlob((blob) => {
             if (!blob) {
               asciiControls.status("Couldn't encode PNG")
               return
             }
-            const url = URL.createObjectURL(blob)
-            const filename = `${picture!.base}-ascii-${canvas.width}x${canvas.height}-${multiplier}x.png`
-            const a = h('a', { href: url, download: filename, class: 'visually-hidden' })
-            document.body.append(a)
-            a.click()
-            a.remove()
-            setTimeout(() => URL.revokeObjectURL(url), 60_000)
+            const filename = `${on.base}-ascii-${canvas.width}x${canvas.height}-${multiplier}x.png`
+            save(blob, filename)
             asciiControls.status(`Saved ${filename} (${canvas.width}×${canvas.height}).`)
           }, 'image/png')
         }
@@ -620,6 +762,13 @@ export function startApp(): void {
         asciiControls.status(`Couldn't make PNG: ${(err as Error).message}`)
       }
     },
+    downloadAnimated: downloadAsciiAnimated,
+    scale: () => asciiScale,
+    setScale(scale) {
+      asciiScale = scale
+      asciiControls.syncExport()
+    },
+    art: () => asciiShown && { width: asciiShown.art.width, height: asciiShown.art.height },
     picture: () =>
       picture && {
         name: picture.name,
@@ -629,6 +778,82 @@ export function startApp(): void {
         animation: picture.animation
       }
   })
+
+  /**
+   * Every frame of the animated GIF through the ASCII settings, as a GIF or
+   * APNG of the rendered art: each frame the same pixels as its PNG, at the
+   * chosen size or the biggest that fits an animation (the hint by the
+   * buttons says which). The frames are made in the worker, drawn here (the
+   * font is the page's), and the page gets a breather between frames.
+   */
+  async function downloadAsciiAnimated(format: 'apng' | 'gif'): Promise<void> {
+    const pic = picture
+    const anim = pic?.animation
+    if (!pic || !anim || !asciiShown) return
+    const { width: columns, height: rows } = asciiShown.art
+    const multiplier = asciiAnimationFit(columns, rows, asciiScale).multiplier
+    if (multiplier === null) return
+    // Every frame with the settings of the moment, whatever changes meanwhile.
+    const s = asciiSettings
+    const frameArt = asciiFrameSource(s, anim.frames)
+    const font = drawnWithFont(asciiShown.result ?? unpackAscii(asciiShown.art))
+    const canvas = font ? document.createElement('canvas') : null
+    const [width, height] = asciiImageSize(columns, rows, multiplier)
+    const making = `Making the ${format.toUpperCase()}…`
+    asciiControls.status(making)
+    try {
+      const res = await encodeRgbAnimation({
+        format,
+        width,
+        height,
+        delaysMs: anim.delaysMs,
+        loopCount: anim.loopCount,
+        frame: async (k) => {
+          const result = unpackAscii(await frameArt(k))
+          return canvas ? canvasRgb(renderAsciiToCanvas(result, multiplier, canvas)) : asciiPixels(result, multiplier)
+        },
+        breathe: breather(),
+        onProgress: (done, total, note) =>
+          asciiControls.status(`${making} ${note ? `${note}, ` : ''}frame ${done} of ${total}${done === total && !note ? ', putting them together' : ''}`)
+      })
+      const kind = font ? 'ascii' : 'ansi'
+      const filename =
+        format === 'apng' ? `${pic.base}-${kind}-${width}x${height}-${multiplier}x-animated.png` : `${pic.base}-${kind}-${width}x${height}-${multiplier}x.gif`
+      save(new Blob([res.data], { type: res.mimeType }), filename)
+      asciiControls.status(`Saved ${filename} (${res.width}×${res.height}, ${res.frameCount} frames).`)
+    } catch (err) {
+      asciiControls.status(`Couldn't make ${format.toUpperCase()}: ${(err as Error).message}`)
+    }
+  }
+
+  /**
+   * Every frame of the animated GIF through the ASCII settings as one .ans,
+   * each drawn over the last (see AnsimationWriter), with one SAUCE record.
+   */
+  async function downloadAnsimation(): Promise<void> {
+    const pic = picture
+    const anim = pic?.animation
+    if (!pic || !anim) return
+    const frameArt = asciiFrameSource(asciiSettings, anim.frames)
+    const making = 'Making the ANSImation…'
+    asciiControls.status(making)
+    try {
+      const writer = new AnsimationWriter()
+      const breathe = breather()
+      for (let k = 0; k < anim.frames; k++) {
+        await breathe()
+        writer.add(unpackAscii(await frameArt(k)))
+        asciiControls.status(`${making} frame ${k + 1} of ${anim.frames}`)
+      }
+      // The visitor made the art, so no author; the group names where it was made.
+      const bytes = writer.finish({ title: pic.base, author: '', group: 'b0r3d.org' })
+      const filename = `${pic.base}-animated.ans`
+      save(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' }), filename)
+      asciiControls.status(`Saved ${filename} (${writer.frames} frames, ${bytes.length.toLocaleString()} bytes with SAUCE record).`)
+    } catch (err) {
+      asciiControls.status(`Couldn't make the ANSImation: ${(err as Error).message}`)
+    }
+  }
 
   const scrubControls = buildScrubControls({
     openFile: () => fileInput.click(),
@@ -769,7 +994,16 @@ export function startApp(): void {
   const layoutEl = document.querySelector('.layout') as HTMLElement | null
 
   function switchTool(tool: 'deres' | 'ascii' | 'scrub' | 'inject'): void {
+    // Leaving a preview pauses its playback; the other preview opens on the frame it was on.
     if (tool !== 'deres') player.pause()
+    if (tool !== 'ascii') asciiPlayer.pause()
+    if (activeTool === 'deres') sharedFrame = player.frame
+    if (activeTool === 'ascii') sharedFrame = asciiPlayer.frame
+    if (tool === 'deres' && player.frame !== sharedFrame) {
+      player.setFrame(sharedFrame)
+      showOriginal(player.frame)
+    }
+    if (tool === 'ascii') asciiPlayer.setFrame(sharedFrame)
     activeTool = tool
     if (layoutEl) layoutEl.dataset.tool = tool
     if (tabDeres) {
@@ -863,7 +1097,9 @@ export function startApp(): void {
   async function open(blob: Blob, name: string, inBatch = false): Promise<void> {
     const ticket = ++opening
     player.halt()
+    asciiPlayer.halt()
     stage.setPlaying(false)
+    asciiStage.setPlaying(false)
     if (!inBatch) {
       batchItems = []
       activeBatchIndex = 0
@@ -923,6 +1159,11 @@ export function startApp(): void {
     picture = { copy, name, base: baseName(name), hasAlpha, frames, animation }
     if (animation) gifFramesChosen = true
     player.setAnimation(animation?.delaysMs ?? null)
+    asciiPlayer.setAnimation(animation?.delaysMs ?? null)
+    sharedFrame = 0
+    // The ASCII art of the last picture is no good for exports any more.
+    asciiShown = null
+    asciiTicket++
     if (bytes) setScrubFile({ bytes, meta: inspectMetadata(bytes), url: URL.createObjectURL(blob), name })
     stage.setSource(copy.canvas)
     controls.sync()

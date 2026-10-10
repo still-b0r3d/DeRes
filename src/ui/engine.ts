@@ -1,3 +1,5 @@
+import type { AsciiSettings } from '../core/ascii'
+import type { PackedAscii } from '../core/ascii-pack'
 import type { DeresSettings } from '../core/pipeline'
 import type { AnimationStyle, FromWorker, LoadedGif, RenderedMessage, RenderedView, ToWorker } from '../worker/protocol'
 import type { WorkingCopy } from './loader'
@@ -96,6 +98,11 @@ export class Engine {
   /** A frame of the animated GIF as it was opened, r, g, b, a per pixel. */
   sourceFrame(frame: number): Promise<{ width: number; height: number; rgba: ArrayBuffer }> {
     return this.request((id) => ({ type: 'source-frame', id, gen: this.gen, frame }))
+  }
+
+  /** Frame k of the animated GIF (or the picture) as ASCII art. Rejects if the picture changes first. */
+  asciiFrame(settings: AsciiSettings, frame: number): Promise<PackedAscii> {
+    return this.request((id) => ({ type: 'ascii-frame', id, gen: this.gen, settings, frame }))
   }
 
   export(settings: DeresSettings, multiplier: number, withFx: boolean, base: string, frame = 0): Promise<ExportResult> {
@@ -204,6 +211,9 @@ export class Engine {
         return
       case 'source-frame':
         this.settle(msg.id, { width: msg.width, height: msg.height, rgba: msg.rgba })
+        return
+      case 'ascii-frame':
+        this.settle(msg.id, msg.art)
         return
       case 'exported':
       case 'exported-wallpaper':
