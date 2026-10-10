@@ -38,6 +38,9 @@ export interface ControlsContext {
   loadPaletteFile(): void
   grabPalette(): void
   shareLink(): void
+  /** With an animated GIF open: whether the animation export uses its own frames (the default). */
+  gifFrames(): boolean
+  setGifFrames(on: boolean): void
   /** What's loaded, or null. */
   picture(): {
     name: string
@@ -329,7 +332,7 @@ export function buildControls(ctx: ControlsContext): {
     signalMode.el,
     signalNote,
     signalGroup,
-    h('p', { class: 'hint' }, 'The noise moves in the Screen FX animation under Export.'),
+    h('p', { class: 'hint' }, 'The noise moves when a GIF plays, and in the animations under Export.'),
     h(
       'p',
       { class: 'hint credit' },
@@ -437,16 +440,22 @@ export function buildControls(ctx: ControlsContext): {
   const fxLabel = h('label', { class: 'check', for: 'export-fx' }, fxBox, ' With the screen effect')
   const downloadBtn = h('button', { type: 'button', class: 'download', onclick: () => ctx.download() }, 'Download PNG')
 
+  // "GIF frames" (an animated GIF's own frames) is offered only while one is open.
   const animStyle = segmented(
     'Animation loop',
     [
+      { value: 'gif-frames', text: 'GIF frames' },
       { value: 'screen-fx', text: 'Screen FX' },
       { value: 'compare-wipe', text: 'A/B Wipe' },
       { value: 'dither-shimmer', text: 'Shimmer' }
     ] as const,
-    (v) => set({ animationStyle: v })
+    (v) => {
+      ctx.setGifFrames(v === 'gif-frames')
+      if (v !== 'gif-frames') set({ animationStyle: v })
+    }
   )
-  animStyle.el.classList.add('cols-3')
+  animStyle.el.classList.add('anim-styles')
+  const gifFramesBtn = animStyle.buttons.get('gif-frames')!
   const animRow = h('div', { class: 'row anim-row' }, h('span', { class: 'row-label' }, 'Animation loop'), animStyle.el)
   // Length and speed of the Screen FX loop with the signal on.
   const loopFrames = segmented(
@@ -695,8 +704,13 @@ export function buildControls(ctx: ControlsContext): {
       b.title = g ? `${w}×${hh}${tooBig ? ' (too big)' : ''}` : ''
     }
     mult.set(String(s.multiplier))
-    animStyle.set(s.animationStyle)
-    const signalLoop = signalOn && s.animationStyle === 'screen-fx'
+    const animatedFrames = pic?.animation?.frames ?? 0
+    const gifFrames = animatedFrames > 1 && ctx.gifFrames()
+    show(gifFramesBtn, animatedFrames > 1)
+    animStyle.el.classList.toggle('cols-4', animatedFrames > 1)
+    animStyle.el.classList.toggle('cols-3', animatedFrames <= 1)
+    animStyle.set(gifFrames ? 'gif-frames' : s.animationStyle)
+    const signalLoop = signalOn && !gifFrames && s.animationStyle === 'screen-fx'
     show(loopRows, signalLoop)
     loopFrames.set(String(s.loopFrames))
     loopFps.set(String(s.loopFps))
@@ -738,11 +752,20 @@ export function buildControls(ctx: ControlsContext): {
       // Every frame of an animation is held at once, so they stop sooner.
       const frameTooBig = w * hh > MAX_ANIMATION_PIXELS
       const loopTooLong = !frameTooBig && signalLoop && w * hh * s.loopFrames > MAX_ANIMATION_BUDGET
-      const animTooBig = frameTooBig || loopTooLong
+      const framesTooLong = !frameTooBig && gifFrames && w * hh * animatedFrames > MAX_ANIMATION_BUDGET
+      const animTooBig = frameTooBig || loopTooLong || framesTooLong
       const look = signalOn ? `full colour, ${connection ? `through ${CONNECTION_NAMES[connection]}` : 'with the signal'}` : withFx ? 'full colour' : coloursLabel
       sizeLine.textContent = tooBig
         ? `${w}×${hh} is too big. Pick a smaller size.`
-        : `${w}×${hh} px · ${look}${frameTooBig ? ' · too big for an animation' : loopTooLong ? ` · too big for ${s.loopFrames} frames` : ''}`
+        : `${w}×${hh} px · ${look}${
+            frameTooBig
+              ? ' · too big for an animation'
+              : loopTooLong
+                ? ` · too big for ${s.loopFrames} frames`
+                : framesTooLong
+                  ? ` · too big for ${animatedFrames} frames`
+                  : ''
+          }`
       downloadBtn.disabled = !pic || tooBig
       downloadApngBtn.disabled = !pic || animTooBig
       downloadGifBtn.disabled = !pic || animTooBig
@@ -750,7 +773,9 @@ export function buildControls(ctx: ControlsContext): {
         ? 'Too big for an animation: pick a smaller size'
         : loopTooLong
           ? 'Too many frames at this size: pick fewer frames or a smaller size'
-          : ''
+          : framesTooLong
+            ? 'Too many frames at this size: pick a smaller size'
+            : ''
       downloadApngBtn.title = animTitle
       downloadGifBtn.title = animTitle
 

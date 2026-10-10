@@ -111,7 +111,8 @@ export function lzwData(indices: ArrayLike<number>, minCodeSize: number, options
   const blocks: number[] = []
   for (let i = 0; i < out.length; i += 255) {
     const part = out.slice(i, i + 255)
-    blocks.push(part.length, ...part)
+    blocks.push(part.length)
+    for (const byte of part) blocks.push(byte)
   }
   blocks.push(0)
   return blocks
@@ -171,7 +172,7 @@ export function buildGif(g: BuiltGif): Uint8Array {
       for (const r of rows) for (let i = 0; i < b.width; i++) ordered.push(b.indices[r * b.width + i])
       pixels = ordered
     }
-    out.push(...lzwData(pixels, min, b.lzw))
+    for (const byte of lzwData(pixels, min, b.lzw)) out.push(byte)
   }
   if (!g.noTrailer) out.push(0x3b)
   return Uint8Array.from(out)

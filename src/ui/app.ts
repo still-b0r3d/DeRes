@@ -33,7 +33,8 @@ import {
 } from '../core/scrub'
 import { createZip } from '../core/zip'
 import { injectExif } from '../core/inject'
-import type { RenderedMessage } from '../worker/protocol'
+import { MAX_ANIMATION_BUDGET } from '../core/animate'
+import type { RenderedView } from '../worker/protocol'
 import { buildAsciiControls } from './ascii-controls'
 import { AsciiStage } from './ascii-stage'
 import { buildControls } from './controls'
@@ -52,6 +53,7 @@ import {
   type WorkingCopy
 } from './loader'
 import { DEFAULT_SAMPLE, sampleById } from './samples'
+import { Player } from './player'
 import { loadSettings, saveSettings, settingsFromHash, type Settings } from './settings'
 import { Stage } from './stage'
 
@@ -132,6 +134,9 @@ export function startApp(): void {
   let activeBatchIndex = 0
   let batchPreviewUrl: string | null = null
   let opening = 0
+  // With an animated GIF open, the animation export uses its own frames
+  // unless another style is picked (back to this for every new GIF).
+  let gifFramesChosen = true
 
   function selectBatchIndex(idx: number): void {
     if (idx < 0 || idx >= batchItems.length) return
@@ -180,6 +185,17 @@ export function startApp(): void {
   const stage = new Stage()
   const asciiStage = new AsciiStage()
   const scrubStage = new ScrubStage()
+  const player = new Player(engine, {
+    request: () => ({ settings: deres(settings), fxScale: previewScale(true) }),
+    show: showResult,
+    started: () => stage.setPlaying(true),
+    paused(frame) {
+      stage.setPlaying(false)
+      showOriginal(frame)
+      render()
+    },
+    problem: (message) => stage.problem(message)
+  })
 
   const readout = h('p', { class: 'readout', 'data-testid': 'readout' })
   const busy = h('span', { class: 'busy', hidden: true }, 'working…')
@@ -190,7 +206,14 @@ export function startApp(): void {
     h('span', { class: 'desktop-only' }, ' (or hold Space)')
   )
 
-  const deresStageSlot = h('div', { class: 'deres-stage-slot' }, stage.el, h('div', { class: 'readout-row' }, readout, busy), holdHint)
+  const deresStageSlot = h(
+    'div',
+    { class: 'deres-stage-slot' },
+    stage.el,
+    player.el,
+    h('div', { class: 'readout-row' }, readout, busy),
+    holdHint
+  )
   const asciiStageSlot = h('div', { class: 'ascii-stage-slot', hidden: true }, asciiStage.el)
   const scrubStageSlot = h('div', { class: 'scrub-stage-slot', hidden: true }, scrubStage.el)
   document.getElementById('stage-slot')!.append(deresStageSlot, asciiStageSlot, scrubStageSlot)
@@ -336,12 +359,55 @@ export function startApp(): void {
   /** The preview needs an enlarged copy: a screen effect or the signal is on. */
   const shownLarger = () => settings.fx.screen !== 'off' || settings.signal.mode !== 'off'
 
-  const render = () => {
+  /**
+   * The preview's enlargement for the screen effect or the signal (0 when
+   * neither is on). While a GIF plays, every frame is kept, so it's smaller
+   * if need be to keep them all within the animation budget.
+   */
+  const previewScale = (playing: boolean): number => {
     const g = geometry()
-    if (!g) return
+    if (!g || !shownLarger()) return 0
     const tv = settings.pixelShape === 'tv'
-    const fxScale = shownLarger() ? stage.fxScaleFor(g.width, g.height, g.par, tv) : 0
-    engine.render({ settings: deres(settings), fxScale })
+    let s = stage.fxScaleFor(g.width, g.height, g.par, tv)
+    const frames = picture?.animation?.frames ?? 1
+    if (playing && frames > 1) {
+      const ratio = tv ? g.par[0] / g.par[1] : 1
+      while (s > 2 && g.width * s * ratio * g.height * s * frames > MAX_ANIMATION_BUDGET) s--
+    }
+    return s
+  }
+
+  // What the played frames were made with: when it changes, they're dropped.
+  let playKey = ''
+  const render = () => {
+    if (!geometry()) return
+    const key = JSON.stringify([deres(settings), previewScale(true)])
+    if (key !== playKey) {
+      playKey = key
+      player.invalidate()
+    }
+    if (player.playing) return
+    engine.render({ settings: deres(settings), fxScale: previewScale(false), frame: player.frame })
+  }
+
+  // The original shown by Compare: the paused frame of an animation.
+  let originalTicket = 0
+  async function showOriginal(frame: number): Promise<void> {
+    const ticket = ++originalTicket
+    if (!picture) return
+    if (frame === 0 || !picture.animation) {
+      stage.setSource(picture.copy.canvas)
+      return
+    }
+    try {
+      const src = await engine.sourceFrame(frame)
+      if (ticket !== originalTicket) return
+      const canvas = h('canvas', { width: src.width, height: src.height })
+      canvas.getContext('2d')?.putImageData(new ImageData(new Uint8ClampedArray(src.rgba), src.width, src.height), 0, 0)
+      stage.setSource(canvas)
+    } catch {
+      // A new picture came along.
+    }
   }
 
   const renderAscii = () => {
@@ -385,6 +451,11 @@ export function startApp(): void {
     loadPaletteFile: () => paletteFileInput.click(),
     grabPalette,
     shareLink,
+    gifFrames: () => gifFramesChosen,
+    setGifFrames(on) {
+      gifFramesChosen = on
+      controls.sync()
+    },
     picture: () =>
       picture && {
         name: picture.name,
@@ -689,6 +760,7 @@ export function startApp(): void {
   const layoutEl = document.querySelector('.layout') as HTMLElement | null
 
   function switchTool(tool: 'deres' | 'ascii' | 'scrub' | 'inject'): void {
+    if (tool !== 'deres') player.pause()
     activeTool = tool
     if (layoutEl) layoutEl.dataset.tool = tool
     if (tabDeres) {
@@ -741,7 +813,12 @@ export function startApp(): void {
   scrubControls.sync()
   injectControls.sync()
 
-  engine.onRendered = (m: RenderedMessage) => {
+  // A render asked for before playback started is old news once it has.
+  engine.onRendered = (m) => {
+    if (!player.playing) showResult(m)
+  }
+
+  function showResult(m: RenderedView): void {
     const tv = settings.pixelShape === 'tv'
     stage.show(m, tv, settings.background === 'white' ? '#ffffff' : '#000000')
     const shape = m.par[0] === m.par[1] ? 'square pixels' : `${m.par[0]}:${m.par[1]} pixels`
@@ -773,6 +850,8 @@ export function startApp(): void {
   /** Opens one picture. A batch (several files picked together) passes inBatch for its first file. */
   async function open(blob: Blob, name: string, inBatch = false): Promise<void> {
     const ticket = ++opening
+    player.halt()
+    stage.setPlaying(false)
     if (!inBatch) {
       batchItems = []
       activeBatchIndex = 0
@@ -830,6 +909,8 @@ export function startApp(): void {
       if (ticket !== opening) return
     }
     picture = { copy, name, base: baseName(name), hasAlpha, frames, animation }
+    if (animation) gifFramesChosen = true
+    player.setAnimation(animation?.delaysMs ?? null)
     if (bytes) setScrubFile({ bytes, meta: inspectMetadata(bytes), url: URL.createObjectURL(blob), name })
     stage.setSource(copy.canvas)
     controls.sync()
@@ -885,7 +966,7 @@ export function startApp(): void {
     controls.status('Making the PNG…')
     try {
       const fxOk = settings.exportFx && settings.fx.screen !== 'off'
-      const res = await engine.export(deres(settings), settings.multiplier, fxOk, picture.base)
+      const res = await engine.export(deres(settings), settings.multiplier, fxOk, picture.base, player.frame)
       const url = URL.createObjectURL(new Blob([res.png], { type: 'image/png' }))
       const a = h('a', { href: url, download: res.filename, class: 'visually-hidden' })
       document.body.append(a)
@@ -901,14 +982,17 @@ export function startApp(): void {
   async function downloadAnimated(format: 'apng' | 'gif'): Promise<void> {
     if (!picture) return
     const signalOn = settings.signal.mode !== 'off'
+    const style = picture.animation && gifFramesChosen ? 'gif-frames' : settings.animationStyle
     const styleName =
-      settings.animationStyle === 'screen-fx'
-        ? signalOn
-          ? 'signal loop'
-          : 'Screen FX loop'
-        : settings.animationStyle === 'compare-wipe'
-          ? 'Before & After wipe'
-          : 'Dither shimmer'
+      style === 'gif-frames'
+        ? 'the'
+        : style === 'screen-fx'
+          ? signalOn
+            ? 'signal loop'
+            : 'Screen FX loop'
+          : style === 'compare-wipe'
+            ? 'Before & After wipe'
+            : 'Dither shimmer'
     const making = `Making ${styleName} ${format.toUpperCase()}…`
     controls.status(making)
     try {
@@ -916,12 +1000,13 @@ export function startApp(): void {
       const res = await engine.exportAnimated(
         deres(settings),
         format,
-        settings.animationStyle,
+        style,
         settings.multiplier,
         fxOk,
         picture.base,
         (done, total) => controls.status(`${making} frame ${done} of ${total}${done === total ? ', putting them together' : ''}`),
-        signalOn ? { frames: settings.loopFrames, fps: settings.loopFps } : undefined
+        signalOn ? { frames: settings.loopFrames, fps: settings.loopFps } : undefined,
+        player.frame
       )
       const blob = new Blob([res.data], { type: res.mimeType })
       const url = URL.createObjectURL(blob)
@@ -940,7 +1025,7 @@ export function startApp(): void {
     if (!picture) return
     controls.status(`Making the .${format}…`)
     try {
-      const res = await engine.exportEmulator(deres(settings), format, picture.base)
+      const res = await engine.exportEmulator(deres(settings), format, picture.base, player.frame)
       const blob = new Blob([res.data.buffer as ArrayBuffer], { type: res.mimeType })
       const url = URL.createObjectURL(blob)
       const a = h('a', { href: url, download: res.filename, class: 'visually-hidden' })
@@ -959,7 +1044,7 @@ export function startApp(): void {
     controls.status(`Generating ${preset} wallpaper…`)
     try {
       const fxOk = settings.exportFx && settings.fx.screen !== 'off'
-      const res = await engine.exportWallpaper(deres(settings), preset, fxOk, picture.base)
+      const res = await engine.exportWallpaper(deres(settings), preset, fxOk, picture.base, player.frame)
       const blob = new Blob([res.png], { type: 'image/png' })
       const url = URL.createObjectURL(blob)
       const a = h('a', { href: url, download: res.filename, class: 'visually-hidden' })

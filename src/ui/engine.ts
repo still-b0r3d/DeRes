@@ -1,14 +1,23 @@
 import type { DeresSettings } from '../core/pipeline'
-import type { FromWorker, LoadedGif, RenderedMessage, ToWorker } from '../worker/protocol'
+import type { AnimationStyle, FromWorker, LoadedGif, RenderedMessage, RenderedView, ToWorker } from '../worker/protocol'
 import type { WorkingCopy } from './loader'
 
 // The page's side of the image worker. Rendering is "latest wins": one job in
 // flight at a time; while it runs, only the newest settings are kept, and an
-// answer about an older picture is dropped.
+// answer about an older picture is dropped. Everything else (exports, the
+// frames of an animated GIF) is a request that gets its own answer.
 
 export interface RenderRequest {
   settings: DeresSettings
   fxScale: number
+  /** The frame of an animated GIF (0 for a still). */
+  frame: number
+}
+
+interface Pending {
+  resolve: (v: never) => void
+  reject: (e: Error) => void
+  onProgress?: (done: number, total: number) => void
 }
 
 export class Engine {
@@ -17,8 +26,8 @@ export class Engine {
   private job = 0
   private busy = false
   private queued: RenderRequest | null = null
-  private exportId = 0
-  private readonly exports = new Map<number, { resolve: (v: ExportResult) => void; reject: (e: Error) => void }>()
+  private requestId = 0
+  private readonly pending = new Map<number, Pending>()
   private loading: ((hasAlpha: boolean) => void) | null = null
   private loadingGif: ((gif: LoadedGif | null) => void) | null = null
 
@@ -31,16 +40,17 @@ export class Engine {
     this.worker.onerror = () => this.onError('The image engine stopped. Reloading the page should fix it.')
   }
 
+  /** Answers about the current picture carry this; it changes with every picture. */
+  get picture(): number {
+    return this.gen
+  }
+
   /**
    * Hands a new picture to the worker (its pixel buffer moves there, so
    * copy.rgba is empty afterwards). Resolves with whether it has transparency.
    */
   load(copy: WorkingCopy): Promise<boolean> {
-    this.gen++
-    this.queued = null
-    this.busy = false
-    this.loadingGif?.(null)
-    this.loadingGif = null
+    this.newPicture()
     const rgba = copy.rgba.slice().buffer as ArrayBuffer
     this.post(
       {
@@ -63,10 +73,7 @@ export class Engine {
    * doesn't open as an animation (then load() it as a still).
    */
   loadGif(bytes: Uint8Array, maxEdge: number): Promise<LoadedGif | null> {
-    this.gen++
-    this.queued = null
-    this.busy = false
-    this.loadingGif?.(null)
+    this.newPicture()
     const copy = bytes.slice().buffer as ArrayBuffer
     this.post({ type: 'load-gif', gen: this.gen, bytes: copy, maxEdge }, [copy])
     return new Promise((resolve) => (this.loadingGif = resolve))
@@ -81,70 +88,77 @@ export class Engine {
     this.send(req)
   }
 
-  export(settings: DeresSettings, multiplier: number, withFx: boolean, base: string): Promise<ExportResult> {
-    const id = ++this.exportId
-    this.post({ type: 'export', id, gen: this.gen, settings, multiplier, withFx, base })
-    return new Promise((resolve, reject) => this.exports.set(id, { resolve, reject }))
+  /** One frame of an animated GIF, for playback. Rejects if the picture changes first. */
+  renderFrame(settings: DeresSettings, fxScale: number, frame: number): Promise<RenderedView> {
+    return this.request((id) => ({ type: 'render-frame', id, gen: this.gen, settings, fxScale, frame }))
   }
 
-  private emuExportId = 0
-  private readonly emuExports = new Map<number, { resolve: (v: EmulatorExportResult) => void; reject: (e: Error) => void }>()
-  private wallpaperExportId = 0
-  private readonly wallpaperExports = new Map<number, { resolve: (v: ExportResult) => void; reject: (e: Error) => void }>()
+  /** A frame of the animated GIF as it was opened, r, g, b, a per pixel. */
+  sourceFrame(frame: number): Promise<{ width: number; height: number; rgba: ArrayBuffer }> {
+    return this.request((id) => ({ type: 'source-frame', id, gen: this.gen, frame }))
+  }
 
-  exportEmulator(settings: DeresSettings, format: 'scr' | 'koa' | 'chr', base: string): Promise<EmulatorExportResult> {
-    const id = ++this.emuExportId
-    this.post({ type: 'export-emulator', id, gen: this.gen, settings, format, base })
-    return new Promise((resolve, reject) => this.emuExports.set(id, { resolve, reject }))
+  export(settings: DeresSettings, multiplier: number, withFx: boolean, base: string, frame = 0): Promise<ExportResult> {
+    return this.request((id) => ({ type: 'export', id, gen: this.gen, settings, multiplier, withFx, base, frame }))
+  }
+
+  exportEmulator(settings: DeresSettings, format: 'scr' | 'koa' | 'chr', base: string, frame = 0): Promise<EmulatorExportResult> {
+    return this.request((id) => ({ type: 'export-emulator', id, gen: this.gen, settings, format, base, frame }))
   }
 
   exportWallpaper(
     settings: DeresSettings,
     preset: 'phone' | 'win95' | 'desktop-1080p',
     withFx: boolean,
-    base: string
+    base: string,
+    frame = 0
   ): Promise<ExportResult> {
-    const id = ++this.wallpaperExportId
-    this.post({ type: 'export-wallpaper', id, gen: this.gen, settings, preset, withFx, base })
-    return new Promise((resolve, reject) => this.wallpaperExports.set(id, { resolve, reject }))
+    return this.request((id) => ({ type: 'export-wallpaper', id, gen: this.gen, settings, preset, withFx, base, frame }))
   }
-
-  private animatedExportId = 0
-  private readonly animatedExports = new Map<
-    number,
-    { resolve: (v: AnimatedExportResult) => void; reject: (e: Error) => void; onProgress?: (done: number, total: number) => void }
-  >()
 
   exportAnimated(
     settings: DeresSettings,
     format: 'apng' | 'gif',
-    animationStyle: 'screen-fx' | 'compare-wipe' | 'dither-shimmer',
+    animationStyle: AnimationStyle,
     multiplier: number,
     withFx: boolean,
     base: string,
     onProgress?: (done: number, total: number) => void,
-    loop?: { frames: number; fps: number }
+    loop?: { frames: number; fps: number },
+    frame = 0
   ): Promise<AnimatedExportResult> {
-    const id = ++this.animatedExportId
-    this.post({
-      type: 'export-animated',
-      id,
-      gen: this.gen,
-      settings,
-      format,
-      animationStyle,
-      multiplier,
-      withFx,
-      base,
-      loop
-    })
-    return new Promise((resolve, reject) => this.animatedExports.set(id, { resolve, reject, onProgress }))
+    return this.request(
+      (id) => ({ type: 'export-animated', id, gen: this.gen, settings, format, animationStyle, multiplier, withFx, base, loop, frame }),
+      onProgress
+    )
+  }
+
+  private request<T>(make: (id: number) => ToWorker, onProgress?: (done: number, total: number) => void): Promise<T> {
+    const id = ++this.requestId
+    this.post(make(id))
+    return new Promise<T>((resolve, reject) => this.pending.set(id, { resolve: resolve as (v: never) => void, reject, onProgress }))
+  }
+
+  private settle(id: number, value: unknown): void {
+    const p = this.pending.get(id)
+    if (!p) return
+    this.pending.delete(id)
+    p.resolve(value as never)
+  }
+
+  private newPicture(): void {
+    this.gen++
+    this.queued = null
+    this.busy = false
+    this.loading = null
+    this.loadingGif?.(null)
+    this.loadingGif = null
   }
 
   private send(req: RenderRequest): void {
     this.busy = true
     this.onBusy(true)
-    this.post({ type: 'render', job: ++this.job, gen: this.gen, settings: req.settings, fxScale: req.fxScale })
+    this.post({ type: 'render', job: ++this.job, gen: this.gen, settings: req.settings, fxScale: req.fxScale, frame: req.frame })
   }
 
   private post(msg: ToWorker, transfer: Transferable[] = []): void {
@@ -167,31 +181,13 @@ export class Engine {
         return
       case 'rendered':
       case 'error': {
-        if ('id' in msg && msg.id !== undefined) {
-          const exp = this.exports.get(msg.id)
-          if (exp) {
-            exp.reject(new Error(msg.message))
-            this.exports.delete(msg.id)
-            return
+        if (msg.type === 'error' && msg.id !== undefined) {
+          const p = this.pending.get(msg.id)
+          if (p) {
+            this.pending.delete(msg.id)
+            p.reject(new Error(msg.message))
           }
-          const emuExp = this.emuExports.get(msg.id)
-          if (emuExp) {
-            emuExp.reject(new Error(msg.message))
-            this.emuExports.delete(msg.id)
-            return
-          }
-          const wallExp = this.wallpaperExports.get(msg.id)
-          if (wallExp) {
-            wallExp.reject(new Error(msg.message))
-            this.wallpaperExports.delete(msg.id)
-            return
-          }
-          const animExp = this.animatedExports.get(msg.id)
-          if (animExp) {
-            animExp.reject(new Error(msg.message))
-            this.animatedExports.delete(msg.id)
-            return
-          }
+          return
         }
         if (msg.gen !== this.gen) return
         this.busy = false
@@ -203,33 +199,23 @@ export class Engine {
         else this.onBusy(false)
         return
       }
+      case 'rendered-frame':
+        this.settle(msg.id, msg.view)
+        return
+      case 'source-frame':
+        this.settle(msg.id, { width: msg.width, height: msg.height, rgba: msg.rgba })
+        return
       case 'exported':
-        this.exports.get(msg.id)?.resolve(msg)
-        this.exports.delete(msg.id)
-        return
       case 'exported-wallpaper':
-        this.wallpaperExports.get(msg.id)?.resolve(msg)
-        this.wallpaperExports.delete(msg.id)
+      case 'exported-animated':
+        this.settle(msg.id, msg)
         return
-      case 'exported-emulator': {
-        const item = this.emuExports.get(msg.id)
-        if (item) {
-          item.resolve({ data: new Uint8Array(msg.data), filename: msg.filename, mimeType: msg.mimeType })
-          this.emuExports.delete(msg.id)
-        }
+      case 'exported-emulator':
+        this.settle(msg.id, { data: new Uint8Array(msg.data), filename: msg.filename, mimeType: msg.mimeType })
         return
-      }
       case 'progress':
-        this.animatedExports.get(msg.id)?.onProgress?.(msg.done, msg.total)
+        this.pending.get(msg.id)?.onProgress?.(msg.done, msg.total)
         return
-      case 'exported-animated': {
-        const item = this.animatedExports.get(msg.id)
-        if (item) {
-          item.resolve(msg)
-          this.animatedExports.delete(msg.id)
-        }
-        return
-      }
     }
   }
 }

@@ -41,6 +41,8 @@ export class Stage {
   private noteTimer: ReturnType<typeof setTimeout> | undefined
   private originalKey = ''
   private originalFrom: HTMLCanvasElement | null = null
+  /** An animation is playing: there's no original to show for a moving frame. */
+  private playing = false
   /** Called when the preview box changes size. */
   onResize: () => void = () => {}
 
@@ -93,11 +95,21 @@ export class Stage {
     }).observe(this.el)
   }
 
-  /** The working copy, for showing the original. */
+  /** The working copy (or the paused frame of an animation), for showing the original. */
   setSource(copy: HTMLCanvasElement | null): void {
     this.copy = copy
-    this.compareButton.disabled = !copy
+    this.compareButton.disabled = !copy || this.playing
     this.drawOriginal()
+  }
+
+  /** While an animation plays, comparing is off; it comes back on the paused frame. */
+  setPlaying(on: boolean): void {
+    this.playing = on
+    if (on) {
+      this.holding = false
+      this.setComparing(false)
+    }
+    this.compareButton.disabled = !this.copy || on
   }
 
   /** Shows a result. `background` is what transparent parts of the original sit on. */
@@ -132,7 +144,7 @@ export class Stage {
   }
 
   hold(on: boolean): void {
-    if (!this.copy || this.holding === on) return
+    if (!this.copy || this.holding === on || (on && this.playing)) return
     this.holding = on
     this.updateOriginal()
   }

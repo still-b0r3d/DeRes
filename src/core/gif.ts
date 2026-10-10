@@ -20,8 +20,8 @@ export interface GifFrame {
 }
 
 export interface GifOptions {
-  /** 0 = loop forever (default: 0) */
-  loop?: number
+  /** 0 = loop forever (the default); null = no loop block (plays once) */
+  loop?: number | null
   /** Global color table (r, g, b per entry, up to 256 colors) */
   palette?: Uint8Array
 }
@@ -170,184 +170,182 @@ function padPalette(palette: Uint8Array): { table: Uint8Array; depth: number } {
   return { table, depth }
 }
 
-/**
- * Encodes an array of indexed frames into an Animated GIF (GIF89a).
- */
-export function encodeGif(
-  frames: readonly GifFrame[],
-  options?: GifOptions
-): Uint8Array<ArrayBuffer> {
-  if (frames.length === 0) throw new Error('GIF requires at least one frame')
-
-  const width = frames[0].width
-  const height = frames[0].height
-  const loop = options?.loop ?? 0
-
-  const globalPalSource = options?.palette ?? frames[0].palette
-  if (!globalPalSource || globalPalSource.length < 3) {
-    throw new Error('GIF requires a color palette')
-  }
-
-  const { table: gct, depth: gctDepth } = padPalette(globalPalSource)
-  const chunks: Uint8Array[] = []
-
-  // 1. Header: GIF89a
-  chunks.push(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]))
-
-  // 2. Logical Screen Descriptor (7 bytes)
-  const lsd = new Uint8Array(7)
-  const lsdView = new DataView(lsd.buffer)
-  lsdView.setUint16(0, width, true)
-  lsdView.setUint16(2, height, true)
-  // GCT flag (bit 7) = 1, Color res (bits 4-6) = depth - 1, GCT size = depth - 1
-  lsd[4] = 0x80 | (((gctDepth - 1) & 7) << 4) | ((gctDepth - 1) & 7)
-  lsd[5] = 0x00 // Background color index
-  lsd[6] = 0x00 // Pixel aspect ratio
-  chunks.push(lsd)
-
-  // 3. Global Color Table
-  chunks.push(gct)
-
-  // 4. Netscape 2.0 Looping Application Extension (19 bytes)
-  const appExt = new Uint8Array([
-    0x21, 0xff, 0x0b, // Extension introducer, label, block length 11
-    0x4e, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45, 0x32, 0x2e, 0x30, // 'NETSCAPE2.0'
-    0x03, 0x01, // Sub-block length 3, sub-block ID 1
-    loop & 0xff, (loop >> 8) & 0xff, // Loop count (0 = infinite)
-    0x00 // Terminator
-  ])
-  chunks.push(appExt)
-
-  // 5. Frames
-  for (let i = 0; i < frames.length; i++) {
-    const frame = frames[i]
-    const delayCs = Math.max(1, Math.round((frame.delayMs ?? 100) / 10))
-    const hasTrans = frame.transparentIndex !== undefined && frame.transparentIndex >= 0
-
-    // Graphic Control Extension (8 bytes)
-    const gce = new Uint8Array(8)
-    gce[0] = 0x21
-    gce[1] = 0xf9
-    gce[2] = 0x04 // Byte length
-    // Disposal method 1 (do not dispose: 1 << 2 = 0x04), user input 0, trans flag
-    gce[3] = 0x04 | (hasTrans ? 1 : 0)
-    gce[4] = delayCs & 0xff
-    gce[5] = (delayCs >> 8) & 0xff
-    gce[6] = hasTrans ? frame.transparentIndex! : 0
-    gce[7] = 0x00 // Terminator
-    chunks.push(gce)
-
-    // Image Descriptor (10 bytes)
-    const hasLct = !!(frame.palette && frame.palette !== globalPalSource)
-    const lctInfo = hasLct ? padPalette(frame.palette!) : null
-
-    const id = new Uint8Array(10)
-    const idView = new DataView(id.buffer)
-    id[0] = 0x2c // Image separator
-    idView.setUint16(1, 0, true) // Left
-    idView.setUint16(3, 0, true) // Top
-    idView.setUint16(5, frame.width, true)
-    idView.setUint16(7, frame.height, true)
-    id[9] = hasLct && lctInfo ? 0x80 | ((lctInfo.depth - 1) & 7) : 0x00
-    chunks.push(id)
-
-    if (hasLct && lctInfo) {
-      chunks.push(lctInfo.table)
-    }
-
-    // Table-Based Image Data
-    const minCodeSize = Math.max(2, (hasLct && lctInfo ? lctInfo.depth : gctDepth))
-    chunks.push(new Uint8Array([minCodeSize]))
-    chunks.push(compressLzw(frame.indices, minCodeSize))
-  }
-
-  // 6. Trailer: 0x3B
-  chunks.push(new Uint8Array([0x3b]))
-
-  // Total byte size
-  const totalLength = chunks.reduce((sum, c) => sum + c.length, 0)
-  const out = new Uint8Array(totalLength)
-  let offset = 0
-  for (const c of chunks) {
-    out.set(c, offset)
-    offset += c.length
-  }
-
-  return out
+function samePalette(a: Uint8Array, b: Uint8Array): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
 }
 
 /**
- * Encodes an array of 24-bit RGB frames into an Animated GIF by quantizing
- * to a shared 256-color palette (or using provided palette).
+ * A GIF written a frame at a time: each frame is compressed as it's added and
+ * only the compressed bytes are kept, so a long animation never has to be
+ * held whole. The first frame's palette (or options.palette) is the global
+ * colour table; a frame with a different palette carries its own.
  */
-export function encodeRgbGif(
-  frames: readonly RgbGifFrame[],
-  options?: { loop?: number; palette?: Uint8Array }
-): Uint8Array<ArrayBuffer> {
+export class GifWriter {
+  private readonly chunks: Uint8Array[] = []
+  private global: { source: Uint8Array; depth: number } | null = null
+  frames = 0
+
+  constructor(
+    readonly width: number,
+    readonly height: number,
+    private readonly options: {
+      /** NETSCAPE2.0 loop count: 0 (the default) loops forever; null writes none, so it plays once. */
+      loop?: number | null
+      /** Global colour table (r, g, b per entry, up to 256 colours). */
+      palette?: Uint8Array
+    } = {}
+  ) {}
+
+  add(frame: GifFrame): void {
+    if (this.frames === 0) this.start(frame)
+    const global = this.global!
+    const delayCs = Math.max(1, Math.round((frame.delayMs ?? 100) / 10))
+    const hasTrans = frame.transparentIndex !== undefined && frame.transparentIndex >= 0
+
+    // Graphic Control Extension: disposal 1 (keep), the delay, the transparent index.
+    this.chunks.push(
+      Uint8Array.of(0x21, 0xf9, 0x04, 0x04 | (hasTrans ? 1 : 0), delayCs & 0xff, (delayCs >> 8) & 0xff, hasTrans ? frame.transparentIndex! : 0, 0x00)
+    )
+
+    // Image Descriptor, at 0,0, with the frame's own table when its palette differs.
+    const lct = frame.palette && !samePalette(frame.palette, global.source) ? padPalette(frame.palette) : null
+    const id = new Uint8Array(10)
+    const idView = new DataView(id.buffer)
+    id[0] = 0x2c
+    idView.setUint16(5, frame.width, true)
+    idView.setUint16(7, frame.height, true)
+    id[9] = lct ? 0x80 | ((lct.depth - 1) & 7) : 0x00
+    this.chunks.push(id)
+    if (lct) this.chunks.push(lct.table)
+
+    const minCodeSize = Math.max(2, lct ? lct.depth : global.depth)
+    this.chunks.push(Uint8Array.of(minCodeSize))
+    this.chunks.push(compressLzw(frame.indices, minCodeSize))
+    this.frames++
+  }
+
+  /** The whole file. */
+  finish(): Uint8Array<ArrayBuffer> {
+    if (this.frames === 0) throw new Error('GIF requires at least one frame')
+    const total = this.chunks.reduce((sum, c) => sum + c.length, 0) + 1
+    const out = new Uint8Array(total)
+    let offset = 0
+    for (const c of this.chunks) {
+      out.set(c, offset)
+      offset += c.length
+    }
+    out[offset] = 0x3b // Trailer
+    return out
+  }
+
+  private start(first: GifFrame): void {
+    const source = this.options.palette ?? first.palette
+    if (!source || source.length < 3) throw new Error('GIF requires a color palette')
+    const { table, depth } = padPalette(source)
+    this.global = { source, depth }
+
+    // Header, then the Logical Screen Descriptor: GCT flag, colour resolution
+    // and GCT size (both depth - 1), background 0, aspect 0.
+    this.chunks.push(Uint8Array.of(0x47, 0x49, 0x46, 0x38, 0x39, 0x61))
+    const lsd = new Uint8Array(7)
+    const lsdView = new DataView(lsd.buffer)
+    lsdView.setUint16(0, this.width, true)
+    lsdView.setUint16(2, this.height, true)
+    lsd[4] = 0x80 | (((depth - 1) & 7) << 4) | ((depth - 1) & 7)
+    this.chunks.push(lsd, table)
+
+    // Netscape 2.0 looping application extension (19 bytes).
+    const loop = this.options.loop === undefined ? 0 : this.options.loop
+    if (loop !== null) {
+      this.chunks.push(
+        Uint8Array.of(
+          0x21, 0xff, 0x0b, // Extension introducer, label, block length 11
+          0x4e, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45, 0x32, 0x2e, 0x30, // 'NETSCAPE2.0'
+          0x03, 0x01, // Sub-block length 3, sub-block ID 1
+          loop & 0xff, (loop >> 8) & 0xff, // Loop count (0 = infinite)
+          0x00 // Terminator
+        )
+      )
+    }
+  }
+}
+
+/**
+ * Encodes an array of indexed frames into an Animated GIF (GIF89a).
+ */
+export function encodeGif(frames: readonly GifFrame[], options?: GifOptions): Uint8Array<ArrayBuffer> {
   if (frames.length === 0) throw new Error('GIF requires at least one frame')
+  const writer = new GifWriter(frames[0].width, frames[0].height, options)
+  for (const frame of frames) writer.add(frame)
+  return writer.finish()
+}
 
-  const width = frames[0].width
-  const height = frames[0].height
-  let palette = options?.palette
-
-  if (!palette || palette.length === 0) {
-    // Collect sample pixels from all frames
-    const sampleLimit = 32768
-    const pixelsPerFrame = width * height
-    const totalPixels = frames.length * pixelsPerFrame
-    const step = Math.max(1, Math.floor(totalPixels / sampleLimit))
-
-    const linSamples: number[] = []
-    let sampleCounter = 0
-    for (const f of frames) {
-      for (let p = 0; p < pixelsPerFrame; p++) {
-        if (sampleCounter++ % step === 0) {
-          const idx = p * 3
-          linSamples.push(
-            BYTE_TO_LINEAR[f.rgb[idx]],
-            BYTE_TO_LINEAR[f.rgb[idx + 1]],
-            BYTE_TO_LINEAR[f.rgb[idx + 2]]
-          )
-        }
+/**
+ * One 256-colour (or smaller) palette for a set of full-colour frames, from
+ * up to 32,768 pixels sampled evenly across all of them.
+ */
+export function rgbFramesPalette(frames: readonly Uint8Array[], pixelsPerFrame: number): Uint8Array {
+  const sampleLimit = 32768
+  const totalPixels = frames.length * pixelsPerFrame
+  const step = Math.max(1, Math.floor(totalPixels / sampleLimit))
+  const linSamples: number[] = []
+  let sampleCounter = 0
+  for (const rgb of frames) {
+    for (let p = 0; p < pixelsPerFrame; p++) {
+      if (sampleCounter++ % step === 0) {
+        const idx = p * 3
+        linSamples.push(BYTE_TO_LINEAR[rgb[idx]], BYTE_TO_LINEAR[rgb[idx + 1]], BYTE_TO_LINEAR[rgb[idx + 2]])
       }
     }
+  }
+  return quantizeRgb(new Float32Array(linSamples), 256, 8)
+}
 
-    palette = quantizeRgb(new Float32Array(linSamples), 256, 8)
+/**
+ * Maps full-colour pixels to the nearest palette entry. Each distinct colour
+ * is searched for once and remembered: animation frames repeat the same
+ * colours a great deal, and the search covers up to 256 entries. The memory
+ * is a fixed table over every 24-bit colour (16 MB + a 2 MB "seen" bit set),
+ * not a Map: a noisy signal loop holds a million distinct colours, and a Map
+ * of them took over 100 MB.
+ */
+export class NearestColour {
+  private readonly nearest = new Uint8Array(1 << 24)
+  private readonly seen = new Uint8Array(1 << 21)
+  private readonly palR: Uint8Array
+  private readonly palG: Uint8Array
+  private readonly palB: Uint8Array
+
+  constructor(readonly palette: Uint8Array) {
+    const n = palette.length / 3
+    this.palR = new Uint8Array(n)
+    this.palG = new Uint8Array(n)
+    this.palB = new Uint8Array(n)
+    for (let i = 0; i < n; i++) {
+      this.palR[i] = palette[i * 3]
+      this.palG[i] = palette[i * 3 + 1]
+      this.palB[i] = palette[i * 3 + 2]
+    }
   }
 
-  const palLength = palette.length / 3
-  const palR = new Uint8Array(palLength)
-  const palG = new Uint8Array(palLength)
-  const palB = new Uint8Array(palLength)
-  for (let i = 0; i < palLength; i++) {
-    palR[i] = palette[i * 3]
-    palG[i] = palette[i * 3 + 1]
-    palB[i] = palette[i * 3 + 2]
-  }
-
-  // Map RGB pixels of each frame to nearest palette index. Each distinct
-  // colour is searched for once and remembered: animation frames repeat the
-  // same colours a great deal, and the search covers up to 256 entries. The
-  // memory is a fixed table over every 24-bit colour (16 MB + a 2 MB "seen"
-  // bit set), not a Map: a noisy signal loop holds a million distinct colours,
-  // and a Map of them took over 100 MB.
-  const nearest = new Uint8Array(1 << 24)
-  const seen = new Uint8Array(1 << 21)
-  const indexedFrames: GifFrame[] = []
-  for (const f of frames) {
-    const pixelCount = f.width * f.height
+  /** Palette indices for r, g, b pixels. */
+  map(rgb: Uint8Array): Uint8Array {
+    const { nearest, seen, palR, palG, palB } = this
+    const palLength = palR.length
+    const pixelCount = rgb.length / 3
     const indices = new Uint8Array(pixelCount)
-
     for (let p = 0; p < pixelCount; p++) {
-      const r = f.rgb[p * 3]
-      const g = f.rgb[p * 3 + 1]
-      const b = f.rgb[p * 3 + 2]
+      const r = rgb[p * 3]
+      const g = rgb[p * 3 + 1]
+      const b = rgb[p * 3 + 2]
       const key = (r << 16) | (g << 8) | b
       if (seen[key >> 3] & (1 << (key & 7))) {
         indices[p] = nearest[key]
         continue
       }
-
       let bestIdx = 0
       let bestDist = Infinity
       for (let i = 0; i < palLength; i++) {
@@ -365,14 +363,28 @@ export function encodeRgbGif(
       seen[key >> 3] |= 1 << (key & 7)
       indices[p] = bestIdx
     }
-
-    indexedFrames.push({
-      width: f.width,
-      height: f.height,
-      delayMs: f.delayMs,
-      indices
-    })
+    return indices
   }
+}
 
-  return encodeGif(indexedFrames, { loop: options?.loop ?? 0, palette })
+/**
+ * Encodes an array of 24-bit RGB frames into an Animated GIF by quantizing
+ * to a shared 256-color palette (or using provided palette).
+ */
+export function encodeRgbGif(
+  frames: readonly RgbGifFrame[],
+  options?: { loop?: number | null; palette?: Uint8Array }
+): Uint8Array<ArrayBuffer> {
+  if (frames.length === 0) throw new Error('GIF requires at least one frame')
+  const palette =
+    options?.palette && options.palette.length > 0
+      ? options.palette
+      : rgbFramesPalette(
+          frames.map((f) => f.rgb),
+          frames[0].width * frames[0].height
+        )
+  const colours = new NearestColour(palette)
+  const writer = new GifWriter(frames[0].width, frames[0].height, { loop: options?.loop, palette })
+  for (const f of frames) writer.add({ width: f.width, height: f.height, delayMs: f.delayMs, indices: colours.map(f.rgb) })
+  return writer.finish()
 }

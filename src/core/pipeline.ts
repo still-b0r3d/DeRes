@@ -193,7 +193,10 @@ export class Deres {
 
   /** Takes the decoded working copy (sRGB bytes, r, g, b, a per pixel). */
   setSource(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, origW: number, origH: number) {
-    const data = new Float32Array(width * height * 4)
+    // The frames of an animated GIF come through here one after another, all
+    // the same size: they reuse one buffer rather than leave a new one behind each time.
+    const old = this.source?.data
+    const data = old && old.length === width * height * 4 ? old : new Float32Array(width * height * 4)
     let hasAlpha = false
     for (let i = 0; i < width * height; i++) {
       const a = rgba[i * 4 + 3] / 255

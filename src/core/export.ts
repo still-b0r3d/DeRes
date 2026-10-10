@@ -19,6 +19,8 @@ export interface ExportOptions {
   fx: Fx | null
   /** The picture after the analog signal, when it's on (always kept in exports). */
   signal?: SignalImage | null
+  /** Where the screen effect's moving parts are (0–1): an animation frame's place in its loop. */
+  phase?: number
 }
 
 export async function exportPng(
@@ -31,12 +33,12 @@ export async function exportPng(
   const withFx = !!(o.fx && o.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER)
 
   if (o.signal) {
-    const render = signalRenderer(o.signal, width, height, withFx ? o.fx : null, 0, r.paper)
+    const render = signalRenderer(o.signal, width, height, withFx ? o.fx : null, o.phase ?? 0, r.paper)
     return { png: await encodeRgbPng(width, height, render), width, height, fx: withFx }
   }
 
   if (withFx && o.fx) {
-    const render = fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, width, height, o.fx)
+    const render = fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, width, height, o.fx, o.phase)
     return { png: await encodeRgbPng(width, height, render), width, height, fx: true }
   }
 
@@ -86,7 +88,7 @@ export function wallpaperPresetById(id: string): WallpaperPreset | undefined {
 export async function exportWallpaper(
   r: Rendered,
   preset: WallpaperPreset,
-  o: { tv: boolean; fx: Fx | null; signal?: SignalImage | null }
+  o: { tv: boolean; fx: Fx | null; signal?: SignalImage | null; phase?: number }
 ): Promise<{ png: Uint8Array<ArrayBuffer>; width: number; height: number }> {
   const targetW = preset.width
   const targetH = preset.height
@@ -116,8 +118,8 @@ export async function exportWallpaper(
   if (withFx || o.signal) {
     const fxRows: Uint8Array[] = []
     const fxGen = o.signal
-      ? signalRenderer(o.signal, scaledW, scaledH, withFx ? o.fx : null, 0, r.paper)
-      : fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, scaledW, scaledH, o.fx!)
+      ? signalRenderer(o.signal, scaledW, scaledH, withFx ? o.fx : null, o.phase ?? 0, r.paper)
+      : fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, scaledW, scaledH, o.fx!, o.phase)
     for (let sy = 0; sy < scaledH; sy++) {
       const row = new Uint8Array(scaledW * 3)
       fxGen(sy, row)

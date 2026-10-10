@@ -137,96 +137,94 @@ function packRgbaScanlines(
 }
 
 /**
+ * An APNG written a frame at a time: each frame is packed and compressed as
+ * it's added and only the compressed chunks are kept. Frames are indexed
+ * when a palette is given (every frame then uses it), otherwise RGB, or RGBA
+ * when the first frame is.
+ */
+export class ApngWriter {
+  private readonly chunks: Uint8Array[] = [PNG_SIGNATURE]
+  private mode: 'indexed' | 'rgb' | 'rgba' = 'rgb'
+  private depth = 8
+  private seq = 0
+  private actlAt = -1
+  frames = 0
+
+  constructor(
+    readonly width: number,
+    readonly height: number,
+    private readonly options: ApngOptions = {}
+  ) {}
+
+  async add(frame: ApngFrame): Promise<void> {
+    if (this.frames === 0) this.start(frame)
+    const { width, height } = this
+    this.chunks.push(chunk('fcTL', makeFcTL(this.seq++, width, height, frame.delayMs ?? 100)))
+    let raw: Uint8Array<ArrayBuffer>
+    if (this.mode === 'indexed') raw = packIndexedScanlines(width, height, this.depth as 1 | 2 | 4 | 8, frame.indices!)
+    else if (this.mode === 'rgba') raw = packRgbaScanlines(width, height, frame.rgba!)
+    else raw = packRgbScanlines(width, height, frame.rgb!)
+    const compressed = await zlib(raw)
+    if (this.frames === 0) {
+      // The first frame's data is a plain IDAT, so a viewer without APNG shows it.
+      this.chunks.push(chunk('IDAT', compressed))
+    } else {
+      // Later frames: fdAT, a sequence number then the compressed data.
+      const fdat = new Uint8Array(4 + compressed.length)
+      new DataView(fdat.buffer).setUint32(0, this.seq++)
+      fdat.set(compressed, 4)
+      this.chunks.push(chunk('fdAT', fdat))
+    }
+    this.frames++
+  }
+
+  /** The whole file. */
+  finish(): Uint8Array<ArrayBuffer> {
+    if (this.frames === 0) throw new Error('APNG requires at least one frame')
+    // acTL: how many frames, and how many times to play them.
+    const actl = new Uint8Array(8)
+    const view = new DataView(actl.buffer)
+    view.setUint32(0, this.frames)
+    view.setUint32(4, this.options.numPlays ?? 0)
+    this.chunks[this.actlAt] = chunk('acTL', actl)
+    const parts = [...this.chunks, chunk('IEND', new Uint8Array(0))]
+    const out = new Uint8Array(parts.reduce((sum, c) => sum + c.length, 0))
+    let offset = 0
+    for (const c of parts) {
+      out.set(c, offset)
+      offset += c.length
+    }
+    return out
+  }
+
+  private start(first: ApngFrame): void {
+    const palette = this.options.palette
+    let colourType = 2 // truecolour RGB
+    if (palette && first.indices) {
+      const colours = palette.length / 3
+      if (colours < 1 || colours > 256 || palette.length % 3 !== 0) throw new Error('Bad APNG palette')
+      this.depth = indexDepth(colours)
+      colourType = 3
+      this.mode = 'indexed'
+    } else if (first.rgba) {
+      colourType = 6
+      this.mode = 'rgba'
+    } else {
+      this.mode = 'rgb'
+    }
+    this.chunks.push(chunk('IHDR', header(this.width, this.height, this.depth, colourType)))
+    this.actlAt = this.chunks.length
+    this.chunks.push(new Uint8Array(0)) // acTL, written by finish() once the frames are counted
+    if (this.mode === 'indexed') this.chunks.push(chunk('PLTE', palette!))
+  }
+}
+
+/**
  * Encodes an array of frames into an Animated PNG (APNG) buffer.
  */
-export async function encodeApng(
-  frames: readonly ApngFrame[],
-  options?: ApngOptions
-): Promise<Uint8Array<ArrayBuffer>> {
+export async function encodeApng(frames: readonly ApngFrame[], options?: ApngOptions): Promise<Uint8Array<ArrayBuffer>> {
   if (frames.length === 0) throw new Error('APNG requires at least one frame')
-
-  const width = frames[0].width
-  const height = frames[0].height
-  const numPlays = options?.numPlays ?? 0
-
-  const isIndexed = !!(options?.palette && frames[0].indices)
-  const isRgba = !isIndexed && !!frames[0].rgba
-
-  let depth = 8
-  let colourType = 2 // 2 = truecolour RGB
-  if (isIndexed) {
-    const colours = options!.palette!.length / 3
-    if (colours < 1 || colours > 256 || options!.palette!.length % 3 !== 0) {
-      throw new Error('Bad APNG palette')
-    }
-    depth = indexDepth(colours)
-    colourType = 3 // indexed
-  } else if (isRgba) {
-    colourType = 6 // truecolour with alpha
-  }
-
-  const chunks: Uint8Array[] = [PNG_SIGNATURE]
-
-  // 1. IHDR
-  chunks.push(chunk('IHDR', header(width, height, depth, colourType)))
-
-  // 2. acTL (Animation Control Chunk)
-  const actl = new Uint8Array(8)
-  const actlView = new DataView(actl.buffer)
-  actlView.setUint32(0, frames.length)
-  actlView.setUint32(4, numPlays)
-  chunks.push(chunk('acTL', actl))
-
-  // 3. Optional PLTE for indexed mode
-  if (isIndexed) {
-    chunks.push(chunk('PLTE', options!.palette!))
-  }
-
-  // 4. Frames sequence
-  let seq = 0
-
-  for (let i = 0; i < frames.length; i++) {
-    const frame = frames[i]
-    const delay = frame.delayMs ?? 100
-
-    // Frame Control Chunk fcTL
-    chunks.push(chunk('fcTL', makeFcTL(seq++, width, height, delay)))
-
-    // Raw scanline packing
-    let raw: Uint8Array<ArrayBuffer>
-    if (isIndexed) {
-      raw = packIndexedScanlines(width, height, depth as 1 | 2 | 4 | 8, frame.indices!)
-    } else if (isRgba) {
-      raw = packRgbaScanlines(width, height, frame.rgba!)
-    } else {
-      raw = packRgbScanlines(width, height, frame.rgb!)
-    }
-
-    const compressed = await zlib(raw)
-
-    if (i === 0) {
-      // First frame's data chunk is standard IDAT
-      chunks.push(chunk('IDAT', compressed))
-    } else {
-      // Subsequent frames use fdAT: 4-byte sequence number + compressed zlib stream
-      const fdat = new Uint8Array(4 + compressed.length)
-      new DataView(fdat.buffer).setUint32(0, seq++)
-      fdat.set(compressed, 4)
-      chunks.push(chunk('fdAT', fdat))
-    }
-  }
-
-  // 5. IEND
-  chunks.push(chunk('IEND', new Uint8Array(0)))
-
-  // Total byte size
-  const totalLength = chunks.reduce((sum, c) => sum + c.length, 0)
-  const out = new Uint8Array(totalLength)
-  let offset = 0
-  for (const c of chunks) {
-    out.set(c, offset)
-    offset += c.length
-  }
-
-  return out
+  const writer = new ApngWriter(frames[0].width, frames[0].height, options)
+  for (const frame of frames) await writer.add(frame)
+  return writer.finish()
 }

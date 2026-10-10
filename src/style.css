@@ -1963,3 +1963,42 @@ button:disabled {
   box-shadow: 0 0 12px rgba(0, 255, 157, 0.4);
 }
 
+
+/* Playing an animated GIF: under the stage */
+.playbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 2px 0;
+}
+
+.play-btn {
+  min-width: 96px;
+  min-height: 36px;
+  padding: 6px 12px;
+  font-family: var(--brand-font);
+  font-size: 0.85rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.play-btn:hover {
+  border-color: var(--muted);
+}
+
+.play-btn[aria-pressed='true'] {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.frame-counter {
+  font-family: var(--brand-font);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.seg.anim-styles button {
+  padding: 6px 4px;
+  line-height: 1.15;
+}

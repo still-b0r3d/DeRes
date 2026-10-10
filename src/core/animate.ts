@@ -1,5 +1,5 @@
-import { encodeApng, type ApngFrame } from './apng'
-import { encodeGif, encodeRgbGif, type GifFrame, type RgbGifFrame } from './gif'
+import { ApngWriter, encodeApng, type ApngFrame } from './apng'
+import { encodeGif, encodeRgbGif, GifWriter, NearestColour, rgbFramesPalette, type GifFrame, type RgbGifFrame } from './gif'
 import { DEFAULT_FX, fxRenderer, type Fx } from './fx'
 import { exportSize, MAX_EXPORT_PIXELS, type DeresSettings, type Rendered } from './pipeline'
 import { FX_MIN_MULTIPLIER } from './export'
@@ -9,6 +9,7 @@ import { engineStep, signalFrame, type SignalImage } from './signal'
 // 1. screen-fx: CRT beam scanline ripple, VHS tracking roll + noise, composite shimmer
 // 2. compare-wipe: Before & after split wipe transition between original photo and retro art
 // 3. dither-shimmer: Ordered Bayer / PS1 dither coordinate phase rotation
+// 4. an animated GIF's own frames, each through the settings (generateFramesExport)
 
 export type AnimationStyle = 'screen-fx' | 'compare-wipe' | 'dither-shimmer'
 
@@ -458,4 +459,116 @@ export async function generateAnimatedExport(
     const data = encodeRgbGif(gifFrames, { loop: 0 })
     return { data, format: 'gif', mimeType: 'image/gif', width, height, frameCount }
   }
+}
+
+export interface FramesExportOptions {
+  format: 'apng' | 'gif'
+  multiplier: number
+  tv: boolean
+  fx: Fx | null
+  /** How long each frame shows, in milliseconds: one entry per frame. */
+  delaysMs: readonly number[]
+  /** The GIF's own loop count: 0 = forever, null = it plays once. */
+  loopCount: number | null
+  /** Frame k through the machine. */
+  render: (k: number) => Rendered
+  /** Frame k through the analog signal, when it's on. */
+  signal?: (r: Rendered, k: number) => SignalImage
+  /**
+   * Whether the frames can go out as palette indices (no signal or screen
+   * effect, and a machine whose pixels are its palette's colours), and
+   * whether every frame shares one palette (needed for an indexed APNG).
+   */
+  indexed: boolean
+  sharedPalette: boolean
+  onProgress?: (done: number, total: number) => void
+}
+
+/** APNG plays a loop count's worth of times plus the first; a GIF without one plays once. */
+export function apngPlays(loopCount: number | null): number {
+  return loopCount === null ? 1 : loopCount === 0 ? 0 : loopCount + 1
+}
+
+/**
+ * An animated GIF's own frames, each through the current settings, as a GIF
+ * or APNG with the GIF's delays and loop count. Frames go into the encoder
+ * as they're made; only a full-colour GIF holds them (once) until its shared
+ * palette is known.
+ */
+export async function generateFramesExport(o: FramesExportOptions): Promise<AnimatedExportResult> {
+  const total = o.delaysMs.length
+  if (total === 0) throw new Error('There are no frames to export.')
+  const m = Math.max(1, Math.floor(o.multiplier))
+  const first = o.render(0)
+  const [width, height] = exportSize(first.width, first.height, first.geometry.par, m, o.tv)
+  if (width * height > MAX_EXPORT_PIXELS || width * height > MAX_ANIMATION_PIXELS) {
+    throw new Error('That size is too big for an animation. Pick a smaller size.')
+  }
+  if (width * height * total > MAX_ANIMATION_BUDGET) {
+    throw new Error(`${total} frames at that size is too much to hold at once. Pick a smaller size.`)
+  }
+  const fx = o.fx && o.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER ? o.fx : null
+  const indexed = o.indexed && !o.signal && !fx
+  const progress = (done: number) => o.onProgress?.(done, total)
+  const mimeType = o.format === 'apng' ? 'image/png' : 'image/gif'
+
+  /** Frame k at the export size, full colour. */
+  const rgbFrame = (r: Rendered, k: number): Uint8Array => {
+    const phase = k / total
+    if (o.signal) return signalFrame(o.signal(r, k), width, height, fx, phase, r.paper)
+    if (fx) {
+      const render = fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, width, height, fx, phase)
+      const out = new Uint8Array(width * height * 3)
+      const row = new Uint8Array(width * 3)
+      for (let y = 0; y < height; y++) {
+        render(y, row)
+        out.set(row, y * width * 3)
+      }
+      return out
+    }
+    return upscaleRgb(r.rgb, r.width, r.height, width, height)
+  }
+  const frameAt = (k: number) => (k === 0 ? first : o.render(k))
+
+  if (o.format === 'apng') {
+    const shared = indexed && o.sharedPalette
+    const writer = new ApngWriter(width, height, { numPlays: apngPlays(o.loopCount), palette: shared ? first.palette : undefined })
+    for (let k = 0; k < total; k++) {
+      const r = frameAt(k)
+      const delayMs = o.delaysMs[k]
+      if (shared) await writer.add({ width, height, delayMs, indices: upscaleIndices(r.indices, r.width, r.height, width, height) })
+      else await writer.add({ width, height, delayMs, rgb: rgbFrame(r, k) })
+      progress(k + 1)
+    }
+    return { data: writer.finish(), format: 'apng', mimeType, width, height, frameCount: total }
+  }
+
+  if (indexed) {
+    // Each frame with its own palette: a machine that picks colours from the
+    // picture can pick different ones per frame (the GIF gives those frames
+    // their own colour table).
+    const writer = new GifWriter(width, height, { loop: o.loopCount })
+    for (let k = 0; k < total; k++) {
+      const r = frameAt(k)
+      writer.add({ width, height, delayMs: o.delaysMs[k], indices: upscaleIndices(r.indices, r.width, r.height, width, height), palette: r.palette })
+      progress(k + 1)
+    }
+    return { data: writer.finish(), format: 'gif', mimeType, width, height, frameCount: total }
+  }
+
+  // Full colour: one palette for every frame (so still parts don't flicker),
+  // which needs every frame first. Each is let go once it's written.
+  const frames: (Uint8Array | null)[] = []
+  for (let k = 0; k < total; k++) {
+    frames.push(rgbFrame(frameAt(k), k))
+    progress(k + 1)
+  }
+  const palette = rgbFramesPalette(frames as Uint8Array[], width * height)
+  const colours = new NearestColour(palette)
+  const writer = new GifWriter(width, height, { loop: o.loopCount, palette })
+  for (let k = 0; k < total; k++) {
+    writer.add({ width, height, delayMs: o.delaysMs[k], indices: colours.map(frames[k]!) })
+    frames[k] = null
+  }
+  return { data: writer.finish(), format: 'gif', mimeType, width, height, frameCount: total }
 }

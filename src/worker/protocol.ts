@@ -4,7 +4,10 @@ import type { HardwareFitReport } from '../core/tiles'
 
 // Messages between the page and the image worker. The picture goes over once
 // (load, or load-gif with the file's bytes for an animated GIF, which the
-// worker decodes); after that the page only sends settings.
+// worker decodes); after that the page only sends settings. With an animated
+// GIF, every render and export names the frame it's about (0 otherwise).
+
+export type AnimationStyle = 'screen-fx' | 'compare-wipe' | 'dither-shimmer' | 'gif-frames'
 
 export type ToWorker =
   | {
@@ -32,6 +35,23 @@ export type ToWorker =
       settings: DeresSettings
       /** Enlargement for the screen-effect preview (0 = no effect). */
       fxScale: number
+      frame: number
+    }
+  | {
+      /** One frame of an animated GIF for playback (answered in order, never dropped). */
+      type: 'render-frame'
+      id: number
+      gen: number
+      settings: DeresSettings
+      fxScale: number
+      frame: number
+    }
+  | {
+      /** A frame of an animated GIF as it was opened (for comparing). */
+      type: 'source-frame'
+      id: number
+      gen: number
+      frame: number
     }
   | {
       type: 'export'
@@ -41,6 +61,7 @@ export type ToWorker =
       multiplier: number
       withFx: boolean
       base: string
+      frame: number
     }
   | {
       type: 'export-emulator'
@@ -49,6 +70,7 @@ export type ToWorker =
       settings: DeresSettings
       format: 'scr' | 'koa' | 'chr'
       base: string
+      frame: number
     }
   | {
       type: 'export-wallpaper'
@@ -58,6 +80,7 @@ export type ToWorker =
       preset: 'phone' | 'win95' | 'desktop-1080p'
       withFx: boolean
       base: string
+      frame: number
     }
   | {
       type: 'export-animated'
@@ -65,18 +88,19 @@ export type ToWorker =
       gen: number
       settings: DeresSettings
       format: 'apng' | 'gif'
-      animationStyle: 'screen-fx' | 'compare-wipe' | 'dither-shimmer'
+      animationStyle: AnimationStyle
       multiplier: number
       withFx: boolean
       base: string
       /** Length and speed of a Screen FX loop with the signal on. */
       loop?: { frames: number; fps: number }
+      /** The frame the other styles start from. */
+      frame: number
     }
 
-export interface RenderedMessage {
-  type: 'rendered'
-  job: number
-  gen: number
+/** A frame (or the picture) through the settings, ready to show. */
+export interface RenderedView {
+  frame: number
   width: number
   height: number
   /** The picture at its real size, r, g, b, a per pixel. */
@@ -91,6 +115,12 @@ export interface RenderedMessage {
   ms: number
   tileFit?: HardwareFitReport
   emulatorFormats?: readonly ('scr' | 'koa' | 'chr')[]
+}
+
+export interface RenderedMessage extends RenderedView {
+  type: 'rendered'
+  job: number
+  gen: number
 }
 
 /** An animated GIF the worker now holds; frame 0 is the picture. */
@@ -115,6 +145,8 @@ export type FromWorker =
   /** gif is null when the file didn't open as an animation (it's then opened as a still). */
   | { type: 'loaded-gif'; gen: number; gif: LoadedGif | null }
   | RenderedMessage
+  | { type: 'rendered-frame'; id: number; gen: number; view: RenderedView }
+  | { type: 'source-frame'; id: number; gen: number; width: number; height: number; rgba: ArrayBuffer }
   | { type: 'exported'; id: number; png: ArrayBuffer; filename: string; width: number; height: number }
   | { type: 'exported-emulator'; id: number; data: ArrayBuffer; filename: string; mimeType: string }
   | { type: 'exported-wallpaper'; id: number; png: ArrayBuffer; filename: string; width: number; height: number }
