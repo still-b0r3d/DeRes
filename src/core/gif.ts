@@ -310,16 +310,27 @@ export function rgbFramesPalette(frames: readonly Uint8Array[], pixelsPerFrame: 
  * colours a great deal, and the search covers up to 256 entries. The memory
  * is a fixed table over every 24-bit colour (16 MB + a 2 MB "seen" bit set),
  * not a Map: a noisy signal loop holds a million distinct colours, and a Map
- * of them took over 100 MB.
+ * of them took over 100 MB. One is made per GIF: setPalette moves it to
+ * another palette without making those tables again.
  */
 export class NearestColour {
   private readonly nearest = new Uint8Array(1 << 24)
   private readonly seen = new Uint8Array(1 << 21)
-  private readonly palR: Uint8Array
-  private readonly palG: Uint8Array
-  private readonly palB: Uint8Array
+  private palR = new Uint8Array(0)
+  private palG = new Uint8Array(0)
+  private palB = new Uint8Array(0)
 
-  constructor(readonly palette: Uint8Array) {
+  constructor(palette: Uint8Array) {
+    this.load(palette)
+  }
+
+  /** Maps to `palette` from now on: every colour remembered so far is forgotten. */
+  setPalette(palette: Uint8Array): void {
+    this.load(palette)
+    this.seen.fill(0)
+  }
+
+  private load(palette: Uint8Array): void {
     const n = palette.length / 3
     this.palR = new Uint8Array(n)
     this.palG = new Uint8Array(n)

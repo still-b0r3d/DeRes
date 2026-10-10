@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { encodeGif, encodeRgbGif } from './gif'
+import { encodeGif, encodeRgbGif, NearestColour } from './gif'
 
 /**
  * Reference GIF LZW decompressor used to verify compressed frame data.
@@ -318,5 +318,15 @@ describe('RGB GIF colour lookup', () => {
       { loop: 0, palette }
     )
     expect(Buffer.from(encodeRgbGif(frames, { loop: 0, palette })).equals(Buffer.from(expected))).toBe(true)
+  })
+
+  it('moves to a new palette and forgets what it remembered from the old one', () => {
+    const colours = new NearestColour(Uint8Array.of(0, 0, 0, 255, 255, 255))
+    const rgb = Uint8Array.of(250, 250, 250, 10, 10, 10, 250, 250, 250)
+    expect([...colours.map(rgb)]).toEqual([1, 0, 1])
+    // Same pixels, a palette in the other order: the remembered answers are gone.
+    colours.setPalette(Uint8Array.of(255, 255, 255, 0, 0, 0, 128, 128, 128))
+    expect([...colours.map(rgb)]).toEqual([0, 1, 0])
+    expect([...colours.map(Uint8Array.of(120, 130, 125))]).toEqual([2])
   })
 })

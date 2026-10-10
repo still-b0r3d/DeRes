@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { apngPlays, generateFramesExport, MAX_ANIMATION_BUDGET, type FramesExportOptions } from './animate'
+import { apngPlays, generateFramesExport, type FramesExportOptions } from './animate'
 import { ApngWriter } from './apng'
 import { DEFAULT_FX } from './fx'
 import { GifWriter } from './gif'
@@ -140,9 +140,77 @@ describe('generateFramesExport', () => {
     expect(own.data[25]).toBe(2) // truecolour
   })
 
-  it('refuses sizes a phone couldn’t hold', async () => {
-    const frames = Math.floor(MAX_ANIMATION_BUDGET / 32) + 1 // 8×4 per frame at 2×
-    await expect(generateFramesExport(options({ delaysMs: new Array(frames).fill(10) }))).rejects.toThrow('too much to hold')
+  it('refuses a frame too big for a phone (a frame count is never refused: see below)', async () => {
     await expect(generateFramesExport(options({ multiplier: 600 }))).rejects.toThrow('too big for an animation')
+  })
+})
+
+/** Frame k in full colour: a red that grows with k on the left, a blue that fades on the right. */
+const colourful = (k: number) => fakeRendered(0, Uint8Array.of(40 * k, 0, 0, 0, 0, 255 - 40 * k))
+
+/** The local-colour-table flag of every image in a GIF, read block by block. */
+function localTables(gif: Uint8Array): boolean[] {
+  const flags: boolean[] = []
+  let p = 13 + (gif[10] & 0x80 ? 3 << ((gif[10] & 7) + 1) : 0)
+  const skipSubBlocks = () => {
+    while (gif[p] !== 0) p += gif[p] + 1
+    p++
+  }
+  while (gif[p] !== 0x3b) {
+    if (gif[p] === 0x21) {
+      p += 2
+      skipSubBlocks()
+    } else if (gif[p] === 0x2c) {
+      const f = gif[p + 9]
+      flags.push(!!(f & 0x80))
+      p += 10 + (f & 0x80 ? 3 << ((f & 7) + 1) : 0) + 1
+      skipSubBlocks()
+    } else {
+      throw new Error(`unexpected block 0x${gif[p].toString(16)} at ${p}`)
+    }
+  }
+  return flags
+}
+
+describe('a full-colour GIF of an animated GIF’s frames', () => {
+  const full = (o: Partial<FramesExportOptions> = {}) =>
+    options({ render: colourful, indexed: false, sharedPalette: false, delaysMs: [70, 60, 80, 50], loopCount: 3, ...o })
+
+  it('shares one palette while every frame fits the budget', async () => {
+    const res = await generateFramesExport(full())
+    expect(localTables(res.data)).toEqual([false, false, false, false])
+    expect(decodeGifFrames(res.data).frames).toHaveLength(4)
+  })
+
+  it('past the budget, gives every frame its own palette and keeps the delays and loop count', async () => {
+    const seen: number[] = []
+    // 8×4 at 2×: four frames are 128 pixels, past a budget of 100.
+    const res = await generateFramesExport(full({ budget: 100, onProgress: (d) => seen.push(d) }))
+    expect(seen).toEqual([1, 2, 3, 4])
+    // The first frame's palette is the global table; every other frame carries its own.
+    expect(localTables(res.data)).toEqual([false, true, true, true])
+    const { reader, frames } = decodeGifFrames(res.data)
+    expect(reader.loopCount).toBe(3)
+    expect(frames.map((f) => f.delayMs)).toEqual([70, 60, 80, 50])
+    // Every frame decodes to its own colours (within the palette's rounding).
+    for (let k = 0; k < 4; k++) {
+      const want = colourful(k)
+      for (let y = 0; y < 4; y++) {
+        for (let x = 0; x < 8; x++) {
+          const s = (Math.floor(y / 2) * 4 + Math.floor(x / 2)) * 3
+          const o = (y * 8 + x) * 4
+          for (let c = 0; c < 3; c++) expect(Math.abs(frames[k].rgba[o + c] - want.rgb[s + c])).toBeLessThanOrEqual(2)
+        }
+      }
+    }
+  })
+
+  it('an APNG past the budget keeps every frame', async () => {
+    const res = await generateFramesExport(full({ format: 'apng', budget: 100 }))
+    const view = new DataView(res.data.buffer)
+    const actl = Buffer.from(res.data).indexOf('acTL')
+    expect([view.getUint32(actl + 4), view.getUint32(actl + 8)]).toEqual([4, 4])
+    const png = await decodePng(res.data)
+    expect([png.width, png.height]).toEqual([8, 4])
   })
 })

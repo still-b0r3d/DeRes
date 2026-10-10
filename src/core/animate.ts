@@ -61,11 +61,14 @@ export type AnimationKind = AnimationStyle | 'gif-frames'
 
 /**
  * How many frames an animation holds at once: a loop makes all of its frames
- * before they go into the file, and so does an animated GIF's own frames.
+ * before they go into the file (`signalLoop`: the Screen FX loop's length
+ * with the signal on, else null). An animated GIF's own frames count as
+ * none: they're held only while they fit the budget, and stream past it
+ * (see generateFramesExport).
  */
-export function heldFrames(kind: AnimationKind, o: { signalLoop: number | null; gifFrames: number }): number {
-  if (kind === 'gif-frames') return o.gifFrames
-  if (kind === 'screen-fx' && o.signalLoop !== null) return o.signalLoop
+export function heldFrames(kind: AnimationKind, signalLoop: number | null): number {
+  if (kind === 'gif-frames') return 0
+  if (kind === 'screen-fx' && signalLoop !== null) return signalLoop
   return STYLE_LOOPS[kind].frames
 }
 
@@ -532,6 +535,12 @@ export interface FramesExportOptions {
   indexed: boolean
   sharedPalette: boolean
   onProgress?: (done: number, total: number) => void
+  /**
+   * Pixels a full-colour GIF may hold at once for one palette shared by every
+   * frame (MAX_ANIMATION_BUDGET); past it, each frame gets its own. A test
+   * can set it low.
+   */
+  budget?: number
 }
 
 /** APNG plays a loop count's worth of times plus the first; a GIF without one plays once. */
@@ -542,8 +551,8 @@ export function apngPlays(loopCount: number | null): number {
 /**
  * An animated GIF's own frames, each through the current settings, as a GIF
  * or APNG with the GIF's delays and loop count. Frames go into the encoder
- * as they're made; only a full-colour GIF holds them (once) until its shared
- * palette is known.
+ * as they're made, so any number of them fit; only a full-colour GIF holds
+ * them (once, while they fit the budget) until its shared palette is known.
  */
 export async function generateFramesExport(o: FramesExportOptions): Promise<AnimatedExportResult> {
   const total = o.delaysMs.length
@@ -553,9 +562,6 @@ export async function generateFramesExport(o: FramesExportOptions): Promise<Anim
   const [width, height] = exportSize(first.width, first.height, first.geometry.par, m, o.tv)
   if (width * height > MAX_EXPORT_PIXELS || width * height > MAX_ANIMATION_PIXELS) {
     throw new Error('That size is too big for an animation. Pick a smaller size.')
-  }
-  if (width * height * total > MAX_ANIMATION_BUDGET) {
-    throw new Error(`${total} frames at that size is too much to hold at once. Pick a smaller size.`)
   }
   const fx = o.fx && o.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER ? o.fx : null
   const indexed = o.indexed && !o.signal && !fx
@@ -606,8 +612,10 @@ export async function generateFramesExport(o: FramesExportOptions): Promise<Anim
     return { data: writer.finish(), format: 'gif', mimeType, width, height, frameCount: total }
   }
 
-  // Full colour: one palette for every frame (so still parts don't flicker),
-  // which needs every frame first. Each is let go once it's written.
+  // Full colour, while every frame fits the budget: one palette for them all
+  // (so still parts don't shimmer), which needs every frame first. Each is
+  // let go once it's written.
+  if (width * height * total > (o.budget ?? MAX_ANIMATION_BUDGET)) return streamRgbGif()
   const frames: (Uint8Array | null)[] = []
   for (let k = 0; k < total; k++) {
     frames.push(rgbFrame(frameAt(k), k))
@@ -621,4 +629,22 @@ export async function generateFramesExport(o: FramesExportOptions): Promise<Anim
     frames[k] = null
   }
   return { data: writer.finish(), format: 'gif', mimeType, width, height, frameCount: total }
+
+  /**
+   * Full colour past the budget: each frame gets its own palette (a local
+   * colour table) as it's made, and is let go once it's written.
+   */
+  function streamRgbGif(): AnimatedExportResult {
+    const writer = new GifWriter(width, height, { loop: o.loopCount })
+    let colours: NearestColour | null = null
+    for (let k = 0; k < total; k++) {
+      const rgb = rgbFrame(frameAt(k), k)
+      const palette = rgbFramesPalette([rgb], width * height)
+      if (colours) colours.setPalette(palette)
+      else colours = new NearestColour(palette)
+      writer.add({ width, height, delayMs: o.delaysMs[k], indices: colours.map(rgb), palette })
+      progress(k + 1)
+    }
+    return { data: writer.finish(), format: 'gif', mimeType, width, height, frameCount: total }
+  }
 }

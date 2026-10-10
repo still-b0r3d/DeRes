@@ -73,17 +73,13 @@ export interface AnimationFit {
 
 /**
  * Animations hold their frames at once, so they can stop short of the PNG's
- * size: they drop to the biggest Size that fits instead.
- * `animatedFrames` is the open GIF's frame count (0 for a still), and
- * `gifFrames` whether the export uses them.
+ * size: they drop to the biggest Size that fits instead. `gifFrames`: the
+ * export is an animated GIF's own frames.
  */
-export function animationFit(s: Settings, g: Geometry, animatedFrames: number, gifFrames: boolean): AnimationFit {
+export function animationFit(s: Settings, g: Geometry, gifFrames: boolean): AnimationFit {
   const tv = s.pixelShape === 'tv' && g.par[0] !== g.par[1]
   const size = (m: number) => exportSize(g.width, g.height, g.par, m, tv)
-  const held = heldFrames(gifFrames ? 'gif-frames' : s.animationStyle, {
-    signalLoop: s.signal.mode !== 'off' ? s.loopFrames : null,
-    gifFrames: animatedFrames
-  })
+  const held = heldFrames(gifFrames ? 'gif-frames' : s.animationStyle, s.signal.mode !== 'off' ? s.loopFrames : null)
   const multiplier = animationMultiplier(size, s.multiplier, held, MULTIPLIERS)
   const next = MULTIPLIERS.find((m) => m <= s.multiplier && (multiplier === null || m > multiplier)) ?? null
   return { multiplier, held, next, limit: next === null ? null : animationLimit(...size(next), held) }
@@ -805,7 +801,7 @@ export function buildControls(ctx: ControlsContext): {
       sizeLine.textContent = tooBig ? `${w}×${hh} is too big. Pick a smaller size.` : `${w}×${hh} px · ${look}`
       downloadBtn.disabled = !pic || tooBig
 
-      const anim = animationFit(s, g, animatedFrames, gifFrames)
+      const anim = animationFit(s, g, gifFrames)
       const whyNot = anim.limit === 'frame' ? 'too big for an animation' : `too big for ${anim.held} frames`
       let animText = ''
       if (anim.multiplier === null && anim.next !== null) {
@@ -815,18 +811,16 @@ export function buildControls(ctx: ControlsContext): {
           `GIF and APNG can't be made: even ${anim.next}× (${aw}×${ah} px) is ${whyNot}.` +
           (anim.limit === 'frames' && signalLoop
             ? ' Pick a shorter loop.'
-            : anim.limit === 'frames' && gifFrames
-              ? ' Pick another animation loop.'
-              : anim.limit === 'frame' && s.resolution === 'custom'
-                ? ' Pick a bigger block size.'
-                : '')
+            : anim.limit === 'frame' && s.resolution === 'custom'
+              ? ' Pick a bigger block size.'
+              : '')
       } else if (anim.multiplier !== null && anim.next !== null) {
         const [aw, ah] = exportSize(g.width, g.height, par, anim.multiplier, tv)
         // The Screen FX loop (without the signal) is the effect itself; the
         // rest keep the screen effect from 3× up, as the PNG does.
         const fxLost = withFx && anim.multiplier < FX_MIN_MULTIPLIER && !(s.animationStyle === 'screen-fx' && !signalOn && !gifFrames)
-        // Why the next Size up won't do (Deep Fry at 4× with 58 frames: 3× and
-        // 4× are too big for one frame, but it's the frames that stop 2×).
+        // Why the next Size up won't do (a 32-frame signal loop on the NES at
+        // 4×: 4× would fit one frame, but it's the frames that stop 3×).
         animText =
           `GIF and APNG come out at ${anim.multiplier}× (${aw}×${ah} px)${fxLost ? ', without the screen effect' : ''}: ` +
           `${anim.next === s.multiplier ? `${anim.next}× is` : `${anim.next}× and up are`} ${whyNot}.`

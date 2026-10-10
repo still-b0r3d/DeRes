@@ -42,7 +42,10 @@ images.
     PNG, wallpaper and emulator downloads use, and Compare shows that frame.
   - **GIF frames** in the Animation choices (only while an animated GIF is
     open, and chosen then): the GIF or APNG download runs every frame through
-    the pipeline and keeps the GIF's delays and loop count.
+    the pipeline and keeps the GIF's delays and loop count. The frames go into the
+    file one at a time, so any number of them fit and only one frame's size is
+    limited. A full-colour GIF shares one palette across its frames while they
+    fit the animation memory; past that, each frame gets its own.
   - The Signal's noise moves at the GIF's own speed. The ASCII studio uses the
     first frame.
 - **Reset settings** (v0.9.1) at the foot of DeRes's and the ASCII studio's

@@ -18,12 +18,12 @@ describe('the size an animation drops to', () => {
   const fit = (w: number, h: number, chosen: number, held: number, par: [number, number] = [1, 1], tv = false) =>
     animationMultiplier((m) => exportSize(w, h, par, m, tv), chosen, held, MULTIPLIERS)
 
-  it('holds as many frames as the style makes', () => {
-    expect(heldFrames('screen-fx', { signalLoop: null, gifFrames: 0 })).toBe(12)
-    expect(heldFrames('screen-fx', { signalLoop: 48, gifFrames: 0 })).toBe(48)
-    expect(heldFrames('compare-wipe', { signalLoop: 48, gifFrames: 0 })).toBe(16)
-    expect(heldFrames('dither-shimmer', { signalLoop: 32, gifFrames: 0 })).toBe(8)
-    expect(heldFrames('gif-frames', { signalLoop: 32, gifFrames: 58 })).toBe(58)
+  it('holds as many frames as the style makes; an animated GIF’s own frames stream', () => {
+    expect(heldFrames('screen-fx', null)).toBe(12)
+    expect(heldFrames('screen-fx', 48)).toBe(48)
+    expect(heldFrames('compare-wipe', 48)).toBe(16)
+    expect(heldFrames('dither-shimmer', 32)).toBe(8)
+    expect(heldFrames('gif-frames', 32)).toBe(0)
   })
 
   it('says whether one frame or all of them are too big', () => {
@@ -32,16 +32,25 @@ describe('the size an animation drops to', () => {
     expect(animationLimit(1024, 1024, 17)).toBe('frames')
   })
 
-  it('Deep Fry (480×360) with the 58-frame sample: only 1× fits', () => {
+  it('Deep Fry (480×360) holding 58 frames: only 1× fits', () => {
     expect(fit(480, 360, 4, 58)).toBe(1)
     expect(fit(480, 360, 1, 58)).toBe(1)
     expect(animationLimit(960, 720, 58)).toBe('frames')
   })
 
-  it('Game Boy (160×144) with 58 frames: 3× is the biggest', () => {
+  it('Game Boy (160×144) holding 58 frames: 3× is the biggest', () => {
     expect(fit(160, 144, 4, 58)).toBe(3)
     expect(fit(160, 144, 16, 58)).toBe(3)
     expect(fit(160, 144, 2, 58)).toBe(2)
+  })
+
+  it('an animated GIF’s own frames: only the size of one frame counts', () => {
+    const held = heldFrames('gif-frames', null)
+    // Deep Fry with the 58-frame sample: 2× (960×720); 3× is 1440×1080.
+    expect(fit(480, 360, 4, held)).toBe(2)
+    // Game Boy: 4× (640×576) fits, and 16× drops to 6× (960×864).
+    expect(fit(160, 144, 4, held)).toBe(4)
+    expect(fit(160, 144, 16, held)).toBe(6)
   })
 
   it('VGA (320×200) at 8× with 16 frames drops to 4× (1280×800)', () => {
@@ -64,7 +73,7 @@ describe('the size an animation drops to', () => {
   it('is null when not even 1× fits', () => {
     // A big picture in big blocks: one frame is already too big.
     expect(fit(2000, 1500, 4, 12)).toBeNull()
-    // A long GIF on a big machine: every frame together is too much.
+    // A long loop on a big machine: every frame together is too much.
     expect(fit(480, 360, 4, 256)).toBeNull()
   })
 })

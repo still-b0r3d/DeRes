@@ -1004,7 +1004,7 @@ export function startApp(): void {
       const fxOk = settings.exportFx && settings.fx.screen !== 'off'
       // The biggest Size that fits, as the hint by the buttons says.
       const g = geometry()
-      const fitted = g ? animationFit(settings, g, picture.animation?.frames ?? 0, style === 'gif-frames').multiplier : null
+      const fitted = g ? animationFit(settings, g, style === 'gif-frames').multiplier : null
       const res = await engine.exportAnimated(
         deres(settings),
         format,
