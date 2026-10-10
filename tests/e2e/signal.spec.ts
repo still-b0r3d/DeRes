@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { decodePng } from '../../src/core/png'
 import { profileById } from '../../src/core/profiles'
-import { download, readout, ready } from './helpers'
+import { catchClipboard, download, readout, ready } from './helpers'
 
 // The Signal step in the real page: the engine (WebAssembly) loads in the
 // worker only when the signal is switched on, the preview shows it, and the
@@ -108,13 +108,15 @@ test('the signal travels in a share link', async ({ page, context }) => {
   await pick(page, 'snes')
   await openSignal(page)
   await signalButton(page, 'VHS EP').click()
+  const copied = await catchClipboard(page)
   await page.getByRole('button', { name: 'Copy share link' }).click()
-  const hash = await page.evaluate(() => window.location.hash)
+  await expect(page.locator('.status')).toHaveText('Share link copied to clipboard.')
+  const link = await copied()
 
   const other = await context.newPage()
   await other.goto('/')
   await other.evaluate(() => localStorage.clear())
-  await other.goto(`/${hash}`)
+  await other.goto(link)
   await ready(other, '256×224')
   await openSignal(other)
   await expect(signalButton(other, 'VHS EP')).toHaveAttribute('aria-pressed', 'true')

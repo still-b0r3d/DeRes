@@ -63,6 +63,21 @@ export async function download(page: Page, button: Locator): Promise<{ download:
   return { download: d, bytes: new Uint8Array(readFileSync(path!)) }
 }
 
+/**
+ * Catches what the page puts on the clipboard (the same in every browser,
+ * with no permission asked); the function returns the last text copied.
+ */
+export async function catchClipboard(page: Page): Promise<() => Promise<string>> {
+  await page.evaluate(() => {
+    const store = window as unknown as { copied?: string }
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (text: string) => void (store.copied = text) }
+    })
+  })
+  return () => page.evaluate(() => (window as unknown as { copied?: string }).copied ?? '')
+}
+
 /** The file names in a ZIP, from its central directory. */
 export function zipNames(zip: Uint8Array): string[] {
   const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength)

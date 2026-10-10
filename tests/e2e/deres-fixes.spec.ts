@@ -79,6 +79,26 @@ test("a share link naming a machine this version doesn't have still opens the pa
   expect(errors).toEqual([])
 })
 
+test('a share link’s settings are kept, and the link leaves the address bar', async ({ page }) => {
+  // Opened fresh (not as a change of the hash on the page already open).
+  await page.goto('about:blank')
+  await page.goto(`/#s=${Buffer.from(JSON.stringify({ p: 'nes' })).toString('base64url')}`)
+  await ready(page, '256×240')
+  expect(await page.evaluate(() => window.location.hash)).toBe('')
+  // A change made after opening it survives a reload (the link doesn't put itself back).
+  await pick(page, 'c64-hires')
+  await page.reload()
+  await ready(page, '320×200')
+  await expect(page.locator('.card[data-profile="c64-hires"]')).toHaveAttribute('aria-pressed', 'true')
+  // One opened on top of the page: applied, kept, and gone from the address too.
+  await page.evaluate((h) => (window.location.hash = h), `#s=${Buffer.from(JSON.stringify({ p: 'snes' })).toString('base64url')}`)
+  await ready(page, '256×224')
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('')
+  await page.reload()
+  await ready(page, '256×224')
+  await expect(page.locator('.card[data-profile="snes"]')).toHaveAttribute('aria-pressed', 'true')
+})
+
 test('the .scr and .koa downloads work every time, not just the first', async ({ page }) => {
   for (const [id, fmt, size] of [
     ['zx-spectrum', 'scr', 6912],

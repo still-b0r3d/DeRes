@@ -303,11 +303,20 @@ export function startApp(): void {
     if (window.location.hash.startsWith('#s=')) history.replaceState(history.state, '', window.location.pathname + window.location.search)
   }
 
+  // A share link's settings become the visitor's own (saved, as any change
+  // is), and the link leaves the address bar: left there, every reload
+  // would put its settings back over the changes made since.
+  if (window.location.hash.startsWith('#s=')) {
+    saveSettings(settings, true)
+    dropShareLink()
+  }
+
+  /** Copies a link to these settings. It goes on the clipboard only, never into the address bar. */
   function shareLink(): void {
-    const hash = encodeSettings(settings)
-    window.location.hash = hash
-    const url = window.location.href
-    navigator.clipboard.writeText(url).then(
+    const { origin, pathname, search } = window.location
+    const url = `${origin}${pathname}${search}${encodeSettings(settings)}`
+    const copied = navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject(new Error('No clipboard'))
+    copied.then(
       () => controls.status('Share link copied to clipboard.'),
       () => controls.status(`Share URL: ${url}`)
     )
@@ -1147,13 +1156,16 @@ export function startApp(): void {
     if (e.code === 'Space') stage.hold(false)
   })
 
+  // A share link opened on top of the page: applied and kept, as on a fresh load.
   window.addEventListener('hashchange', () => {
     const fromHash = settingsFromHash(window.location.hash, settings)
     if (fromHash) {
       settings = fromHash
+      saveSettings(settings, true)
       controls.sync()
       render()
     }
+    dropShareLink()
   })
 
   footer()

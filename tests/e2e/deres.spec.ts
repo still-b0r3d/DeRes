@@ -4,6 +4,7 @@ import { crc32, decodePng, encodeRgbPng } from '../../src/core/png'
 import { paletteBytes } from '../../src/core/pipeline'
 import { PROFILES, profileById } from '../../src/core/profiles'
 import { parseSauce } from '../../src/core/sauce'
+import { catchClipboard } from './helpers'
 
 // End-to-end: the real page, its worker and its controls. Results are checked
 // by reading canvas pixels and decoding exported PNGs, never by comparing
@@ -315,12 +316,18 @@ test('PS1 renders with hardware dither', async ({ page }) => {
   expect((await canvasColours(page)).length).toBeGreaterThan(0)
 })
 
-test('share link preserves settings in URL hash', async ({ page }) => {
+test('the share link goes on the clipboard, not into the address, so a reload keeps later changes', async ({ page }) => {
+  const copied = await catchClipboard(page)
   await pick(page, 'snes')
   await page.getByRole('button', { name: 'Copy share link' }).click()
-  await expect(page.locator('.status')).toContainText(/Share (link copied|URL)/)
-  const hash = await page.evaluate(() => window.location.hash)
-  expect(hash).toContain('#s=')
+  await expect(page.locator('.status')).toHaveText('Share link copied to clipboard.')
+  expect(await copied()).toMatch(/^http:\/\/[^#]+\/#s=[\w-]+$/)
+  expect(await page.evaluate(() => window.location.hash)).toBe('')
+  // A change after copying it survives a reload.
+  await pick(page, 'nes')
+  await page.reload()
+  await ready(page, '256×240')
+  await expect(page.locator('.card[data-profile="nes"]')).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('v0.3: ZX Spectrum renders attribute clash and offers .scr download', async ({ page }) => {

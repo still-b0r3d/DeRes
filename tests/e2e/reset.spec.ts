@@ -60,10 +60,6 @@ test('DeRes: change a lot, reset, and every control is back to its default', asy
   await seg(page, 'Resolution', 'custom').click()
   await page.locator('#block').fill('12')
   await ready(page, /colours/)
-  // A share link puts the settings in the address.
-  await page.getByRole('button', { name: 'Copy share link' }).click()
-  await expect.poll(() => page.evaluate(() => location.hash)).toMatch(/^#s=/)
-
   const reset = page.getByTestId('reset-settings')
   await expect(reset).toHaveText('Reset settings')
   await reset.click()
@@ -74,7 +70,7 @@ test('DeRes: change a lot, reset, and every control is back to its default', asy
   await ready(page)
   await expectDeresDefaults(page)
 
-  // Saved as the defaults, the share link gone, the picture the same.
+  // Saved as the defaults, no share link in the address, the picture the same.
   const saved = await stored(page, 'b0r3d-deres:settings')
   expect(saved).toEqual(JSON.parse(JSON.stringify(defaultSettings())))
   expect(await page.evaluate(() => location.hash)).toBe('')
