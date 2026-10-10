@@ -128,21 +128,24 @@ test("dithers that change nothing on a machine are greyed out, with a note why",
   await expect(note).toBeHidden()
 })
 
-test('animations stop at a size a phone can hold, and say how far along they are', async ({ page }) => {
+test('animations drop to a size a phone can hold, and say how far along they are', async ({ page }) => {
   const size = (m: number) => page.locator(`.seg[aria-label="Size"] button[data-value="${m}"]`)
+  const hint = page.getByTestId('anim-hint')
   await pick(page, 'vga')
 
-  // 8× VGA is 2560×1600: fine as a PNG, too big for 16 frames in memory.
+  // 8× VGA is 2560×1600: fine as a PNG, too big for an animation, so GIF
+  // and APNG come out at the biggest Size that fits, and the hint says so.
   await size(8).click()
   await expect(page.getByRole('button', { name: 'Download PNG' })).toBeEnabled()
-  await expect(page.getByTestId('download-gif')).toBeDisabled()
-  await expect(page.getByTestId('download-apng')).toBeDisabled()
-  await expect(page.getByTestId('export-size')).toContainText('too big for an animation')
+  await expect(page.getByTestId('download-gif')).toBeEnabled()
+  await expect(page.getByTestId('download-apng')).toBeEnabled()
+  await expect(page.getByTestId('export-size')).toHaveText(/^2560×1600 px · [^·]+$/)
+  await expect(hint).toHaveText('GIF and APNG come out at 4× (1280×800 px): 6× and up are too big for an animation.')
 
-  // 2× fits; every status line on the way is kept to check the progress.
+  // 2× fits as it is; every status line on the way is kept to check the progress.
   await size(2).click()
   await expect(page.getByTestId('download-gif')).toBeEnabled()
-  await expect(page.getByTestId('export-size')).not.toContainText('animation')
+  await expect(hint).toBeHidden()
   await page.evaluate(() => {
     const w = window as unknown as { seen: string[] }
     w.seen = []

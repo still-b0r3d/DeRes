@@ -49,6 +49,56 @@ export const MAX_ANIMATION_PIXELS = 1024 * 1024
  */
 export const MAX_ANIMATION_BUDGET = 16 * MAX_ANIMATION_PIXELS
 
+/** Frames in each loop style, and how fast it plays (Screen FX: without the signal). */
+export const STYLE_LOOPS: Readonly<Record<AnimationStyle, { frames: number; fps: number }>> = {
+  'screen-fx': { frames: 12, fps: 10 },
+  'compare-wipe': { frames: 16, fps: 10 },
+  'dither-shimmer': { frames: 8, fps: 8 }
+}
+
+/** What an animation export is made of: a loop style, or an animated GIF's own frames. */
+export type AnimationKind = AnimationStyle | 'gif-frames'
+
+/**
+ * How many frames an animation holds at once: a loop makes all of its frames
+ * before they go into the file, and so does an animated GIF's own frames.
+ */
+export function heldFrames(kind: AnimationKind, o: { signalLoop: number | null; gifFrames: number }): number {
+  if (kind === 'gif-frames') return o.gifFrames
+  if (kind === 'screen-fx' && o.signalLoop !== null) return o.signalLoop
+  return STYLE_LOOPS[kind].frames
+}
+
+/**
+ * Why an animation of `held` frames at width × height won't fit: one frame
+ * is too big, or all of them together are. Null when it fits.
+ */
+export function animationLimit(width: number, height: number, held: number): 'frame' | 'frames' | null {
+  const px = width * height
+  if (px > MAX_ANIMATION_PIXELS || px > MAX_EXPORT_PIXELS) return 'frame'
+  return px * held > MAX_ANIMATION_BUDGET ? 'frames' : null
+}
+
+/**
+ * The biggest of `multipliers`, no bigger than `chosen`, at which an
+ * animation of `held` frames fits (see animationLimit); `size` gives the
+ * export size at a multiplier. Null when not even the smallest fits.
+ */
+export function animationMultiplier(
+  size: (m: number) => readonly [number, number],
+  chosen: number,
+  held: number,
+  multipliers: readonly number[]
+): number | null {
+  let best: number | null = null
+  for (const m of multipliers) {
+    if (m > chosen) continue
+    const [w, h] = size(m)
+    if (animationLimit(w, h, held) === null && (best === null || m > best)) best = m
+  }
+  return best
+}
+
 /** Frames, speed and engine step of a loop with the signal on (Screen FX style). */
 export function signalLoopTiming(loop: { frames: number; fps: number } | undefined): { frames: number; fps: number; step: number } {
   const frames = loop?.frames ?? 16
@@ -187,8 +237,8 @@ export async function generateAnimatedExport(
 
   // --- STYLE 1: SCREEN FX LOOP ---
   if (options.style === 'screen-fx') {
-    const frameCount = options.frameCount ?? 12
-    const fps = options.fps ?? 10
+    const frameCount = options.frameCount ?? STYLE_LOOPS['screen-fx'].frames
+    const fps = options.fps ?? STYLE_LOOPS['screen-fx'].fps
     const delayMs = Math.round(1000 / fps)
 
     const activeFx: Fx =
@@ -230,8 +280,8 @@ export async function generateAnimatedExport(
 
   // --- STYLE 2: BEFORE & AFTER A/B COMPARE WIPE ---
   if (options.style === 'compare-wipe') {
-    const frameCount = options.frameCount ?? 16
-    const fps = options.fps ?? 10
+    const frameCount = options.frameCount ?? STYLE_LOOPS['compare-wipe'].frames
+    const fps = options.fps ?? STYLE_LOOPS['compare-wipe'].fps
     const delayMs = Math.round(1000 / fps)
 
     // Render Deres at full size (with the signal: a new frame of it each time)
@@ -331,8 +381,8 @@ export async function generateAnimatedExport(
   }
 
   // --- STYLE 3: DITHER SHIMMER / PHASE CYCLE ---
-  const frameCount = options.frameCount ?? 8
-  const fps = options.fps ?? 8
+  const frameCount = options.frameCount ?? STYLE_LOOPS['dither-shimmer'].frames
+  const fps = options.fps ?? STYLE_LOOPS['dither-shimmer'].fps
   const delayMs = Math.round(1000 / fps)
 
   const ditherPhases: [number, number][] = [

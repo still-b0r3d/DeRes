@@ -82,16 +82,16 @@ test('a signal loop is as long as asked, within what a phone can hold', async ({
   await page.locator('.seg[aria-label="Size"] button[data-value="2"]').click()
   await page.locator('.seg[aria-label="Loop length"] button[data-value="32"]').click()
 
-  // 4× NES (1024×960) is fine for one frame but not for 32 of them.
+  // 4× NES (1024×960) is fine for one frame but not for 32 of them: the
+  // loop comes out at 2×, and says so by the buttons.
   await page.locator('.seg[aria-label="Size"] button[data-value="4"]').click()
-  await expect(page.getByTestId('export-size')).toContainText('too big for 32 frames')
-  await expect(page.getByTestId('download-gif')).toBeDisabled()
-
-  await page.locator('.seg[aria-label="Size"] button[data-value="2"]').click()
+  await expect(page.getByTestId('export-size')).not.toContainText('frames')
+  await expect(page.getByTestId('anim-hint')).toHaveText('GIF and APNG come out at 2× (512×480 px): 3× and up are too big for 32 frames.')
   await expect(page.getByTestId('download-gif')).toBeEnabled()
   const { download: d, bytes } = await download(page, page.getByTestId('download-gif'))
   expect(d.suggestedFilename()).toBe('rukus-nes-screen-fx-composite-loop.gif')
-  await expect(page.locator('.status')).toContainText('32 frames')
+  await expect(page.locator('.status')).toContainText('(512×480, 32 frames)')
+  expect([bytes[6] | (bytes[7] << 8), bytes[8] | (bytes[9] << 8)]).toEqual([512, 480])
   // Count the GIF's frames: one image descriptor (0x2C) after each graphic control block.
   let frames = 0
   for (let i = 0; i + 8 < bytes.length; i++) {

@@ -165,16 +165,40 @@ test('the GIF frames choice: only for an animated GIF, and chosen by default', a
   await openSample(page)
   await expect(choice).toBeVisible()
   await expect(choice).toHaveAttribute('aria-pressed', 'true')
-  // 4× Game Boy is 640×576: one frame is fine, 58 of them too many.
+  // 4× Game Boy is 640×576: one frame is fine, 58 of them too many, so they come out at 3×.
   await page.locator('.seg[aria-label="Size"] button[data-value="4"]').click()
-  await expect(page.getByTestId('export-size')).toContainText('too big for 58 frames')
-  await expect(page.getByTestId('download-gif')).toBeDisabled()
-  // Another style loops the paused frame, as before.
+  await expect(page.getByTestId('anim-hint')).toHaveText('GIF and APNG come out at 3× (480×432 px): 4× is too big for 58 frames.')
+  await expect(page.getByTestId('download-gif')).toBeEnabled()
+  // Another style loops the paused frame, as before (12 frames fit at 4×).
   await page.locator('.seg[aria-label="Animation loop"] button[data-value="screen-fx"]').click()
   await expect(choice).toHaveAttribute('aria-pressed', 'false')
-  await expect(page.getByTestId('export-size')).not.toContainText('58 frames')
+  await expect(page.getByTestId('anim-hint')).toBeHidden()
   await page.locator('[data-sample="rukus"]').first().click()
   await expect(choice).toBeHidden()
+})
+
+test('Deep Fry at 4×: GIF and APNG stay on, come out at 1×, and say why by the buttons', async ({ page }) => {
+  await openSample(page)
+  await page.locator('.card[data-profile="deepfry"]').click()
+  await ready(page, '480×360')
+  await expect(page.locator('.seg[aria-label="Size"] button[data-value="4"]')).toHaveAttribute('aria-pressed', 'true')
+  // The size line is the PNG's; the hint by the buttons is the animation's.
+  await expect(page.getByTestId('export-size')).toHaveText(/^1920×1440 px · [^·]+$/)
+  await expect(page.getByTestId('anim-hint')).toHaveText('GIF and APNG come out at 1× (480×360 px): 2× and up are too big for 58 frames.')
+  await expect(page.getByTestId('download-gif')).toBeEnabled()
+  await expect(page.getByTestId('download-apng')).toBeEnabled()
+  const { download: d, bytes } = await download(page, page.getByTestId('download-gif'))
+  expect(d.suggestedFilename()).toBe('rukus-breaks-out-deepfry.gif')
+  await expect(page.locator('.status')).toContainText('(480×360, 58 frames)')
+  const { reader, frames } = decodeGifFrames(bytes)
+  expect([reader.width, reader.height]).toEqual([480, 360])
+  expect(frames).toHaveLength(58)
+
+  // The screen effect starts at 3×, so the hint says the animation goes without it.
+  await page.locator('summary', { hasText: 'Screen' }).click()
+  await page.locator('.seg[aria-label="Screen effect"] button[data-value="crt"]').click()
+  await page.locator('#export-fx').check()
+  await expect(page.getByTestId('anim-hint')).toContainText('(480×360 px), without the screen effect: ')
 })
 
 test('a GIF export with VHS EP keeps every frame and its delay', async ({ page }) => {

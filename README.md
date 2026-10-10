@@ -107,7 +107,10 @@ images.
   stretched to the machine's pixel shape ("as on a TV"). Without screen effects
   it's an indexed PNG holding the machine's exact palette (or RGB for > 256 colors).
   Named like `photo-nes-256x240-4x.png`. Nothing but the picture is written into it.
-  Animations (below) hold every frame at once, so they stop at 1024×1024.
+  Animations (below) hold every frame at once, so they stop at 1024×1024: past
+  what fits, the GIF and APNG come out at the biggest Size that does, and a
+  line by their buttons says so (a 32-frame signal loop on the NES: "GIF and
+  APNG come out at 2× (512×480 px): 3× and up are too big for 32 frames.").
 - **ASCII / ANSI Studio (v0.4.0):**
   - **Half-block color mode (`▀`):** doubles vertical resolution for authentic 24-bit RGB and 16-color ANSI BBS art scenes.
   - **Character ramps:** Standard (` .:-=+*#%@`), Detailed, Block shades (` ░▒▓█`), Katakana (half-width), Binary, and custom text inputs, with 2:1 cell aspect ratio correction.

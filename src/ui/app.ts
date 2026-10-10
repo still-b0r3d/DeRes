@@ -38,7 +38,7 @@ import { MAX_ANIMATION_BUDGET } from '../core/animate'
 import type { RenderedView } from '../worker/protocol'
 import { buildAsciiControls } from './ascii-controls'
 import { AsciiStage } from './ascii-stage'
-import { buildControls } from './controls'
+import { animationFit, buildControls } from './controls'
 import { buildScrubControls } from './scrub-controls'
 import { buildInjectControls } from './inject-controls'
 import { ScrubStage } from './scrub-stage'
@@ -1002,11 +1002,14 @@ export function startApp(): void {
     controls.status(making)
     try {
       const fxOk = settings.exportFx && settings.fx.screen !== 'off'
+      // The biggest Size that fits, as the hint by the buttons says.
+      const g = geometry()
+      const fitted = g ? animationFit(settings, g, picture.animation?.frames ?? 0, style === 'gif-frames').multiplier : null
       const res = await engine.exportAnimated(
         deres(settings),
         format,
         style,
-        settings.multiplier,
+        fitted ?? settings.multiplier,
         fxOk,
         picture.base,
         (done, total) => controls.status(`${making} frame ${done} of ${total}${done === total ? ', putting them together' : ''}`),
