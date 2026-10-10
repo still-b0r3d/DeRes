@@ -55,7 +55,7 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.getByTestId('picture-info')).toHaveText('rukus.png · 256×256')
   const gbPal = profileById('gameboy')!.palette
   expect(new Set(await canvasColours(page))).toEqual(new Set(gbPal.kind === 'fixed' ? gbPal.colours : []))
-  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.9.0')
+  await expect(page.getByTestId('app-version')).toContainText('b0r3d DeRes v0.9.1')
   await expect(page.getByTestId('app-version').getByRole('link', { name: 'Source' })).toHaveAttribute(
     'href',
     'https://github.com/still-b0r3d/img.b0r3d.org'

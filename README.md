@@ -14,20 +14,40 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.9.0 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v0.9.1 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.9.0)
+## What it does (v0.9.1)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try a sample: Rukus, who carries made-up,
   site-themed EXIF, a thumbnail and a colour profile so every tool has
   something to show, or a GIF of him breaking out of his hamster ball in
-  z0mbie crystal. A GIF opens as its first frame (the picture info says how
-  many frames it holds), and the EXIF tools can't read GIFs. It's decoded once into a
-  working copy no bigger than 2048 px on its long edge (big phone photos would
-  otherwise break the page on iPhones), with the photo's rotation applied.
+  z0mbie crystal. It's decoded once into a working copy no bigger than 2048 px
+  on its long edge (big phone photos would otherwise break the page on
+  iPhones), with the photo's rotation applied.
+- **Animated GIFs (v0.9.1)** open with all their frames, through DeRes's own
+  decoder (`gif-decode.ts`, no library; it composites frames exactly as
+  browsers do). The worker shrinks each frame as it arrives so the whole
+  animation fits the same memory as an exported one (never below 256 px on the
+  long edge; past that, the first frames that fit are kept and the picture
+  info says "first 256 of 300 frames"). The first frame is the picture every
+  control works on, and the picture info reads "58 frames · 3.9 s".
+  - **Play / Pause** under the preview, with a frame counter. Each frame goes
+    through the current settings, Signal and screen effect included
+    ("Rendering 12 / 58…" on the first pass), then it loops at the GIF's own
+    speed until a setting changes. Paused, the frame on screen is the one the
+    PNG, wallpaper and emulator downloads use, and Compare shows that frame.
+  - **GIF frames** in the Animation choices (only while an animated GIF is
+    open, and chosen then): the GIF or APNG download runs every frame through
+    the pipeline and keeps the GIF's delays and loop count.
+  - The Signal's noise moves at the GIF's own speed. The ASCII studio uses the
+    first frame.
+- **Reset settings** (v0.9.1) at the foot of DeRes's and the ASCII studio's
+  controls: one press asks "Reset everything?", a second within 4 seconds puts
+  every setting back to its default (grabbed palettes and a share link in the
+  address go too). The picture stays.
 - **Hardware profiles**, not just palettes: each machine has its native
   resolution, the shape of its pixels on a TV, its colours, and the dither and
   screen that suit it. Picked from a grid of cards with swatch strips:
@@ -100,11 +120,12 @@ images.
   - **Trailing data removal:** truncates data following JPEG `FF D9` (EOI), PNG `IEND` and a WebP's RIFF end, to eliminate Google Pixel Motion Photo MP4 videos, Samsung camera trailers, and gain maps.
   - **Orientation preservation:** writes back a clean, minimal 36-byte APP1 segment holding only the orientation tag (if orientation > 1), at the start of the file (after JFIF if there is one) where viewers look for it, so upright phone photos stay upright. WebP gets none: browsers ignore a WebP's orientation tag.
   - **PNG & WebP stripping:** drops PNG `eXIf`, `tEXt`, `zTXt`, `iTXt`, `tIME` and `caBX` (Content Credentials); strips WebP `EXIF`, `XMP ` and `C2PA` chunks, clears VP8X flags, and updates RIFF lengths.
+  - **GIF (v0.9.1):** the inspector shows the version, size, frames and loop, comments, plain text, XMP and other application blocks by name. "Remove everything" keeps the frames, colour tables, timing, loop and colour profile byte for byte and drops the rest; "Location only" drops just the XMP blocks that say where. Every frame decodes the same after a scrub. The EXIF Injector says plainly that GIFs can't hold EXIF.
   - **HEIC and AVIF:** inspect only (the metadata is shown even when the browser can't display the picture); convert to JPEG or WebP to scrub.
   - **Metadata inspector & narrative:** displays camera make/model, lens, timestamps, shutter speed, aperture, ISO, and a plain-English narrative summary.
   - **All Tags list:** every tag in the file (IFD0, Exif, GPS, Interop, the thumbnail's IFD1, XMP, PNG text, Content Credentials) with its full value: coordinates in degrees, minutes and seconds, versions, Windows XP text, UserComment, signed values, and a byte count for maker notes. A filter finds tags by name, number or value. (Shown in the EXIF Injector too.)
   - **AI markers:** says when a file declares it was made or edited with AI: the IPTC digital source type (in XMP, including a PNG's), Content Credentials that say so, Stable Diffusion / ComfyUI settings, Midjourney prompts, DALL-E's name. Content Credentials on their own are shown as a neutral note with the app or device that wrote them, since cameras, phones and editors add them too; their signature isn't checked. No marker never proves a person made a picture, and pixel watermarks like SynthID can't be read here.
-  - **GPS coordinate callout:** displays coordinates as DMS and decimal with 1-click copy; loads zero external maps or tile APIs (zero phone-home rule).
+  - **GPS coordinate callout:** displays coordinates as DMS and decimal with 1-click copy; loads zero external maps or tile APIs (zero phone-home rule). A location kept only in XMP counts too.
   - **Uncropped-thumbnail warning:** detects embedded IFD1 thumbnails, renders a preview, and warns that a thumbnail may show the uncropped original.
   - **Automated privacy self-check:** re-parses the scrubbed output buffer with the metadata inspector. The "Verified Clean" badge (and each batch row's "Cleaned") only shows when no GPS or camera metadata is left; otherwise it says what is.
 - **EXIF Injector (v0.8.5):**
@@ -234,7 +255,9 @@ How it fits together:
   (`resample.ts`), framing (`geometry.ts`), pre-filters (`adjust.ts`), screen
   effects (`fx.ts`), PNG (`png.ts`, no library: the browser's own
   CompressionStream), the machines (`profiles.ts`) and the pipeline that ties
-  them together (`pipeline.ts`, `export.ts`). `signal.ts` decides what goes to
+  them together (`pipeline.ts`, `export.ts`). GIFs: decoding (`gif-decode.ts`),
+  opening an animation within the memory budget (`gif-frames.ts`) and encoding
+  (`gif.ts`, `apng.ts`, written a frame at a time). `signal.ts` decides what goes to
   the signal engine: each machine's pixel clock, line timing and usual
   connection, the engine settings for each connection, and how the result is
   shown at the export size.
@@ -318,6 +341,7 @@ built from) and a link to this repository.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.9.1 | 2026-10-09 | GIFs across the tools, and Reset. Samples: Rukus, or a GIF of him breaking out of his hamster ball. Animated GIFs open with every frame (DeRes's own decoder, checked against the browser's pixel for pixel), held within the animation memory budget; Play/Pause in the preview, through every setting and the Signal (its noise at the GIF's own speed); "GIF frames" export to GIF or APNG with the GIF's delays and loop count, streamed frame by frame; the paused frame is the one the downloads use. EXIF tools: GIFs are inspected and scrubbed (frames kept byte for byte), and a location kept only in XMP is found in every format. "Reset settings" in DeRes and the ASCII studio. Saved ASCII settings are checked field by field; a change made just before leaving the page is still saved. |
 | 0.9.0 | 2026-10-09 | Signal: the picture through a real analog TV signal (the ntsc-rs engine, built to WebAssembly and loaded only when it's on). RF, composite and VHS SP/LP/EP plus each machine's own connection, a wear slider, colour, sharpening and the TV's decoder. Every machine goes out at its real pixel clock and line timing, so dithers blend or turn to rainbows as they did and 228-cycle machines keep their fringes still. CGA Composite gets its colours from the signal itself, dithered to the colours the signal really makes. PNG, wallpaper and animation exports keep it; loops get real moving noise, and the Screen FX loop can be 16, 32 or 48 frames at 15 or 30 fps. GIF encoding about 40% faster with far less memory on noisy loops. |
 | 0.8.5 | 2026-10-08 | Includes what went live unversioned earlier on 2026-10-08 (phone layout fix, All Tags list, AI markers, EXIF Injector tab, sample metadata), then fixes from its review. AI markers: Content Credentials alone are no longer called AI (cameras sign photos too) and are shown as a neutral note with who wrote them; AI-edited pictures, a PNG's XMP and prompts in PNG iTXt are found; WebP credentials are read and scrubbed. Injector: edits instead of replacing the whole EXIF (before, changing one field on a phone photo lost its rotation, camera and location), checks every value, says up front which formats it can't write, offers to remove a contradicting XMP block, updates the batch. All Tags: full values (every coordinate part, signed numbers, versions, comments), at most 2,000 tags listed and 500 shown. Sample: a real sRGB profile instead of an empty one, a white-background thumbnail, `pnpm sample` to rebuild it. A location preset tooltip reworded. |
 | 0.8.3 | 2026-10-07 | Fix release from the 2026-10-07 review. Scrubber: phone photos keep their rotation, honest Verified Clean badge, batch only holds the photos picked together, HEIC/AVIF inspection, damaged files can't freeze the page, WebP trailers and progressive-JPEG metadata removed. DeRes: each machine its own colour count, grabbed palettes stay with Custom, safe share links, repeat .scr/.koa downloads, real NES .chr, 8 machines' colours fixed, NES sub-palettes from the picture, files match the preview with bars, unusable dithers greyed out, no more "387 of 256 colours" on machines without a colour list, the made-up Digipal machine removed. ASCII: correct Teletext blocks and C64 screen codes, 40×25 PETSCII, working .seq and a .prg that shows the picture, blank .ans author, Teletext saved as .txt. Animations: size limit, progress, faster GIFs. |
