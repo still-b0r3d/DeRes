@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { decodePng } from '../../src/core/png'
 import { profileById } from '../../src/core/profiles'
-import { catchClipboard, download, readout, ready } from './helpers'
+import { catchClipboard, download, openSections, readout, ready } from './helpers'
 
 // The Signal step in the real page: the engine (WebAssembly) loads in the
 // worker only when the signal is switched on, the preview shows it, and the
@@ -32,6 +32,7 @@ async function pick(page: Page, id: string) {
 }
 
 test.beforeEach(async ({ page }) => {
+  await openSections(page)
   await page.goto('/')
   await page.evaluate(() => localStorage.clear())
   await page.reload()

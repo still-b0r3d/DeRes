@@ -152,7 +152,7 @@ export function buildControls(ctx: ControlsContext): {
       'p',
       { class: 'hint' },
       sampleLinks((id) => ctx.loadSample(id)),
-      h('span', { class: 'desktop-only' }, ' · or drop a photo on the page, or paste one')
+      h('span', { class: 'sample-line desktop-only' }, 'Or drop a photo on the page, or paste one.')
     ),
     pictureInfo,
     h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Resolution'), resolution.el),
@@ -222,7 +222,7 @@ export function buildControls(ctx: ControlsContext): {
     '🎲 Surprise me'
   )
 
-  const hardwareSec = section('Hardware', true, surpriseBtn, grid, about, tileFitEl, paletteTools)
+  const hardwareSec = section('Hardware', false, surpriseBtn, grid, about, tileFitEl, paletteTools)
 
   // Adjust
   const adj = {
@@ -265,7 +265,7 @@ export function buildControls(ctx: ControlsContext): {
   }
   const adjustSec = section(
     'Adjust',
-    true,
+    false,
     adj.brightness.el,
     adj.contrast.el,
     adj.saturation.el,
@@ -287,7 +287,7 @@ export function buildControls(ctx: ControlsContext): {
     ditherList.append(b)
   }
   const ditherNoteEl = h('p', { class: 'hint', 'data-testid': 'dither-note', hidden: true })
-  const ditherSec = section('Dither', true, ditherNoteEl, ditherList)
+  const ditherSec = section('Dither', false, ditherNoteEl, ditherList)
 
   // Signal
   const sigPatch = (patch: Partial<Settings['signal']>) => set({ signal: { ...ctx.get().signal, ...patch } })
@@ -602,7 +602,7 @@ export function buildControls(ctx: ControlsContext): {
   const statusLine = h('p', { class: 'status', role: 'status' })
   const exportSec = section(
     'Export',
-    true,
+    false,
     shapeRow,
     h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Size'), mult.el),
     sizeLine,
@@ -623,7 +623,7 @@ export function buildControls(ctx: ControlsContext): {
   })
   const el = h(
     'div',
-    { class: 'controls-inner' },
+    { class: 'controls-inner', 'data-testid': 'deres-controls' },
     imageSec,
     hardwareSec,
     adjustSec,

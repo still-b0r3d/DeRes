@@ -455,6 +455,11 @@ button:disabled {
   color: var(--cyan);
 }
 
+/* The sample links: pictures on one line, GIFs on the next. */
+.sample-line {
+  display: block;
+}
+
 .row {
   display: flex;
   flex-direction: column;

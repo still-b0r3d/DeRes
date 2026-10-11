@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { decodeGifFrames } from '../../src/core/gif-decode'
 import { decodePng } from '../../src/core/png'
-import { download, freshPage, readout, ready } from './helpers'
+import { download, freshPage, openSection, readout, ready } from './helpers'
 
 // Playing an animated GIF in the preview, and exporting its own frames. These
 // run headless: a hidden browser window can stall the timers playback uses.
@@ -130,7 +130,7 @@ test('a settings change drops the frames made so far; an export setting doesn’
 test('while a frame is still being made the counter dims, and the slider never changes width', async ({ page }) => {
   await openSample(page)
   // The signal makes each frame slow enough to catch it.
-  await page.locator('details.sec > summary', { hasText: /^Signal$/ }).click()
+  await openSection(page, 'Signal')
   await page.locator('.seg[aria-label="Signal"] button', { hasText: 'VHS EP' }).click()
   await ready(page)
   // Every change of the counter, with the slider's width at that moment.
@@ -158,7 +158,7 @@ test('while a frame is still being made the counter dims, and the slider never c
 
 test('held, the slider shows the frames already made, and the sharp one comes once it’s let go', async ({ page }) => {
   await openSample(page)
-  await page.locator('summary', { hasText: 'Screen' }).click()
+  await openSection(page, 'Screen')
   await page.locator('.seg[aria-label="Screen effect"] button[data-value="crt"]').click()
   const shown = () =>
     page.evaluate(() => {
@@ -311,7 +311,7 @@ test('Deep Fry at 4×: GIF and APNG stay on, come out at 2× with every frame, a
   expect(frames.map((f) => f.delayMs)).toEqual(source.frames.map((f) => f.delayMs))
 
   // The screen effect starts at 3×, so the hint says the animation goes without it.
-  await page.locator('summary', { hasText: 'Screen' }).click()
+  await openSection(page, 'Screen')
   await page.locator('.seg[aria-label="Screen effect"] button[data-value="crt"]').click()
   await page.locator('#export-fx').check()
   await expect(page.getByTestId('anim-hint')).toContainText('(960×720 px), without the screen effect: ')
@@ -319,7 +319,7 @@ test('Deep Fry at 4×: GIF and APNG stay on, come out at 2× with every frame, a
 
 test('a GIF export with VHS EP keeps every frame and its delay', async ({ page }) => {
   await openSample(page)
-  await page.locator('details.sec > summary', { hasText: /^Signal$/ }).click()
+  await openSection(page, 'Signal')
   await page.locator('.seg[aria-label="Signal"] button', { hasText: 'VHS EP' }).click()
   await page.locator('.seg[aria-label="Size"] button[data-value="2"]').click()
   await ready(page)

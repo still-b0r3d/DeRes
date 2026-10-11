@@ -3,6 +3,14 @@
 // changed get written; an emptied field removes that tag; everything the
 // form doesn't show stays in the photo as it was.
 
+import {
+  DEVICE_PRESETS,
+  formShowsPreset,
+  presetById,
+  presetExtras,
+  PRESET_FIELD_KEYS,
+  type DevicePreset
+} from '../core/device-presets'
 import type { ImageMetadata } from '../core/exif'
 import {
   canInject,
@@ -145,6 +153,7 @@ export function buildInjectControls(ctx: InjectControlsContext): {
       inputs[k].value = values[k]
       inputs[k].removeAttribute('aria-invalid')
     }
+    forgetPreset()
   }
   function read(): InjectorFields {
     const out = { ...EMPTY_FIELDS }
@@ -234,6 +243,34 @@ export function buildInjectControls(ctx: InjectControlsContext): {
     if (!isError) statusTimer = setTimeout(() => show(statusEl, false), 8000)
   }
 
+  // Device presets: fill the camera, lens and exposure as that device
+  // writes them. The pick is remembered until the form is filled some other
+  // way, so injecting can also write the tags the form doesn't show.
+  let preset: DevicePreset | null = null
+  const groups = [...new Set(DEVICE_PRESETS.map((p) => p.group))]
+  const presetSelect = h(
+    'select',
+    { class: 'injector-select', id: 'inject-preset', 'data-testid': 'inject-preset' },
+    h('option', { value: '' }, 'Pick a device…'),
+    groups.map((g) =>
+      h('optgroup', { label: g }, DEVICE_PRESETS.filter((p) => p.group === g).map((p) => h('option', { value: p.id }, p.label)))
+    )
+  ) as HTMLSelectElement
+  function forgetPreset(): void {
+    preset = null
+    presetSelect.value = ''
+  }
+  presetSelect.addEventListener('change', () => {
+    const p = presetById(presetSelect.value)
+    if (!p) return
+    for (const k of PRESET_FIELD_KEYS) {
+      inputs[k].value = p.fields[k]
+      inputs[k].removeAttribute('aria-invalid')
+    }
+    preset = p
+    status(`Filled in as ${p.label.replace(/ \(.*\)$/, '')}: camera, lens and exposure. Inject to save it.`)
+  })
+
   const injectBtn = h(
     'button',
     {
@@ -257,6 +294,7 @@ export function buildInjectControls(ctx: InjectControlsContext): {
           status(error.message, true)
           return
         }
+        if (preset && formShowsPreset(preset, read())) Object.assign(edits, presetExtras(preset))
         const removeXmp = !xmpRow.hidden && xmpBox.checked
         if (Object.keys(edits).length === 0 && !removeXmp) {
           status('Nothing has changed yet: every field still shows what the photo has.')
@@ -278,8 +316,14 @@ export function buildInjectControls(ctx: InjectControlsContext): {
 
   const cameraSec = section(
     'Camera & Creator',
-    true,
+    false,
     h('p', { class: 'hint' }, 'The fields start with what the photo has. Change any of them, or empty one to remove it.'),
+    h('div', { class: 'injector-row' }, h('label', { for: 'inject-preset' }, 'Device preset'), presetSelect),
+    h(
+      'p',
+      { class: 'hint' },
+      "A preset fills in the camera, lens and exposure the way that device writes them; injecting then also drops the old camera's serial numbers and maker data. The date, place and creator stay as they are."
+    ),
     h('div', { class: 'injector-actions' }, resetBtn, defaultsBtn, clearBtn),
     h('div', { class: 'injector-grid-2' }, row('make'), row('model')),
     h('div', { class: 'injector-grid-2' }, row('artist'), row('copyright')),
@@ -287,7 +331,7 @@ export function buildInjectControls(ctx: InjectControlsContext): {
   )
   const opticsSec = section(
     'Lens & Exposure',
-    true,
+    false,
     row('lens'),
     h('div', { class: 'injector-grid-2' }, row('aperture'), row('shutter')),
     h('div', { class: 'injector-grid-2' }, row('iso'), row('focal'))
@@ -305,10 +349,10 @@ export function buildInjectControls(ctx: InjectControlsContext): {
     },
     'Now'
   )
-  const metaSec = section('Timestamp & Caption', true, row('dateTime', nowBtn), row('description'))
+  const metaSec = section('Timestamp & Caption', false, row('dateTime', nowBtn), row('description'))
   const gpsSec = section(
     'GPS Location',
-    true,
+    false,
     h('div', { class: 'injector-grid-3' }, row('lat'), row('lon'), row('alt')),
     h(
       'div',

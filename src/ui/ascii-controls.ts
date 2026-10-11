@@ -108,7 +108,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
       'p',
       { class: 'hint' },
       sampleLinks((id) => ctx.loadSample(id)),
-      h('span', { class: 'desktop-only' }, ' · or drop a photo on the page, or paste one')
+      h('span', { class: 'sample-line desktop-only' }, 'Or drop a photo on the page, or paste one.')
     ),
     pictureInfo
   )
@@ -180,7 +180,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
   )
   const layoutSec = section(
     'Mode & Columns',
-    true,
+    false,
     h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Style'), mode.el),
     columnsRow,
     columnsSlider.el,
@@ -229,7 +229,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     h('span', null, 'Invert character density (light on dark)')
   )
 
-  const rampSec = section('Character Ramp', true, rampPresets.el, customRampRow, invertRow)
+  const rampSec = section('Character Ramp', false, rampPresets.el, customRampRow, invertRow)
 
   // 4. Teletext Options
   const teletextSeparatedCheckbox = h('input', {
@@ -258,7 +258,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
     h('span', null, 'Ceefax broadcast header (Page 100)')
   )
 
-  const teletextSec = section('Teletext Options', true, teletextHeaderRow, teletextSeparatedRow)
+  const teletextSec = section('Teletext Options', false, teletextHeaderRow, teletextSeparatedRow)
 
   // 5. Colour Profile
   const colorMode = segmented<AsciiColorMode>(
@@ -276,7 +276,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
   )
   colorMode.el.classList.add('cols-2')
 
-  const colorSec = section('Colour Profile', true, colorMode.el)
+  const colorSec = section('Colour Profile', false, colorMode.el)
 
   // 6. Pre-adjustments
   const contrastSlider = slider({
@@ -405,7 +405,7 @@ export function buildAsciiControls(ctx: AsciiControlsContext): {
 
   const exportSec = section(
     'Export & Clipboard',
-    true,
+    false,
     h('h4', { class: 'subhead' }, 'Copy to clipboard'),
     copyRow,
     h('h4', { class: 'subhead' }, 'BBS & Vintage download'),

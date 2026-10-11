@@ -4,7 +4,7 @@ import { crc32, decodePng, encodeRgbPng } from '../../src/core/png'
 import { paletteBytes } from '../../src/core/pipeline'
 import { PROFILES, profileById } from '../../src/core/profiles'
 import { parseSauce } from '../../src/core/sauce'
-import { catchClipboard } from './helpers'
+import { catchClipboard, openSection, openSections } from './helpers'
 
 // End-to-end: the real page, its worker and its controls. Results are checked
 // by reading canvas pixels and decoding exported PNGs, never by comparing
@@ -45,6 +45,7 @@ async function pick(page: Page, id: string) {
 }
 
 test.beforeEach(async ({ page }) => {
+  await openSections(page)
   await page.goto('/')
   await page.evaluate(() => localStorage.clear())
   await page.reload()
@@ -62,6 +63,26 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
     'https://github.com/still-b0r3d/DeRes'
   )
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
+})
+
+test('every sample opens and renders, pictures on one line and GIFs on the next', async ({ page }) => {
+  const image = page.getByTestId('deres-controls').locator('.sample-line')
+  await expect(image.nth(0)).toHaveText('Try a picture: Rukus · Crystal forest · Cat nap')
+  await expect(image.nth(1)).toHaveText('Try a GIF: Rukus breaks out · Yeti roar · Crystal awakens · Neon cube · Desk cat')
+  const expected: [string, string | RegExp][] = [
+    ['forest', 'crystal-forest.jpg · 1280×720'],
+    ['cat-nap', 'cat-nap.jpg · 720×960'],
+    ['yeti-gif', /^yeti-roar\.gif · 384×288 · 30 frames · 2\.5 s$/],
+    ['crystal-gif', /^crystal-awakens\.gif · 288×384 · 30 frames · 2\.5 s$/],
+    ['neon-gif', /^neon-cube\.gif · 288×384 · 30 frames · 2\.5 s$/],
+    ['desk-cat-gif', /^desk-cat\.gif · 288×384 · 30 frames · 2\.5 s$/],
+    ['rukus', 'rukus.png · 256×256']
+  ]
+  for (const [id, info] of expected) {
+    await page.getByTestId('deres-controls').locator(`[data-sample="${id}"]`).click()
+    await expect(page.getByTestId('picture-info')).toHaveText(info)
+    await ready(page)
+  }
 })
 
 test('the samples: Rukus, and the GIF of him breaking out', async ({ page }) => {
@@ -194,7 +215,7 @@ test('sizes past ~16 megapixels are greyed out', async ({ page }) => {
 
 test('screen effects: CRT and LCD previews, kept in the export from 3× up', async ({ page }) => {
   await pick(page, 'nes')
-  await page.locator('summary', { hasText: 'Screen' }).click()
+  await openSection(page, 'Screen')
   await page.locator('.seg[aria-label="Screen effect"] button[data-value="crt"]').click()
   await expect
     .poll(() => page.evaluate(() => document.querySelector<HTMLCanvasElement>('canvas.result')!.width))
@@ -594,8 +615,7 @@ test('v0.6: VHS mode applies tracking lines, PLAY ▶ OSD, and exports with effe
   await expect(readout(page)).toContainText('320×240')
 
   // Open Screen details section
-  const screenSummary = page.locator('details.sec summary', { hasText: 'Screen' })
-  await screenSummary.click()
+  await openSection(page, 'Screen')
 
   // Verify VHS screen effect is selected
   const vhsScreenBtn = page.locator('.seg[aria-label="Screen effect"] button[data-value="vhs"]')
@@ -631,7 +651,7 @@ test('v0.6: VHS mode applies tracking lines, PLAY ▶ OSD, and exports with effe
 
 test('v0.6: Monochrome phosphors (P1 Green, P3 Amber, P4 White) and Composite chroma bleed render', async ({ page }) => {
   // Open Screen section
-  await page.locator('details.sec summary', { hasText: 'Screen' }).click()
+  await openSection(page, 'Screen')
 
   // P1 Green
   await page.locator('.seg[aria-label="Screen effect"] button[data-value="p1-green"]').click()

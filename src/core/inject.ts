@@ -35,6 +35,16 @@ export interface ExifEdits {
   exposureTime?: string | number | [number, number] | null
   /** Millimetres. */
   focalLength?: number | null
+  /** LensMake (who made the lens, e.g. "Apple"). */
+  lensMake?: string | null
+  /** FocalLengthIn35mmFilm: the 35 mm equivalent, in whole millimetres. */
+  focalLength35?: number | null
+  /**
+   * Drop what names the photo's old camera that the form doesn't show: the
+   * maker's own data (MakerNote), serial numbers, owner name and lens range.
+   * For a device preset, so the old camera doesn't contradict the new one.
+   */
+  forgetCamera?: boolean
   /** Writing a location replaces the whole GPS block; null removes it. */
   gps?: { latitude: number; longitude: number; altitude?: number } | null
   /** A JPEG thumbnail for IFD1; null removes the thumbnail. */
@@ -396,6 +406,11 @@ function applyEdits(model: ExifModel, edits: ExifEdits): void {
   text(model.ifd0, 0x8298, edits.copyright)
   text(model.ifd0, 0x010e, edits.description)
   text(model.exif, 0xa434, edits.lensModel)
+  text(model.exif, 0xa433, edits.lensMake)
+  if (edits.forgetCamera) {
+    drop(model.exif, [MAKER_NOTE, 0xa430, 0xa431, 0xa432, 0xa435])
+    model.makerNoteAt = undefined
+  }
 
   if (edits.orientation !== undefined) {
     if (edits.orientation === null) model.ifd0.delete(0x0112)
@@ -428,7 +443,13 @@ function applyEdits(model: ExifModel, edits: ExifEdits): void {
     else model.exif.set(0x8827, short(Math.round(edits.iso), le))
   }
   rational(0x829d, edits.fNumber, DERIVED.fNumber, 100)
-  rational(0x920a, edits.focalLength, DERIVED.focalLength, 100)
+  // Thousandths: phones write focal lengths like 6.765 mm.
+  rational(0x920a, edits.focalLength, DERIVED.focalLength, 1000)
+  // After the focal length, which drops the old 35 mm figure with it.
+  if (edits.focalLength35 !== undefined) {
+    if (edits.focalLength35 === null) model.exif.delete(0xa405)
+    else model.exif.set(0xa405, short(Math.round(edits.focalLength35), le))
+  }
   if (edits.exposureTime !== undefined) {
     let value: [number, number] | null = null
     if (edits.exposureTime !== null) {
@@ -773,7 +794,7 @@ export function readInjectorFields(bytes: Uint8Array): InjectorFields {
   const iso = entryNumbers(model.exif.get(0x8827), le)[0]
   fields.iso = iso ? String(iso) : ''
   fields.aperture = decimal(ratio(entryRationals(model.exif.get(0x829d), le)[0]), 2)
-  fields.focal = decimal(ratio(entryRationals(model.exif.get(0x920a), le)[0]), 2)
+  fields.focal = decimal(ratio(entryRationals(model.exif.get(0x920a), le)[0]), 3)
   const exposure = entryRationals(model.exif.get(0x829a), le)[0]
   fields.shutter = exposure ? formatShutter(exposure) : ''
 

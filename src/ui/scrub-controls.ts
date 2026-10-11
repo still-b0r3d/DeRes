@@ -127,7 +127,7 @@ export function buildScrubControls(ctx: ScrubControlsContext): {
 
   const optionsSec = section(
     'Scrubbing Options',
-    true,
+    false,
     h('div', { class: 'scrub-radio-group' }, labelAll, labelLocation),
     h('div', { class: 'scrub-checkbox-group' }, labelOrientation)
   )

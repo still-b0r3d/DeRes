@@ -1,17 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { DEFAULT_ASCII_SETTINGS } from '../../src/core/ascii'
 import { defaultSettings } from '../../src/ui/settings'
-import { freshPage, readout, ready } from './helpers'
+import { freshPage, openSection, readout, ready } from './helpers'
 
 // The "Reset settings" buttons: DeRes and the ASCII studio, two presses each.
 
 const seg = (page: Page, label: string, value: string) => page.locator(`.seg[aria-label="${label}"] button[data-value="${value}"]`)
 const pressed = (page: Page, label: string) => page.locator(`.seg[aria-label="${label}"] button[aria-pressed="true"]`)
-
-async function openSection(page: Page, title: string) {
-  const sec = page.locator('details.sec', { has: page.locator('> summary', { hasText: new RegExp(`^${title}$`) }) }).first()
-  if (!(await sec.evaluate((d: HTMLDetailsElement) => d.open))) await sec.locator('> summary').click()
-}
 
 /** What's saved in storage, as the page wrote it. */
 const stored = (page: Page, key: string) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? 'null'), key)

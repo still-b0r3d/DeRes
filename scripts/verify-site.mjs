@@ -153,6 +153,14 @@ async function run(base, remote) {
     const workerReqs = requests.filter((u) => /worker[^/]*\.js(\?|$)/.test(u))
     check('image worker loads from this site', workerReqs.length > 0 && workerReqs.every((u) => u.startsWith(origin)), workerReqs[0] || 'no worker request')
 
+    // Only Image starts open; the sections used below are opened by a click.
+    const deres = page.getByTestId('deres-controls')
+    const openSecs = await deres.locator('details.sec[open] > summary').allTextContents()
+    check('only the Image section starts open', openSecs.join(', ') === 'Image', openSecs.join(', '))
+    for (const title of ['Hardware', 'Export']) {
+      await deres.locator('details.sec > summary', { hasText: new RegExp(`^${title}$`) }).click()
+    }
+
     // Every machine, colours checked against its palette.
     const cards = await page.$$eval('.card', (cs) =>
       cs.map((c) => ({ id: c.dataset.profile, kind: c.dataset.kind, palette: c.dataset.palette.split(',') }))

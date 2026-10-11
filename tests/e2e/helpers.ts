@@ -96,8 +96,36 @@ export function zipNames(zip: Uint8Array): string[] {
   return names
 }
 
-/** Opens the page fresh, with nothing remembered, and waits for the sample. */
+/**
+ * Opens every settings section as it appears, on every page of the test
+ * (reloads and second tabs too). The app starts with only Image open; most
+ * tests reach into the other sections, and sections.spec.ts checks the
+ * collapsed start without this. A section is opened once, so a test can
+ * still close one.
+ */
+export async function openSections(page: Page) {
+  await page.context().addInitScript(() => {
+    const opened = new WeakSet<Element>()
+    const openAll = () => {
+      for (const d of document.querySelectorAll<HTMLDetailsElement>('details.sec')) {
+        if (opened.has(d)) continue
+        opened.add(d)
+        d.open = true
+      }
+    }
+    new MutationObserver(openAll).observe(document, { childList: true, subtree: true })
+  })
+}
+
+/** Opens a settings section by its title, unless it's open already. */
+export async function openSection(page: Page, title: string) {
+  const sec = page.locator('details.sec', { has: page.locator('> summary', { hasText: new RegExp(`^${title}$`) }) }).first()
+  if (!(await sec.evaluate((d: HTMLDetailsElement) => d.open))) await sec.locator('> summary').click()
+}
+
+/** Opens the page fresh, with nothing remembered and every section open, and waits for the sample. */
 export async function freshPage(page: Page) {
+  await openSections(page)
   await page.goto('/')
   await page.evaluate(() => localStorage.clear())
   await page.reload()

@@ -84,6 +84,39 @@ test('changing only the Artist keeps the rotation, camera, date and GPS', async 
   await expect(field(page, 'artist')).toHaveValue('still_b0r3d')
 })
 
+test('a device preset fills the camera, lens and exposure, and the photo comes out as that phone', async ({ page }) => {
+  const photo = phoneStyleJpeg(await canvasJpeg(page, 32, 16), FAKE_PHONE)
+  await openJpeg(page, 'phone.jpg', photo)
+  const preset = page.getByTestId('inject-preset')
+  await expect(preset.locator('optgroup')).toHaveCount(3)
+  await preset.selectOption('iphone-15-pro')
+  await expect(field(page, 'make')).toHaveValue('Apple')
+  await expect(field(page, 'model')).toHaveValue('iPhone 15 Pro')
+  await expect(field(page, 'lens')).toHaveValue('iPhone 15 Pro back triple camera 6.765mm f/1.78')
+  await expect(field(page, 'software')).toHaveValue('17.4.1')
+  await expect(field(page, 'aperture')).toHaveValue('1.78')
+  await expect(field(page, 'focal')).toHaveValue('6.765')
+  // The date, place and rotation are the photo's own still.
+  await expect(field(page, 'datetime')).toHaveValue('2000:01:01 00:00:00')
+  await expect(field(page, 'orientation')).toHaveValue('6')
+  await expect(page.getByTestId('inject-status')).toContainText('Filled in as iPhone 15 Pro')
+
+  const { bytes } = await download(page, page.getByTestId('inject-download-btn'))
+  const meta = inspectMetadata(bytes)
+  expect(meta.make).toBe('Apple')
+  expect(meta.model).toBe('iPhone 15 Pro')
+  expect(meta.lensModel).toBe('iPhone 15 Pro back triple camera 6.765mm f/1.78')
+  expect(meta.software).toBe('17.4.1')
+  expect(meta.iso).toBe(64)
+  expect(meta.allTags.find((t) => t.tagId === 0xa433)?.displayValue).toBe('Apple')
+  expect(meta.orientation).toBe(6)
+  expect(meta.dateTime).toBe('2000:01:01 00:00:00')
+  expect(meta.gps).toBeDefined()
+  // The form starts again from the new photo, with no preset picked.
+  await expect(preset).toHaveValue('')
+  await expect(field(page, 'make')).toHaveValue('Apple')
+})
+
 test('writes new tags and a location into a JPEG without EXIF', async ({ page }) => {
   await openJpeg(page, 'shot.jpg', await canvasJpeg(page, 32, 16))
   await field(page, 'make').fill('Leica')
