@@ -14,19 +14,26 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.9.2 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v0.9.2.1 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.9.2)
+## What it does (v0.9.2.1)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
-  it (Ctrl+V / Cmd+V), or try a sample: Rukus, who carries made-up,
+  it (Ctrl+V / Cmd+V), or try a sample. Pictures: Rukus, who carries made-up,
   site-themed EXIF, a thumbnail and a colour profile so every tool has
-  something to show, or a GIF of him breaking out of his hamster ball in
-  z0mbie crystal. It's decoded once into a working copy no bigger than 2048 px
+  something to show; Chainsaw Squirrel's crystal forest; a cat nap. GIFs:
+  Rukus breaking out of his hamster ball in z0mbie crystal, a Chainsaw
+  Squirrel yeti fight, and three moments from b0r3d.org's music clips (a
+  crystal waking up, a neon cube, a cat at a 90s desk). All of them come from
+  the site's own games and clips (`samples/`, `b0r3d-brand/`). A picture is
+  decoded once into a working copy no bigger than 2048 px
   on its long edge (big phone photos would otherwise break the page on
   iPhones), with the photo's rotation applied.
+- **Settings sections:** each visit starts with only Image open (the EXIF
+  tools also keep the section with their main button open); the rest open
+  with a click.
 - **Animated GIFs (v0.9.1)** open with all their frames, through DeRes's own
   decoder (`gif-decode.ts`, no library; it composites frames exactly as
   browsers do). The worker shrinks each frame as it arrives so the whole
@@ -159,6 +166,7 @@ images.
 - **EXIF Injector (v0.8.5):**
   - **Edits, doesn't replace:** the form starts with what the photo has; only the fields you change are written, an emptied field removes its tag, and every other tag (exposure details, serial numbers, the maker's own data, the thumbnail) stays as it was, in the photo's own byte order. A maker note stays at the same place in the block when it can, since some makers point inside it from the block's start.
   - **Fields:** camera make and model, lens, artist, copyright, software, orientation, aperture, shutter speed, ISO, focal length, date and time, description, and GPS latitude, longitude and altitude, with presets (b0r3d Defaults, three places) and a Now button.
+  - **Device presets (v0.9.2.1):** make a picture look like it came from a phone, a camera or a handheld: iPhone 15 Pro, Pixel 8 Pro, Galaxy S23 Ultra, iPhone 4, Canon EOS 5D Mark II, Canon PowerShot SD1000, Kodak EasyShare C613, Nikon Coolpix 990, Nintendo 3DS, and a Game Boy Camera for DeRes's Game Boy pictures (the real one never wrote EXIF). A preset fills in the make, model, lens, software and a typical exposure the way that device writes them (`device-presets.ts`; strings from real files where we found one, and left empty where the device writes nothing). Injecting then also writes its lens maker and 35 mm focal length, and drops what named the old camera: the maker's own data, serial numbers, owner name and lens range. The date, place, creator and orientation stay as they were. Focal lengths keep thousandths now (phones write 6.765 mm).
   - **Checked before writing:** a shutter speed, ISO, coordinate or date that isn't real is refused with a message on that field. A changed date also drops the old time zone and GPS clock; a changed f-number, shutter speed, ISO or focal length drops the copies worked out from it; a new location replaces all the GPS tags.
   - **XMP:** when the photo also has an XMP block with its own copy of the location, date or camera, a ticked box offers to remove it so it can't contradict the new EXIF.
   - **JPEG and PNG**, written byte by byte (no re-encoding; anything after the picture is left as it is). Other formats are named up front as read-only. The saved file becomes the photo the Scrubber shows, in a batch too.
@@ -362,13 +370,15 @@ compiled to WebAssembly with a few small libraries (all MIT; see
 ## Versioning
 
 Versions look like `0.1.0`: the second number goes up for each new stage or
-feature release, the third for fixes and small changes (`0.1.1`). The version
+feature release, the third for fixes and small changes (`0.1.1`), and a
+fourth now and then for a small addition between them (`0.9.2.1`). The version
 lives in `package.json` and is bumped for every release that goes live, with a
 row added below. The footer shows the version, the build (the commit it was
 built from) and a link to this repository.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.9.2.1 | 2026-10-10 | More samples: two pictures (Chainsaw Squirrel's crystal forest, a cat nap) and four GIFs (a Chainsaw Squirrel yeti fight; a crystal waking up, a neon cube and a cat at a 90s desk from b0r3d.org's music clips), listed as "Try a picture" and "Try a GIF". EXIF Injector device presets: ten phones, cameras and handhelds, filled in the way each device writes its EXIF; injecting one also writes its lens maker and 35 mm focal length and drops the old camera's maker data and serial numbers. Focal lengths keep thousandths. Every visit starts with only the Image section open. |
 | 0.9.2 | 2026-10-10 | Animated GIFs in the ASCII / ANSI studio: Play/Pause and a frame slider under the art, each frame through the current settings, looping from memory after the first pass; the paused frame is the one every copy and download uses ("-frame12" in the names), and DeRes and the studio open on each other's paused frame. New downloads: GIF and APNG of the rendered art (each frame the same pixels as its PNG, with the GIF's delays and loop count, dropping to the biggest size that fits an animation) and an ANSImation .ans (every frame drawn over the last, one SAUCE record). The modem's buttons are "Dial up", "Hang up" and "Redial", and it never types while the GIF plays. The studio's PNG size is picked first, then downloaded. Also includes what went live unversioned since 0.9.1: a slider to any frame in DeRes's play bar; GIF and APNG drop to the biggest Size that fits and say so; "GIF frames" takes any number of frames (past the memory budget a full-colour GIF is made in two passes, one shared palette); a steady play bar (the counter keeps its width and dims instead of saying "Rendering"), every frame kept so loops stay smooth, and room for the play bar on screen; share links go on the clipboard and leave the address bar alone. |
 | 0.9.1 | 2026-10-09 | GIFs across the tools, and Reset. Samples: Rukus, or a GIF of him breaking out of his hamster ball. Animated GIFs open with every frame (DeRes's own decoder, checked against the browser's pixel for pixel), held within the animation memory budget; Play/Pause in the preview, through every setting and the Signal (its noise at the GIF's own speed); "GIF frames" export to GIF or APNG with the GIF's delays and loop count, streamed frame by frame; the paused frame is the one the downloads use. EXIF tools: GIFs are inspected and scrubbed (frames kept byte for byte), and a location kept only in XMP is found in every format. "Reset settings" in DeRes and the ASCII studio. Saved ASCII settings are checked field by field; a change made just before leaving the page is still saved. |
 | 0.9.0 | 2026-10-09 | Signal: the picture through a real analog TV signal (the ntsc-rs engine, built to WebAssembly and loaded only when it's on). RF, composite and VHS SP/LP/EP plus each machine's own connection, a wear slider, colour, sharpening and the TV's decoder. Every machine goes out at its real pixel clock and line timing, so dithers blend or turn to rainbows as they did and 228-cycle machines keep their fringes still. CGA Composite gets its colours from the signal itself, dithered to the colours the signal really makes. PNG, wallpaper and animation exports keep it; loops get real moving noise, and the Screen FX loop can be 16, 32 or 48 frames at 15 or 30 fps. GIF encoding about 40% faster with far less memory on noisy loops. |
