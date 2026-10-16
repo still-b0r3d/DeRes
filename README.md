@@ -14,11 +14,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.9.3.1 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v0.9.3.2 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.9.3.1)
+## What it does (v0.9.3.2)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try a sample. Pictures: Rukus, who carries made-up,
@@ -396,6 +396,7 @@ built from) and a link to this repository.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.9.3.2 | 2026-10-15 | The new b0r3d cup: the logo and the tab icon are the Game Boy cup now used across b0r3d.org. |
 | 0.9.3.1 | 2026-10-15 | Fix: "Download PNG" without a screen effect wrote the wrong colours on the looks that make their own colours (PlayStation, Amiga HAM6, N64, Early CCD, Deep Fry, Newspaper, Risograph), and so did the Shimmer loop: their colour codes went into the file as if they were palette entries. Those files now hold exactly the colours the preview shows (indexed while they fit 256 colours, RGB past that). Every machine is now checked pixel for pixel against its preview. |
 | 0.9.3 | 2026-10-15 | Transparent areas: Keep. A picture's see-through parts can stay see-through instead of going white or black: a pixel shows when at least half of it is covered, and the picture's edge carries on under the hidden ones, so the dither, the screen effects and the Signal leave no fringe and their glow stops at the outline. The PNG (indexed with a see-through entry, or RGBA), APNG and GIF (a transparent index, frames cleared after they show) keep them; wallpapers stay solid, `.scr` and `.koa` are made as on black, `.chr` tiles use colour 0. The preview and Compare show a checkerboard. |
 | 0.9.2.1 | 2026-10-10 | More samples: two pictures (Chainsaw Squirrel's crystal forest, a cat nap) and four GIFs (a Chainsaw Squirrel yeti fight; a crystal waking up, a neon cube and a cat at a 90s desk from b0r3d.org's music clips), listed as "Try a picture" and "Try a GIF". EXIF Injector device presets: ten phones, cameras and handhelds, filled in the way each device writes its EXIF; injecting one also writes its lens maker and 35 mm focal length and drops the old camera's maker data and serial numbers. Focal lengths keep thousandths. Every visit starts with only the Image section open. |
