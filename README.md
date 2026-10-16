@@ -14,11 +14,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.9.2.1 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v0.9.3 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.9.2.1)
+## What it does (v0.9.3)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try a sample. Pictures: Rukus, who carries made-up,
@@ -102,6 +102,22 @@ images.
 - **Resolution:** the machine's native size (crop to fill, fit with bars, or
   stretch), or a custom block size. Shrinking is an area average in linear
   light, so nothing aliases.
+- **Transparent areas** (offered when the picture has any): laid on white or
+  black, or **Keep** (v0.9.3), and they stay see-through. A machine pixel
+  shows when at least half of it is covered and is hidden otherwise (the
+  machines had no half-transparent pixels, and GIF and indexed PNG can't hold
+  them); the "fit" bars are hidden too. Under the hidden pixels the picture's
+  own edge colours carry on, so the dither, the cell machines' colour picking,
+  the screen effects and the Signal never see a fill colour, and the edge gets
+  no light or dark fringe. The effects' glow and smears stop at the picture's
+  outline, and outside a curved screen is see-through as well. Kept in the PNG
+  (indexed, with one more palette entry that's see-through; RGBA with a screen
+  effect, the Signal, or a full 256-colour palette), the APNG (the same way)
+  and the GIF (a transparent colour index, every frame cleared after it
+  shows). Files that can't hold it: wallpapers stay solid (their backdrop
+  colour shows through), `.scr` and `.koa` are made as on black, and `.chr`
+  tiles hold hidden pixels as colour 0, which sprites show as see-through. The
+  preview and Compare show a checkerboard through them.
 - **Adjust:** brightness, contrast, saturation and gamma before the colours are
   cut down.
 - **Dither:** none, Bayer 2×2 / 4×4 / 8×8, Floyd–Steinberg (serpentine),
@@ -378,6 +394,7 @@ built from) and a link to this repository.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.9.3 | 2026-10-15 | Transparent areas: Keep. A picture's see-through parts can stay see-through instead of going white or black: a pixel shows when at least half of it is covered, and the picture's edge carries on under the hidden ones, so the dither, the screen effects and the Signal leave no fringe and their glow stops at the outline. The PNG (indexed with a see-through entry, or RGBA), APNG and GIF (a transparent index, frames cleared after they show) keep them; wallpapers stay solid, `.scr` and `.koa` are made as on black, `.chr` tiles use colour 0. The preview and Compare show a checkerboard. |
 | 0.9.2.1 | 2026-10-10 | More samples: two pictures (Chainsaw Squirrel's crystal forest, a cat nap) and four GIFs (a Chainsaw Squirrel yeti fight; a crystal waking up, a neon cube and a cat at a 90s desk from b0r3d.org's music clips), listed as "Try a picture" and "Try a GIF". EXIF Injector device presets: ten phones, cameras and handhelds, filled in the way each device writes its EXIF; injecting one also writes its lens maker and 35 mm focal length and drops the old camera's maker data and serial numbers. Focal lengths keep thousandths. Every visit starts with only the Image section open. |
 | 0.9.2 | 2026-10-10 | Animated GIFs in the ASCII / ANSI studio: Play/Pause and a frame slider under the art, each frame through the current settings, looping from memory after the first pass; the paused frame is the one every copy and download uses ("-frame12" in the names), and DeRes and the studio open on each other's paused frame. New downloads: GIF and APNG of the rendered art (each frame the same pixels as its PNG, with the GIF's delays and loop count, dropping to the biggest size that fits an animation) and an ANSImation .ans (every frame drawn over the last, one SAUCE record). The modem's buttons are "Dial up", "Hang up" and "Redial", and it never types while the GIF plays. The studio's PNG size is picked first, then downloaded. Also includes what went live unversioned since 0.9.1: a slider to any frame in DeRes's play bar; GIF and APNG drop to the biggest Size that fits and say so; "GIF frames" takes any number of frames (past the memory budget a full-colour GIF is made in two passes, one shared palette); a steady play bar (the counter keeps its width and dims instead of saying "Rendering"), every frame kept so loops stay smooth, and room for the play bar on screen; share links go on the clipboard and leave the address bar alone. |
 | 0.9.1 | 2026-10-09 | GIFs across the tools, and Reset. Samples: Rukus, or a GIF of him breaking out of his hamster ball. Animated GIFs open with every frame (DeRes's own decoder, checked against the browser's pixel for pixel), held within the animation memory budget; Play/Pause in the preview, through every setting and the Signal (its noise at the GIF's own speed); "GIF frames" export to GIF or APNG with the GIF's delays and loop count, streamed frame by frame; the paused frame is the one the downloads use. EXIF tools: GIFs are inspected and scrubbed (frames kept byte for byte), and a location kept only in XMP is found in every format. "Reset settings" in DeRes and the ASCII studio. Saved ASCII settings are checked field by field; a change made just before leaving the page is still saved. |
