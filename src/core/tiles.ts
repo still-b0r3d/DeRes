@@ -16,13 +16,15 @@ export interface HardwareFitReport {
 
 /**
  * Analyzes an indexed pixel buffer into 8×8 tiles, finding unique tile count
- * and evaluating against machine hardware limits.
+ * and evaluating against machine hardware limits. Pixels `alpha` hides are
+ * left out: they count as no colour, and as the same in every tile.
  */
 export function analyzeTileFit(
   indices: Uint8Array,
   width: number,
   height: number,
-  limits?: { maxTiles?: number; maxColours?: number }
+  limits?: { maxTiles?: number; maxColours?: number },
+  alpha?: Uint8Array | null
 ): HardwareFitReport {
   const tilesX = Math.floor(width / 8)
   const tilesY = Math.floor(height / 8)
@@ -37,6 +39,10 @@ export function analyzeTileFit(
       for (let py = 0; py < 8; py++) {
         const rowStart = (ty * 8 + py) * width + tx * 8
         for (let px = 0; px < 8; px++) {
+          if (alpha && !alpha[rowStart + px]) {
+            hash += '--'
+            continue
+          }
           const val = indices[rowStart + px]
           uniqueColours.add(val)
           hash += val.toString(16).padStart(2, '0')

@@ -210,6 +210,12 @@ button:disabled {
   display: block;
 }
 
+/* Kept transparency: a checkerboard behind the see-through pixels (8 px
+   squares; stage.ts draws the same one under the original for Compare). */
+.frame.see-through {
+  background: repeating-conic-gradient(#262626 0 25%, #3a3a3a 0 50%) 0 0 / 16px 16px;
+}
+
 .result {
   image-rendering: pixelated;
   image-rendering: crisp-edges;

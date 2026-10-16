@@ -95,7 +95,7 @@ export function checkSettings(loaded: Record<string, unknown>, base: Settings): 
     fit: oneOf(loaded.fit, ['fill', 'fit', 'stretch'] as const, base.fit),
     resolution: oneOf(loaded.resolution, ['native', 'custom'] as const, base.resolution),
     block: Math.round(num(loaded.block, 2, 32, base.block)),
-    background: oneOf(loaded.background, ['white', 'black'] as const, base.background),
+    background: oneOf(loaded.background, ['white', 'black', 'transparent'] as const, base.background),
     adjust: {
       brightness: num(a.brightness, -0.5, 0.5, base.adjust.brightness),
       contrast: num(a.contrast, 0, 2, base.adjust.contrast),

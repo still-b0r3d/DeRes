@@ -113,14 +113,25 @@ export function indexDepth(colours: number): 1 | 2 | 4 | 8 {
 }
 
 /**
+ * The tRNS chunk for a palette whose entry `index` is see-through (and every
+ * one before it solid); entries past it are solid without being listed.
+ */
+export function transparentEntry(index: number): Uint8Array<ArrayBuffer> {
+  const alphas = new Uint8Array(index + 1).fill(255)
+  alphas[index] = 0
+  return chunk('tRNS', alphas)
+}
+
+/**
  * An indexed (palette) PNG. getRow(y, out) fills `out` with the row's palette
- * indices, one per pixel.
+ * indices, one per pixel. `transparent`: the index that's see-through, if any.
  */
 export async function encodeIndexedPng(
   width: number,
   height: number,
   palette: Uint8Array,
-  getRow: (y: number, out: Uint8Array) => void
+  getRow: (y: number, out: Uint8Array) => void,
+  transparent?: number
 ): Promise<Uint8Array<ArrayBuffer>> {
   const colours = palette.length / 3
   if (colours < 1 || colours > 256 || palette.length % 3) throw new Error('Bad palette')
@@ -140,7 +151,9 @@ export async function encodeIndexedPng(
       }
     }
   }
-  return assemble([chunk('IHDR', header(width, height, depth, 3)), chunk('sRGB', Uint8Array.of(0)), chunk('PLTE', palette)], raw)
+  const parts = [chunk('IHDR', header(width, height, depth, 3)), chunk('sRGB', Uint8Array.of(0)), chunk('PLTE', palette)]
+  if (transparent !== undefined) parts.push(transparentEntry(transparent))
+  return assemble(parts, raw)
 }
 
 /** A truecolour PNG. getRow(y, out) fills `out` with 3 bytes (r, g, b) per pixel. */
@@ -149,7 +162,21 @@ export async function encodeRgbPng(
   height: number,
   getRow: (y: number, out: Uint8Array) => void
 ): Promise<Uint8Array<ArrayBuffer>> {
-  const stride = width * 3
+  return encodeTruecolour(width, height, 3, getRow)
+}
+
+/** A truecolour PNG with alpha. getRow(y, out) fills `out` with 4 bytes (r, g, b, a) per pixel. */
+export async function encodeRgbaPng(
+  width: number,
+  height: number,
+  getRow: (y: number, out: Uint8Array) => void
+): Promise<Uint8Array<ArrayBuffer>> {
+  return encodeTruecolour(width, height, 4, getRow)
+}
+
+/** Truecolour rows, each with its best filter; `channels` 3 (RGB) or 4 (RGBA). */
+export function filteredRows(width: number, height: number, channels: 3 | 4, getRow: (y: number, out: Uint8Array) => void): Uint8Array<ArrayBuffer> {
+  const stride = width * channels
   const raw = new Uint8Array(height * (stride + 1))
   let prev = new Uint8Array(stride)
   let cur = new Uint8Array(stride)
@@ -162,7 +189,7 @@ export async function encodeRgbPng(
     let bestSum = Infinity
     let bestType = 0
     for (let type = 0; type <= 4; type++) {
-      const sum = filterRow(type, cur, prev, trial, 3)
+      const sum = filterRow(type, cur, prev, trial, channels)
       if (sum < bestSum) {
         bestSum = sum
         bestType = type
@@ -174,7 +201,17 @@ export async function encodeRgbPng(
     raw.set(best, o + 1)
     ;[prev, cur] = [cur, prev]
   }
-  return assemble([chunk('IHDR', header(width, height, 8, 2)), chunk('sRGB', Uint8Array.of(0))], raw)
+  return raw
+}
+
+async function encodeTruecolour(
+  width: number,
+  height: number,
+  channels: 3 | 4,
+  getRow: (y: number, out: Uint8Array) => void
+): Promise<Uint8Array<ArrayBuffer>> {
+  const raw = filteredRows(width, height, channels, getRow)
+  return assemble([chunk('IHDR', header(width, height, 8, channels === 4 ? 6 : 2)), chunk('sRGB', Uint8Array.of(0))], raw)
 }
 
 function paeth(a: number, b: number, c: number): number {
@@ -239,6 +276,7 @@ export async function decodePng(bytes: Uint8Array): Promise<DecodedPng> {
   let depth = 0
   let type = 0
   let palette: Uint8Array | null = null
+  let trns: Uint8Array | null = null
   const idat: Uint8Array[] = []
   for (let o = 8; o < bytes.length; ) {
     const len = view.getUint32(o)
@@ -255,6 +293,8 @@ export async function decodePng(bytes: Uint8Array): Promise<DecodedPng> {
       if (data[12] !== 0) throw new Error('Interlaced PNGs are not supported')
     } else if (name === 'PLTE') {
       palette = Uint8Array.from(data)
+    } else if (name === 'tRNS') {
+      trns = Uint8Array.from(data)
     } else if (name === 'IDAT') {
       idat.push(data)
     } else if (name === 'IEND') {
@@ -304,20 +344,27 @@ export async function decodePng(bytes: Uint8Array): Promise<DecodedPng> {
       for (let x = 0; x < width; x++) {
         const k = sample(y, x)
         indices[y * width + x] = k
-        rgba.set([palette[k * 3], palette[k * 3 + 1], palette[k * 3 + 2], 255], (y * width + x) * 4)
+        rgba.set([palette[k * 3], palette[k * 3 + 1], palette[k * 3 + 2], trns && k < trns.length ? trns[k] : 255], (y * width + x) * 4)
       }
     }
   } else {
     const scale = 255 / ((1 << depth) - 1)
+    // tRNS on a grey or RGB PNG: the one colour (16-bit samples) that's see-through.
+    const key = trns ? Array.from({ length: trns.length / 2 }, (_, i) => (trns[i * 2] << 8) | trns[i * 2 + 1]) : null
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const o = (y * width + x) * 4
         const s = x * channels
         if (type === 0 || type === 4) {
-          const g = Math.round(sample(y, s) * scale)
-          rgba.set([g, g, g, type === 4 ? sample(y, s + 1) : 255], o)
+          const v = sample(y, s)
+          const g = Math.round(v * scale)
+          rgba.set([g, g, g, type === 4 ? sample(y, s + 1) : key && v === key[0] ? 0 : 255], o)
         } else {
-          rgba.set([sample(y, s), sample(y, s + 1), sample(y, s + 2), type === 6 ? sample(y, s + 3) : 255], o)
+          const r = sample(y, s)
+          const gr = sample(y, s + 1)
+          const b = sample(y, s + 2)
+          const clear = key && key.length === 3 && r === key[0] && gr === key[1] && b === key[2]
+          rgba.set([r, gr, b, type === 6 ? sample(y, s + 3) : clear ? 0 : 255], o)
         }
       }
     }

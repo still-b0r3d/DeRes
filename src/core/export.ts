@@ -1,12 +1,35 @@
 import { fxRenderer, type Fx } from './fx'
 import { exportSize, MAX_EXPORT_PIXELS, type Rendered } from './pipeline'
-import { encodeIndexedPng, encodeRgbPng } from './png'
+import { encodeIndexedPng, encodeRgbaPng, encodeRgbPng } from './png'
 import { signalRenderer, type SignalImage } from './signal'
 
 // Export: the picture enlarged by a whole number, nearest-neighbour, so every
 // pixel stays a crisp block. Without screen effects it's an indexed PNG
 // holding the machine's exact palette (open it in a pixel-art editor and the
-// palette is there). With them it's a full-colour PNG.
+// palette is there). With them it's a full-colour PNG. A picture with
+// see-through pixels keeps them: the indexed PNG gets one more palette entry
+// that's see-through (or goes full colour with alpha when the palette is
+// already 256 colours), the full-colour PNG gets alpha. A wallpaper stays
+// solid: its see-through pixels take the wallpaper's own backdrop colour.
+
+/** A row renderer that can also say which of its pixels show (1 byte each). */
+type RowRenderer = (y: number, row: Uint8Array, alpha?: Uint8Array) => void
+
+/** Rows from a renderer as a PNG: with alpha when `withAlpha`, else plain RGB. */
+async function encodeRows(width: number, height: number, render: RowRenderer, withAlpha: boolean): Promise<Uint8Array<ArrayBuffer>> {
+  if (!withAlpha) return encodeRgbPng(width, height, render)
+  const row = new Uint8Array(width * 3)
+  const alpha = new Uint8Array(width)
+  return encodeRgbaPng(width, height, (y, out) => {
+    render(y, row, alpha)
+    for (let x = 0; x < width; x++) {
+      out[x * 4] = row[x * 3]
+      out[x * 4 + 1] = row[x * 3 + 1]
+      out[x * 4 + 2] = row[x * 3 + 2]
+      out[x * 4 + 3] = alpha[x]
+    }
+  })
+}
 
 /** Screen effects only make it into exports from this size up. */
 export const FX_MIN_MULTIPLIER = 3
@@ -31,38 +54,51 @@ export async function exportPng(
   const [width, height] = exportSize(r.width, r.height, r.geometry.par, m, o.tv)
   if (width * height > MAX_EXPORT_PIXELS) throw new Error('That export would be too big')
   const withFx = !!(o.fx && o.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER)
+  const alpha = r.alpha ?? null
 
   if (o.signal) {
     const render = signalRenderer(o.signal, width, height, withFx ? o.fx : null, o.phase ?? 0, r.paper)
-    return { png: await encodeRgbPng(width, height, render), width, height, fx: withFx }
+    return { png: await encodeRows(width, height, render, !!o.signal.alpha), width, height, fx: withFx }
   }
 
   if (withFx && o.fx) {
-    const render = fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, width, height, o.fx, o.phase)
-    return { png: await encodeRgbPng(width, height, render), width, height, fx: true }
+    const render = fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper, alpha }, width, height, o.fx, o.phase)
+    return { png: await encodeRows(width, height, render, !!alpha), width, height, fx: true }
   }
 
   // Which picture column each output column shows.
   const column = new Int32Array(width)
   for (let x = 0; x < width; x++) column[x] = Math.min(r.width - 1, Math.floor((x * r.width) / width))
+  const colours = r.palette.length / 3
 
-  if (r.palette.length / 3 > 256 || r.palette.length === 0) {
-    const png = await encodeRgbPng(width, height, (y, out) => {
+  // Full colour: too many colours for a palette, or a full palette with no
+  // room left for a see-through entry.
+  if (colours > 256 || colours === 0 || (alpha && colours === 256)) {
+    const enlarged: RowRenderer = (y, out, a) => {
       const sy = Math.floor(y / m) * r.width
       for (let x = 0; x < width; x++) {
         const srcIdx = (sy + column[x]) * 3
         out[x * 3] = r.rgb[srcIdx]
         out[x * 3 + 1] = r.rgb[srcIdx + 1]
         out[x * 3 + 2] = r.rgb[srcIdx + 2]
+        if (a) a[x] = alpha ? alpha[sy + column[x]] : 255
       }
-    })
-    return { png, width, height, fx: false }
+    }
+    return { png: await encodeRows(width, height, enlarged, !!alpha), width, height, fx: false }
   }
 
-  const png = await encodeIndexedPng(width, height, r.palette, (y, out) => {
-    const sy = Math.floor(y / m) * r.width
-    for (let x = 0; x < width; x++) out[x] = r.indices[sy + column[x]]
-  })
+  // See-through pixels point at one more entry, after the machine's colours.
+  const palette = alpha ? Uint8Array.from([...r.palette, 0, 0, 0]) : r.palette
+  const png = await encodeIndexedPng(
+    width,
+    height,
+    palette,
+    (y, out) => {
+      const sy = Math.floor(y / m) * r.width
+      for (let x = 0; x < width; x++) out[x] = alpha && !alpha[sy + column[x]] ? colours : r.indices[sy + column[x]]
+    },
+    alpha ? colours : undefined
+  )
   return { png, width, height, fx: false }
 }
 
@@ -119,10 +155,13 @@ export async function exportWallpaper(
     const fxRows: Uint8Array[] = []
     const fxGen = o.signal
       ? signalRenderer(o.signal, scaledW, scaledH, withFx ? o.fx : null, o.phase ?? 0, r.paper)
-      : fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, scaledW, scaledH, o.fx!, o.phase)
+      : fxRenderer({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper, alpha: r.alpha }, scaledW, scaledH, o.fx!, o.phase)
+    const shows = new Uint8Array(scaledW)
     for (let sy = 0; sy < scaledH; sy++) {
       const row = new Uint8Array(scaledW * 3)
-      fxGen(sy, row)
+      fxGen(sy, row, shows)
+      // See-through pixels take the backdrop colour.
+      for (let x = 0; x < scaledW; x++) if (!shows[x]) row.set([bgR, bgG, bgB], x * 3)
       fxRows.push(row)
     }
 
@@ -167,6 +206,10 @@ export async function exportWallpaper(
       const sy = Math.floor((y - offsetY) / bestM) * r.width
       for (let x = 0; x < targetW; x++) {
         if (x < offsetX || x >= offsetX + scaledW) {
+          out[x * 3] = bgR
+          out[x * 3 + 1] = bgG
+          out[x * 3 + 2] = bgB
+        } else if (r.alpha && !r.alpha[sy + column[x - offsetX]]) {
           out[x * 3] = bgR
           out[x * 3 + 1] = bgG
           out[x * 3 + 2] = bgB

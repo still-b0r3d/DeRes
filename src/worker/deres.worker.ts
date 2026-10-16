@@ -44,7 +44,7 @@ function useFrame(k: number): void {
   const frame = Math.max(0, Math.min(animation.frames.length - 1, Math.floor(k)))
   if (frame === current) return
   const rgba = new Uint8Array(animation.frames[frame].buffer)
-  deres.setSource(rgba, animation.width, animation.height, animation.origW, animation.origH)
+  deres.setSource(rgba, animation.width, animation.height, animation.origW, animation.origH, animation.hasAlpha)
   sourceCopy = { width: animation.width, height: animation.height, rgba }
   current = frame
 }
@@ -143,17 +143,18 @@ async function renderView(settings: DeresSettings, fxScale: number, frame: numbe
       img = new Uint8ClampedArray(fw * fh * 4)
       const render = signalRenderer(sig, fw, fh, s.fx.screen !== 'off' ? s.fx : null, phase, r.paper)
       const row = new Uint8Array(fw * 3)
+      const shows = new Uint8Array(fw)
       for (let y = 0; y < fh; y++) {
-        render(y, row)
+        render(y, row, shows)
         for (let x = 0, o = y * fw * 4; x < fw; x++, o += 4) {
           img[o] = row[x * 3]
           img[o + 1] = row[x * 3 + 1]
           img[o + 2] = row[x * 3 + 2]
-          img[o + 3] = 255
+          img[o + 3] = shows[x]
         }
       }
     } else {
-      img = renderFxRgba({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper }, fw, fh, s.fx, phase)
+      img = renderFxRgba({ rgb: r.rgb, width: r.width, height: r.height, paper: r.paper, alpha: r.alpha }, fw, fh, s.fx, phase)
     }
     fx = { width: fw, height: fh, rgba: img.buffer as ArrayBuffer }
   }
@@ -165,7 +166,7 @@ async function renderView(settings: DeresSettings, fxScale: number, frame: numbe
       rgba[i * 4] = r.rgb[i * 3]
       rgba[i * 4 + 1] = r.rgb[i * 3 + 1]
       rgba[i * 4 + 2] = r.rgb[i * 3 + 2]
-      rgba[i * 4 + 3] = 255
+      rgba[i * 4 + 3] = r.alpha ? r.alpha[i] : 255
     }
   }
   const transfer: Transferable[] = [fx ? fx.rgba : rgba!.buffer]
@@ -220,7 +221,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
     current = 0
     const first = new Uint8Array(animation.frames[0].buffer)
     sourceCopy = { width: gif.width, height: gif.height, rgba: first }
-    deres.setSource(first, gif.width, gif.height, gif.origW, gif.origH)
+    deres.setSource(first, gif.width, gif.height, gif.origW, gif.origH, gif.hasAlpha)
     const rgba = first.slice().buffer
     post(
       {
@@ -321,7 +322,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
 
   if (msg.type === 'export-emulator') {
     try {
-      const s = msg.settings
+      // A screen file (.scr, .koa) can't hold see-through pixels: with kept
+      // transparency it's made as if on black. Tiles (.chr) keep them as colour 0.
+      const s = msg.settings.background === 'transparent' && msg.format !== 'chr' ? { ...msg.settings, background: 'black' as const } : msg.settings
       const r = renderFor(s, msg.frame)
       const prof = profileById(s.profileId)
       let data: Uint8Array
@@ -387,6 +390,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       const prof = profileById(s.profileId)
       const profId = prof?.id ?? 'deres'
       const onProgress = (done: number, total: number, note?: string) => post({ type: 'progress', id: msg.id, done, total, note })
+      const seeThrough = s.background === 'transparent' && deres.hasAlpha
       let res
       let filename: string
       if (msg.animationStyle === 'gif-frames') {
@@ -406,7 +410,8 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
           signal: engine && sig ? (pic, k) => runSignal(engine, pic, s.profileId, sig, k * step)! : undefined,
           indexed,
           sharedPalette: shared,
-          onProgress
+          onProgress,
+          seeThrough
         })
         const tag = sig ? `-${signalTag(s, renderFor(s, 0))}` : ''
         filename = msg.format === 'apng' ? `${msg.base}-${profId}${tag}-animated.png` : `${msg.base}-${profId}${tag}.gif`
@@ -426,7 +431,8 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
             sourceHeight: sourceCopy?.height,
             onProgress,
             signal: engine && sig ? (pic, f) => runSignal(engine, pic, s.profileId, sig, f)! : undefined,
-            loop: msg.loop
+            loop: msg.loop,
+            seeThrough
           },
           s,
           // The shimmer renders the picture again with each dither offset (the same frame).

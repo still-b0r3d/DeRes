@@ -138,11 +138,24 @@ export function buildControls(ctx: ControlsContext): {
     'Transparent areas',
     [
       { value: 'white', text: 'White' },
-      { value: 'black', text: 'Black' }
+      { value: 'black', text: 'Black' },
+      { value: 'transparent', text: 'Keep' }
     ] as const,
     (v) => set({ background: v })
   )
-  const backgroundRow = h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Transparent areas'), background.el)
+  background.el.classList.add('cols-3')
+  const keepNote = h(
+    'p',
+    { class: 'hint', 'data-testid': 'keep-note', hidden: true },
+    'They stay see-through in PNG, APNG and GIF downloads (a pixel shows when at least half of it is covered). ' +
+      'Wallpapers fill them with their backdrop colour and .scr / .koa files with black; in .chr tiles they’re colour 0, see-through on sprites.'
+  )
+  const backgroundRow = h(
+    'div',
+    null,
+    h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Transparent areas'), background.el),
+    keepNote
+  )
   const fitRow = h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Framing'), fit.el)
   const imageSec = section(
     'Image',
@@ -653,6 +666,7 @@ export function buildControls(ctx: ControlsContext): {
     show(fitRow, s.resolution === 'native' && p.height !== 'auto')
     background.set(s.background)
     show(backgroundRow, !!pic?.hasAlpha)
+    show(keepNote, s.background === 'transparent')
 
     for (const [id, card] of cards) card.setAttribute('aria-pressed', String(id === s.profileId))
     about.textContent = `${p.origin}. ${p.about}`

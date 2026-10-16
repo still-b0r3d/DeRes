@@ -45,6 +45,15 @@ export interface FxSource {
   height: number
   /** The lightest palette colour: an LCD's "off" pixels and the gaps between pixels. */
   paper: readonly [number, number, number]
+  /**
+   * Which picture pixels show (255) and which are see-through (0); null or
+   * missing when all of them show. An output pixel shows when the picture
+   * pixel it's drawn from does, so the glow and the smears stay inside the
+   * picture's own outline (the colours under hidden pixels carry on the
+   * picture's edge, so they don't tint it either). Outside a curved screen
+   * is see-through too, and the VHS OSD always shows.
+   */
+  alpha?: Uint8Array | null
 }
 
 // 5×7 monospace bitmap font for VHS OSD
@@ -119,7 +128,8 @@ const MASK_DIM = 0.45
 
 /**
  * Sets up rendering the picture at outW×outH with the screen effect. The
- * returned function fills one output row (3 bytes per pixel), in any order.
+ * returned function fills one output row (3 bytes per pixel), in any order,
+ * and, when given `alpha`, which of its pixels show (1 byte each).
  */
 export function fxRenderer(
   src: FxSource,
@@ -127,8 +137,9 @@ export function fxRenderer(
   outH: number,
   fx: Fx,
   phase = 0
-): (oy: number, row: Uint8Array) => void {
+): (oy: number, row: Uint8Array, alpha?: Uint8Array) => void {
   const { width: w, height: h } = src
+  const outline = src.alpha ?? null
   const lin = new Float32Array(w * h * 3)
   for (let i = 0; i < lin.length; i++) lin[i] = BYTE_TO_LINEAR[src.rgb[i]]
   const sx = outW / w
@@ -170,7 +181,7 @@ export function fxRenderer(
   const c = new Float32Array(3)
   const chromaFiltered = new Float32Array(3)
 
-  return (oy, row) => {
+  return (oy, row, alpha) => {
     const ny = ((oy + 0.5) / outH) * 2 - 1
 
     // VHS Tracking scanlines & head jitter band in bottom ~6% of scanlines (rolls when phase > 0)
@@ -209,6 +220,7 @@ export function fxRenderer(
         const edge = Math.min(1 - Math.abs(cx), 1 - Math.abs(cy))
         if (edge <= 0) {
           row[ox * 3] = row[ox * 3 + 1] = row[ox * 3 + 2] = 0
+          if (alpha) alpha[ox] = outline ? 0 : 255
           continue
         }
         fade = Math.min(1, edge * 60) * (1 - curve * 0.25 * (cx * cx + cy * cy) * 0.5)
@@ -227,6 +239,7 @@ export function fxRenderer(
       const px = Math.min(w - 1, Math.max(0, Math.floor(u)))
       const py = Math.min(h - 1, Math.max(0, Math.floor(v)))
       const p = (py * w + px) * 3
+      let shows = !outline || outline[py * w + px] !== 0
       c[0] = lin[p]
       c[1] = lin[p + 1]
       c[2] = lin[p + 2]
@@ -236,7 +249,8 @@ export function fxRenderer(
           const qx = Math.max(0, Math.floor(u - 0.35))
           const qy = Math.max(0, Math.floor(v - 0.35))
           const q = (qy * w + qx) * 3
-          if (luminance(lin[q], lin[q + 1], lin[q + 2]) < luminance(c[0], c[1], c[2])) {
+          // A hidden pixel casts no shadow.
+          if ((!outline || outline[qy * w + qx]) && luminance(lin[q], lin[q + 1], lin[q + 2]) < luminance(c[0], c[1], c[2])) {
             for (let j = 0; j < 3; j++) c[j] += (lin[q + j] - c[j]) * ghost
           }
         }
@@ -405,17 +419,20 @@ export function fxRenderer(
           c[0] = 0
           c[1] = 1.0
           c[2] = 0.06
+          shows = true
         } else if (topBg || botBg) {
           // Drop-shadow outline: black
           c[0] = 0
           c[1] = 0
           c[2] = 0
+          shows = true
         }
       }
 
       row[ox * 3] = linearToByte(c[0])
       row[ox * 3 + 1] = linearToByte(c[1])
       row[ox * 3 + 2] = linearToByte(c[2])
+      if (alpha) alpha[ox] = shows ? 255 : 0
     }
   }
 }
@@ -425,14 +442,15 @@ export function renderFxRgba(src: FxSource, outW: number, outH: number, fx: Fx, 
   const out = new Uint8ClampedArray(outW * outH * 4)
   const render = fxRenderer(src, outW, outH, fx, phase)
   const row = new Uint8Array(outW * 3)
+  const alpha = new Uint8Array(outW)
   for (let y = 0; y < outH; y++) {
-    render(y, row)
+    render(y, row, alpha)
     let o = y * outW * 4
-    for (let i = 0; i < row.length; i += 3) {
-      out[o] = row[i]
-      out[o + 1] = row[i + 1]
-      out[o + 2] = row[i + 2]
-      out[o + 3] = 255
+    for (let x = 0; x < outW; x++) {
+      out[o] = row[x * 3]
+      out[o + 1] = row[x * 3 + 1]
+      out[o + 2] = row[x * 3 + 2]
+      out[o + 3] = alpha[x]
       o += 4
     }
   }

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, type Download, type Locator, type Page } from '@playwright/test'
-import { encodeRgbPng } from '../../src/core/png'
+import { encodeRgbaPng, encodeRgbPng } from '../../src/core/png'
 
 // Shared by the e2e specs. Test pictures are made up (no photos in this repo).
 
@@ -8,6 +8,43 @@ import { encodeRgbPng } from '../../src/core/png'
 export async function gradientPng(w: number, h: number): Promise<Buffer> {
   const png = await encodeRgbPng(w, h, (y, row) => {
     for (let x = 0; x < w; x++) row.set([(x * 255) / (w - 1), (y * 255) / (h - 1), 128], x * 3)
+  })
+  return Buffer.from(png)
+}
+
+/**
+ * A mug on a see-through background, size × size: a shaded body with a ring
+ * handle on the right, its edges anti-aliased (4×4 samples a pixel), so some
+ * pixels are partly covered.
+ */
+export async function mugPng(size: number): Promise<Buffer> {
+  const k = size / 100
+  const covered = (x: number, y: number): [number, number, number] | null => {
+    const bx = x - 42 * k
+    if (Math.abs(bx) <= 28 * k && y >= 25 * k && y <= 82 * k) {
+      const light = 0.5 + 0.5 * Math.cos((bx / (28 * k)) * 1.3 + 0.4)
+      return [70 + 120 * light, 130 + 110 * light, 120 + 100 * light]
+    }
+    const ring = ((x - 72 * k) / (16 * k)) ** 2 + ((y - 52 * k) / (19 * k)) ** 2
+    const hole = ((x - 72 * k) / (9 * k)) ** 2 + ((y - 52 * k) / (12 * k)) ** 2
+    if (x > 68 * k && ring <= 1 && hole > 1) return [90, 160, 150]
+    return null
+  }
+  const png = await encodeRgbaPng(size, size, (y, row) => {
+    for (let x = 0; x < size; x++) {
+      let r = 0, g = 0, b = 0, n = 0
+      for (let j = 0; j < 4; j++) {
+        for (let i = 0; i < 4; i++) {
+          const c = covered(x + (i + 0.5) / 4, y + (j + 0.5) / 4)
+          if (!c) continue
+          r += c[0]
+          g += c[1]
+          b += c[2]
+          n++
+        }
+      }
+      row.set(n ? [r / n, g / n, b / n, (255 * n) / 16] : [0, 0, 0, 0], x * 4)
+    }
   })
   return Buffer.from(png)
 }

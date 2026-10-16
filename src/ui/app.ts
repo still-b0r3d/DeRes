@@ -1066,7 +1066,8 @@ export function startApp(): void {
 
   function showResult(m: RenderedView): void {
     const tv = settings.pixelShape === 'tv'
-    stage.show(m, tv, settings.background === 'white' ? '#ffffff' : '#000000')
+    const keep = settings.background === 'transparent' && !!picture?.hasAlpha
+    stage.show(m, tv, keep ? null : settings.background === 'white' ? '#ffffff' : '#000000')
     const shape = m.par[0] === m.par[1] ? 'square pixels' : `${m.par[0]}:${m.par[1]} pixels`
     controls.setTileFit(m.tileFit)
     let tileText = ''

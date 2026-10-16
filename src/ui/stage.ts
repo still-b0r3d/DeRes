@@ -20,6 +20,9 @@ export interface View {
 /** Most pixels the screen-effect preview renders. */
 const FX_PREVIEW_PIXELS = 2_500_000
 
+/** The checkerboard behind see-through pixels: square size (CSS px) and colours, as `.frame.see-through` in style.css. */
+const CHECKER = { size: 8, light: '#3a3a3a', dark: '#262626' }
+
 export class Stage {
   readonly el: HTMLElement
   private readonly frame: HTMLElement
@@ -34,7 +37,8 @@ export class Stage {
   private view: View | null = null
   private copy: HTMLCanvasElement | null = null
   private tv = false
-  private background = '#ffffff'
+  /** What transparent parts of the original sit on; null: they stay see-through (a checkerboard). */
+  private background: string | null = '#ffffff'
   private comparing = false
   private split = 0.5
   private holding = false
@@ -113,13 +117,18 @@ export class Stage {
     this.compareButton.disabled = !this.copy || on
   }
 
-  /** Shows a result. `background` is what transparent parts of the original sit on. */
-  show(view: View, tv: boolean, background: string): void {
+  /**
+   * Shows a result. `background` is what transparent parts of the original
+   * sit on; null when they stay see-through, and the result's see-through
+   * pixels show a checkerboard.
+   */
+  show(view: View, tv: boolean, background: string | null): void {
     const img = view.fx ?? (view.rgba ? { width: view.width, height: view.height, rgba: view.rgba } : null)
     if (!img) return
     this.view = view
     this.tv = tv
     this.background = background
+    this.frame.classList.toggle('see-through', background === null)
     if (this.result.width !== img.width || this.result.height !== img.height) {
       this.result.width = img.width
       this.result.height = img.height
@@ -274,15 +283,38 @@ export class Stage {
     const ctx = this.original.getContext('2d')!
     const sx = w / v.width
     const sy = hgt / v.height
-    // Black where "fit" leaves bars; the chosen background under the photo,
-    // so its transparent parts match the result.
-    ctx.fillStyle = '#000'
-    ctx.fillRect(0, 0, w, hgt)
-    ctx.fillStyle = this.background
-    ctx.fillRect(v.dst.x * sx, v.dst.y * sy, v.dst.w * sx, v.dst.h * sy)
+    if (this.background === null) {
+      // Kept transparency: the same checkerboard as behind the result, bars
+      // included (they're see-through too). Drawn in, so the original covers
+      // the result under it.
+      ctx.fillStyle = checkerPattern(ctx, CHECKER.size * dpr)
+      ctx.fillRect(0, 0, w, hgt)
+    } else {
+      // Black where "fit" leaves bars; the chosen background under the photo,
+      // so its transparent parts match the result.
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, 0, w, hgt)
+      ctx.fillStyle = this.background
+      ctx.fillRect(v.dst.x * sx, v.dst.y * sy, v.dst.w * sx, v.dst.h * sy)
+    }
     ctx.imageSmoothingEnabled = true
     ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(copy, v.src.x, v.src.y, v.src.w, v.src.h, v.dst.x * sx, v.dst.y * sy, v.dst.w * sx, v.dst.h * sy)
     this.updateOriginal()
   }
+}
+
+/** The checkerboard as a canvas fill, squares of `size` device pixels. */
+function checkerPattern(ctx: CanvasRenderingContext2D, size: number): CanvasPattern | string {
+  const s = Math.max(1, Math.round(size))
+  const tile = document.createElement('canvas')
+  tile.width = tile.height = s * 2
+  const t = tile.getContext('2d')
+  if (!t) return CHECKER.dark
+  t.fillStyle = CHECKER.dark
+  t.fillRect(0, 0, s * 2, s * 2)
+  t.fillStyle = CHECKER.light
+  t.fillRect(0, 0, s, s)
+  t.fillRect(s, s, s, s)
+  return ctx.createPattern(tile, 'repeat') ?? CHECKER.dark
 }

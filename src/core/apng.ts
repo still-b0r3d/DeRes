@@ -1,4 +1,4 @@
-import { chunk, filterRow, header, indexDepth, PNG_SIGNATURE, zlib } from './png'
+import { chunk, filteredRows, filterRow, header, indexDepth, PNG_SIGNATURE, transparentEntry, zlib } from './png'
 
 // Zero-dependency Animated PNG (APNG) encoding.
 // Creates compliant APNG files with acTL, fcTL, IDAT, and fdAT chunks,
@@ -23,6 +23,8 @@ export interface ApngOptions {
   numPlays?: number
   /** Palette for indexed frames (r, g, b per entry) */
   palette?: Uint8Array
+  /** The palette entry that's see-through, if any (indexed frames). */
+  transparentIndex?: number
 }
 
 function gcd(a: number, b: number): number {
@@ -127,13 +129,7 @@ function packRgbaScanlines(
   rgba: Uint8Array
 ): Uint8Array<ArrayBuffer> {
   const stride = width * 4
-  const raw = new Uint8Array(height * (stride + 1))
-  for (let y = 0; y < height; y++) {
-    const o = y * (stride + 1)
-    raw[o] = 0 // filter 0 (None)
-    raw.set(rgba.subarray(y * stride, (y + 1) * stride), o + 1)
-  }
-  return raw
+  return filteredRows(width, height, 4, (y, out) => out.set(rgba.subarray(y * stride, (y + 1) * stride)))
 }
 
 /**
@@ -215,7 +211,11 @@ export class ApngWriter {
     this.chunks.push(chunk('IHDR', header(this.width, this.height, this.depth, colourType)))
     this.actlAt = this.chunks.length
     this.chunks.push(new Uint8Array(0)) // acTL, written by finish() once the frames are counted
-    if (this.mode === 'indexed') this.chunks.push(chunk('PLTE', palette!))
+    if (this.mode === 'indexed') {
+      this.chunks.push(chunk('PLTE', palette!))
+      const t = this.options.transparentIndex
+      if (t !== undefined && t >= 0) this.chunks.push(transparentEntry(t))
+    }
   }
 }
 

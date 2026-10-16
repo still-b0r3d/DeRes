@@ -16,7 +16,7 @@ import { PaletteMatcher } from './matcher'
 import { processN64 } from './n64'
 import { DEFAULT_PROFILE, profileById, representativePalette, type Profile } from './profiles'
 import { quantizeRgb, snapToBits, quantizeFromPool } from './quantize'
-import { resampleArea } from './resample'
+import { resampleArea, type Rect } from './resample'
 import type { SignalSettings } from './signal'
 import { analyzeTileFit, encodeGbChr, encodeNesChr, type HardwareFitReport } from './tiles'
 import { YliluomaPlanner } from './yliluoma'
@@ -33,14 +33,28 @@ import {
 // resolution -> pre-filters -> dither to its palette. It keeps the working
 // copy (linear light) and the last resize, so moving a slider only redoes the
 // cheap steps on a few thousand pixels.
+//
+// Transparent parts of the photo either sit on white or black, or stay
+// see-through ('transparent'). Then a machine pixel shows when at least half
+// of it was covered, and the rest are hidden: the machines had no
+// half-transparent pixels, and GIF and indexed PNG can't hold them either.
+// Under the hidden pixels the picture's own edge colours carry on outward,
+// so the dither, the per-cell colour picking and every effect that blurs or
+// bleeds see more of the picture there, never a fill colour: the edge gets
+// no light or dark fringe. The mask (Rendered.alpha) then cuts the result.
+
+export type Background = 'white' | 'black' | 'transparent'
+
+/** Coverage from which a machine pixel shows, with the background 'transparent'. */
+export const ALPHA_THRESHOLD = 0.5
 
 export interface DeresSettings {
   profileId: string
   fit: Fit
   resolution: 'native' | 'custom'
   block: number
-  /** What shows through transparent parts of the photo. */
-  background: 'white' | 'black'
+  /** What shows through transparent parts of the photo; 'transparent' keeps them see-through. */
+  background: Background
   adjust: Adjust
   dither: DitherId
   fx: Fx
@@ -76,6 +90,11 @@ export interface Rendered {
   geometry: Geometry
   /** The palette's lightest colour (LCD screens show it between pixels). */
   paper: [number, number, number]
+  /**
+   * Which pixels show (255) and which are see-through (0), with the
+   * background 'transparent'; missing or null when every pixel shows.
+   */
+  alpha?: Uint8Array | null
   tileFit?: HardwareFitReport
   emulatorData?: {
     format: 'scr' | 'koa' | 'chr'
@@ -91,6 +110,8 @@ interface Source {
   origH: number
   /** Linear light, premultiplied by alpha: r, g, b, a per pixel. */
   data: Float32Array
+  /** It has see-through parts (an animated GIF: any of its frames does). */
+  hasAlpha: boolean
 }
 
 interface PaletteState {
@@ -172,6 +193,86 @@ function lum([r, g, b]: readonly number[]): number {
   return luminance(BYTE_TO_LINEAR[r], BYTE_TO_LINEAR[g], BYTE_TO_LINEAR[b])
 }
 
+/**
+ * Gives every hidden pixel the colour of the nearest shown one (a flood
+ * outward from the edge, a step at a time), so the picture carries on under
+ * them. With nothing shown they stay black.
+ */
+function spreadEdges(rgb: Float32Array, alpha: Uint8Array, w: number, h: number): void {
+  const n = w * h
+  const queue = new Int32Array(n)
+  const reached = new Uint8Array(n)
+  let tail = 0
+  for (let i = 0; i < n; i++) {
+    if (alpha[i]) {
+      reached[i] = 1
+      queue[tail++] = i
+    }
+  }
+  for (let head = 0; head < tail; head++) {
+    const i = queue[head]
+    const x = i % w
+    for (let k = 0; k < 4; k++) {
+      const j = k === 0 ? (x > 0 ? i - 1 : -1) : k === 1 ? (x < w - 1 ? i + 1 : -1) : k === 2 ? i - w : i + w
+      if (j < 0 || j >= n || reached[j]) continue
+      reached[j] = 1
+      rgb[j * 3] = rgb[i * 3]
+      rgb[j * 3 + 1] = rgb[i * 3 + 1]
+      rgb[j * 3 + 2] = rgb[i * 3 + 2]
+      queue[tail++] = j
+    }
+  }
+}
+
+/** Each pixel of the "fit" bars takes the colour of the picture's nearest pixel. */
+function extendIntoBars(rgb: Float32Array, width: number, height: number, dst: Rect): void {
+  for (let y = 0; y < height; y++) {
+    const sy = Math.min(dst.y + dst.h - 1, Math.max(dst.y, y))
+    for (let x = 0; x < width; x++) {
+      if (y >= dst.y && y < dst.y + dst.h && x >= dst.x && x < dst.x + dst.w) continue
+      const s = (sy * width + Math.min(dst.x + dst.w - 1, Math.max(dst.x, x))) * 3
+      rgb.copyWithin((y * width + x) * 3, s, s + 3)
+    }
+  }
+}
+
+/** Only the pixels that show, 3 floats each. */
+function shownPixels(rgb: Float32Array, alpha: Uint8Array): Float32Array {
+  let n = 0
+  for (let i = 0; i < alpha.length; i++) if (alpha[i]) n++
+  const out = new Float32Array(n * 3)
+  for (let i = 0, o = 0; i < alpha.length; i++) {
+    if (!alpha[i]) continue
+    out.set(rgb.subarray(i * 3, i * 3 + 3), o)
+    o += 3
+  }
+  return out
+}
+
+/** How many different indices the shown pixels use. */
+function usedIndices(indices: Uint8Array, alpha: Uint8Array | null): number {
+  const seen = new Uint8Array(256)
+  let used = 0
+  for (let i = 0; i < indices.length; i++) {
+    if ((alpha && !alpha[i]) || seen[indices[i]]) continue
+    seen[indices[i]] = 1
+    used++
+  }
+  return used
+}
+
+/** How many different colours the shown pixels have (r, g, b bytes). */
+function usedColours(rgb: Uint8Array, alpha: Uint8Array): number {
+  const seen = new Set<number>()
+  for (let i = 0; i < alpha.length; i++) if (alpha[i]) seen.add((rgb[i * 3] << 16) | (rgb[i * 3 + 1] << 8) | rgb[i * 3 + 2])
+  return seen.size
+}
+
+/** Tile colour numbers with the hidden pixels as colour 0, which sprites show as see-through. */
+function hiddenAsZero(numbers: Uint8Array, alpha: Uint8Array | null): Uint8Array {
+  return alpha ? numbers.map((v, i) => (alpha[i] ? v : 0)) : numbers
+}
+
 function findLightest(display: Uint8Array): [number, number, number] {
   if (display.length < 3) return [255, 255, 255]
   let best = 0
@@ -188,11 +289,15 @@ function findLightest(display: Uint8Array): [number, number, number] {
 
 export class Deres {
   private source: Source | null = null
-  private resized: { key: string; rgb: Float32Array } | null = null
+  private resized: { key: string; rgb: Float32Array; alpha: Uint8Array | null } | null = null
   private readonly palettes = new Map<string, PaletteState>()
 
-  /** Takes the decoded working copy (sRGB bytes, r, g, b, a per pixel). */
-  setSource(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, origW: number, origH: number) {
+  /**
+   * Takes the decoded working copy (sRGB bytes, r, g, b, a per pixel).
+   * `animationHasAlpha`: it's a frame of an animation with see-through parts
+   * somewhere, so kept transparency applies to it even if it has none.
+   */
+  setSource(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, origW: number, origH: number, animationHasAlpha = false) {
     // The frames of an animated GIF come through here one after another, all
     // the same size: they reuse one buffer rather than leave a new one behind each time.
     const old = this.source?.data
@@ -206,13 +311,18 @@ export class Deres {
       data[i * 4 + 2] = BYTE_TO_LINEAR[rgba[i * 4 + 2]] * a
       data[i * 4 + 3] = a
     }
-    this.source = { width, height, origW, origH, data }
+    this.source = { width, height, origW, origH, data, hasAlpha: hasAlpha || animationHasAlpha }
     this.resized = null
     return { hasAlpha }
   }
 
   get hasSource(): boolean {
     return this.source !== null
+  }
+
+  /** The picture has see-through parts, which the background 'transparent' keeps. */
+  get hasAlpha(): boolean {
+    return !!this.source?.hasAlpha
   }
 
   render(s: DeresSettings): Rendered {
@@ -232,12 +342,29 @@ export class Deres {
     const { width, height, dst } = g
 
     // Resize (cached until the framing changes), then lay it on the frame.
-    const part = this.resize(src, g, s.background)
+    // A picture with nothing see-through (the choice is hidden then) comes
+    // out as it always did, black bars included.
+    const background = s.background === 'transparent' && !src.hasAlpha ? 'white' : s.background
+    const part = this.resize(src, g, background)
     const rgb = new Float32Array(width * height * 3)
     const bars = dst.w !== width || dst.h !== height
     for (let y = 0; y < dst.h; y++) {
-      rgb.set(part.subarray(y * dst.w * 3, (y + 1) * dst.w * 3), ((dst.y + y) * width + dst.x) * 3)
+      rgb.set(part.rgb.subarray(y * dst.w * 3, (y + 1) * dst.w * 3), ((dst.y + y) * width + dst.x) * 3)
     }
+    // Kept transparency: the "fit" bars are see-through too, and the
+    // picture's edge carries on into them like everywhere else.
+    const keep = background === 'transparent'
+    let alpha: Uint8Array | null = null
+    if (keep && (bars || part.alpha)) {
+      alpha = new Uint8Array(width * height)
+      for (let y = 0; y < dst.h; y++) {
+        const o = (dst.y + y) * width + dst.x
+        if (part.alpha) alpha.set(part.alpha.subarray(y * dst.w, (y + 1) * dst.w), o)
+        else alpha.fill(255, o, o + dst.w)
+      }
+      if (bars) extendIntoBars(rgb, width, height, dst)
+    }
+    const blackBars = bars && !keep
 
     applyAdjust(rgb, s.adjust)
     if (profile.mono) {
@@ -246,7 +373,7 @@ export class Deres {
     }
     // "Fit" bars go in pure black (the adjustments above would have tinted
     // them), so a machine's own file (.scr, .koa, .chr) holds them as shown.
-    if (bars) {
+    if (blackBars) {
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
           if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) rgb.fill(0, (y * width + x) * 3, (y * width + x) * 3 + 3)
@@ -266,7 +393,7 @@ export class Deres {
         for (let x = 0; x < width; x++) {
           const i = y * width + x
           let r = 0, g = 0, b = 0
-          if (bars && (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w)) {
+          if (blackBars && (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w)) {
             r = 0; g = 0; b = 0
           } else {
             const d = s.dither === 'ps1' ? PS1_DITHER_TABLE[(y & 3) * 4 + (x & 3)] : 0
@@ -280,6 +407,8 @@ export class Deres {
           out[i * 3] = r
           out[i * 3 + 1] = g
           out[i * 3 + 2] = b
+          // A hidden pixel's colour doesn't count as used.
+          if (alpha && !alpha[i]) continue
 
           const key = (r << 16) | (g << 8) | b
           let idx = seen.get(key)
@@ -295,7 +424,7 @@ export class Deres {
         }
       }
       const palBytes = Uint8Array.from(palList.length > 0 ? palList : [0, 0, 0])
-      const tileFit = profile.limits ? analyzeTileFit(indices, width, height, profile.limits) : undefined
+      const tileFit = profile.limits ? analyzeTileFit(indices, width, height, profile.limits, alpha) : undefined
       return {
         width,
         height,
@@ -305,6 +434,7 @@ export class Deres {
         used,
         geometry: g,
         paper: [255, 255, 255],
+        alpha,
         tileFit
       }
     }
@@ -340,7 +470,7 @@ export class Deres {
         cellLinearRgb = na.rgb
         if (profile.limits?.emulatorFormats?.includes('chr')) {
           // NES tiles hold each pixel's number in its sub-palette, not the colour.
-          emuData = encodeNesChr(na.colourNumbers, width, height)
+          emuData = encodeNesChr(hiddenAsZero(na.colourNumbers, alpha), width, height)
           emuFormat = 'chr'
         }
       } else if (mode === 'msx-screen2') {
@@ -353,7 +483,7 @@ export class Deres {
         cellLinearRgb = gbc.rgb
         cellPalBytes = gbc.palette
         if (profile.limits?.emulatorFormats?.includes('chr')) {
-          emuData = encodeGbChr(cellIndices, width, height)
+          emuData = encodeGbChr(hiddenAsZero(cellIndices, alpha), width, height)
           emuFormat = 'chr'
         }
       } else {
@@ -362,25 +492,18 @@ export class Deres {
         cellLinearRgb = a2.rgb
       }
 
-      // No repainting of the bars here: they went in black, and the machine's
-      // file must show exactly what the preview shows.
+      // No repainting of the bars here: they went in black (or carry on the
+      // edge, when they're see-through), and the machine's file must show
+      // exactly what the preview shows.
       const out = new Uint8Array(width * height * 3)
       for (let i = 0; i < width * height * 3; i++) {
         out[i] = linearToByte(cellLinearRgb[i])
       }
 
       const palBytes = cellPalBytes ?? paletteBytes(profile)
-      const seen = new Uint8Array(Math.max(256, palBytes.length / 3))
-      let used = 0
-      for (let i = 0; i < cellIndices.length; i++) {
-        const idx = cellIndices[i]
-        if (!seen[idx]) {
-          seen[idx] = 1
-          used++
-        }
-      }
+      const used = usedIndices(cellIndices, alpha)
 
-      const tileFit = profile.limits ? analyzeTileFit(cellIndices, width, height, profile.limits) : undefined
+      const tileFit = profile.limits ? analyzeTileFit(cellIndices, width, height, profile.limits, alpha) : undefined
       const emu =
         emuData && emuFormat
           ? { format: emuFormat, data: emuData, defaultName: `${profile.id}.${emuFormat}` }
@@ -395,6 +518,7 @@ export class Deres {
         used,
         geometry: g,
         paper: findLightest(palBytes),
+        alpha,
         tileFit,
         emulatorData: emu
       }
@@ -403,7 +527,7 @@ export class Deres {
     // Amiga HAM6
     if (profile.palette.kind === 'ham') {
       const ham = processAmigaHam6(rgb, width, height)
-      if (bars) {
+      if (blackBars) {
         for (let y = 0; y < height; y++) {
           for (let x = 0; x < width; x++) {
             if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) {
@@ -422,7 +546,7 @@ export class Deres {
         out[i] = linearToByte(ham.rgb[i])
       }
 
-      const tileFit = profile.limits ? analyzeTileFit(ham.indices, width, height, profile.limits) : undefined
+      const tileFit = profile.limits ? analyzeTileFit(ham.indices, width, height, profile.limits, alpha) : undefined
 
       return {
         width,
@@ -430,9 +554,10 @@ export class Deres {
         indices: ham.indices,
         palette: ham.palette,
         rgb: out,
-        used: ham.usedColours,
+        used: alpha ? usedColours(out, alpha) : ham.usedColours,
         geometry: g,
         paper: findLightest(ham.palette),
+        alpha,
         tileFit
       }
     }
@@ -440,7 +565,7 @@ export class Deres {
     // Nintendo 64 3-point sample + VI blur
     if (profile.palette.kind === 'n64') {
       const n64 = processN64(rgb, width, height)
-      if (bars) {
+      if (blackBars) {
         for (let y = 0; y < height; y++) {
           for (let x = 0; x < width; x++) {
             if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) {
@@ -464,6 +589,7 @@ export class Deres {
         out[i * 3] = r
         out[i * 3 + 1] = g
         out[i * 3 + 2] = b
+        if (alpha && !alpha[i]) continue
         const key = (r << 16) | (g << 8) | b
         if (!seen.has(key)) {
           seen.add(key)
@@ -474,7 +600,7 @@ export class Deres {
       }
 
       const palBytes = Uint8Array.from(palList.length > 0 ? palList : [0, 0, 0])
-      const tileFit = profile.limits ? analyzeTileFit(n64.indices, width, height, profile.limits) : undefined
+      const tileFit = profile.limits ? analyzeTileFit(n64.indices, width, height, profile.limits, alpha) : undefined
 
       return {
         width,
@@ -485,6 +611,7 @@ export class Deres {
         used: seen.size,
         geometry: g,
         paper: [255, 255, 255],
+        alpha,
         tileFit
       }
     }
@@ -504,7 +631,7 @@ export class Deres {
         res = processFax(rgb, width, height)
       }
 
-      if (bars) {
+      if (blackBars) {
         for (let y = 0; y < height; y++) {
           for (let x = 0; x < width; x++) {
             if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) {
@@ -528,6 +655,7 @@ export class Deres {
         out[i * 3] = r
         out[i * 3 + 1] = g
         out[i * 3 + 2] = b
+        if (alpha && !alpha[i]) continue
         const key = (r << 16) | (g << 8) | b
         if (!seen.has(key)) {
           seen.add(key)
@@ -538,7 +666,7 @@ export class Deres {
       }
 
       const palBytes = Uint8Array.from(palList.length > 0 ? palList : [0, 0, 0])
-      const tileFit = profile.limits ? analyzeTileFit(res.indices, width, height, profile.limits) : undefined
+      const tileFit = profile.limits ? analyzeTileFit(res.indices, width, height, profile.limits, alpha) : undefined
 
       return {
         width,
@@ -549,6 +677,7 @@ export class Deres {
         used: seen.size,
         geometry: g,
         paper: res.paper,
+        alpha,
         tileFit
       }
     }
@@ -559,17 +688,19 @@ export class Deres {
       pal = s.fixedPalette?.length === own ? this.paletteFrom(profile, s.fixedPalette) : this.palette(profile)
     } else {
       let display: Uint8Array
+      // The colours are picked from the pixels that show.
+      const picked = alpha ? shownPixels(rgb, alpha) : rgb
       // A grabbed or loaded palette belongs to the Custom machine only.
       if (profile.palette.kind === 'custom' && s.customPalette && s.customPalette.length > 0) {
         display = Uint8Array.from(s.customPalette.map(hexToRgb).flat())
       } else if (profile.palette.kind === 'pool') {
         const count = colourCount(profile, s.customCount)!
-        display = quantizeFromPool(rgb, profile.palette.pool, count)
+        display = quantizeFromPool(picked, profile.palette.pool, count)
         if (display.length === 0) display = paletteBytes(profile)
       } else {
         const count = colourCount(profile, s.customCount) ?? 16
         const bits = profile.palette.kind === 'range' ? profile.palette.bitsPerChannel : 8
-        display = quantizeRgb(rgb, count, bits)
+        display = quantizeRgb(picked, count, bits)
         if (display.length === 0) display = paletteBytes(profile)
       }
       pal = this.createPaletteState(display, !!profile.mono)
@@ -597,7 +728,7 @@ export class Deres {
       },
       indices
     )
-    if (bars) {
+    if (blackBars) {
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
           if (y < dst.y || y >= dst.y + dst.h || x < dst.x || x >= dst.x + dst.w) {
@@ -608,20 +739,14 @@ export class Deres {
     }
 
     const out = new Uint8Array(width * height * 3)
-    const seen = new Uint8Array(256)
-    let used = 0
     for (let i = 0; i < indices.length; i++) {
       const k = indices[i]
-      if (!seen[k]) {
-        seen[k] = 1
-        used++
-      }
       out[i * 3] = pal.display[k * 3]
       out[i * 3 + 1] = pal.display[k * 3 + 1]
       out[i * 3 + 2] = pal.display[k * 3 + 2]
     }
 
-    const tileFit = profile.limits ? analyzeTileFit(indices, width, height, profile.limits) : undefined
+    const tileFit = profile.limits ? analyzeTileFit(indices, width, height, profile.limits, alpha) : undefined
     let emu: { format: 'scr' | 'koa' | 'chr'; data: Uint8Array; defaultName: string } | undefined
     if (profile.limits?.emulatorFormats?.includes('chr')) {
       // Grey-level indices count darkest first; a Game Boy's colour 0 is the
@@ -630,7 +755,7 @@ export class Deres {
       const numbers = profile.mono ? indices.map((v) => n - 1 - v) : indices
       emu = {
         format: 'chr',
-        data: encodeGbChr(numbers, width, height),
+        data: encodeGbChr(hiddenAsZero(numbers, alpha), width, height),
         defaultName: `${profile.id}.chr`
       }
     }
@@ -642,29 +767,55 @@ export class Deres {
       indices,
       palette: pal.display,
       rgb: out,
-      used,
+      used: usedIndices(indices, alpha),
       geometry: g,
       paper: [pal.display[l], pal.display[l + 1], pal.display[l + 2]],
+      alpha,
       tileFit,
       emulatorData: emu
     }
   }
 
-  private resize(src: Source, g: Geometry, background: 'white' | 'black'): Float32Array {
+  /**
+   * The cropped part at the frame's size, linear light, 3 per pixel. On white
+   * or black, the transparent parts are laid on it. Kept transparent, `alpha`
+   * says which pixels show (null: all of them), each shown pixel has its own
+   * colour (not darkened by the part of it that was see-through), and the
+   * hidden ones carry on the colours of the nearest shown ones.
+   */
+  private resize(src: Source, g: Geometry, background: Background): { rgb: Float32Array; alpha: Uint8Array | null } {
     const { src: r, dst } = g
     const key = [r.x, r.y, r.w, r.h, dst.w, dst.h, background].join('|')
-    if (this.resized?.key === key) return this.resized.rgb
+    if (this.resized?.key === key) return this.resized
     const premul = resampleArea(src.data, src.width, src.height, r, dst.w, dst.h, 4)
-    const bg = background === 'white' ? 1 : 0
-    const rgb = new Float32Array(dst.w * dst.h * 3)
-    for (let i = 0; i < dst.w * dst.h; i++) {
-      const under = bg * (1 - premul[i * 4 + 3])
-      rgb[i * 3] = premul[i * 4] + under
-      rgb[i * 3 + 1] = premul[i * 4 + 1] + under
-      rgb[i * 3 + 2] = premul[i * 4 + 2] + under
+    const n = dst.w * dst.h
+    const rgb = new Float32Array(n * 3)
+    let alpha: Uint8Array | null = null
+    if (background === 'transparent') {
+      alpha = new Uint8Array(n)
+      let hidden = 0
+      for (let i = 0; i < n; i++) {
+        const a = premul[i * 4 + 3]
+        if (a >= ALPHA_THRESHOLD) {
+          alpha[i] = 255
+          rgb[i * 3] = premul[i * 4] / a
+          rgb[i * 3 + 1] = premul[i * 4 + 1] / a
+          rgb[i * 3 + 2] = premul[i * 4 + 2] / a
+        } else hidden++
+      }
+      if (hidden === 0) alpha = null
+      else spreadEdges(rgb, alpha, dst.w, dst.h)
+    } else {
+      const bg = background === 'white' ? 1 : 0
+      for (let i = 0; i < n; i++) {
+        const under = bg * (1 - premul[i * 4 + 3])
+        rgb[i * 3] = premul[i * 4] + under
+        rgb[i * 3 + 1] = premul[i * 4 + 1] + under
+        rgb[i * 3 + 2] = premul[i * 4 + 2] + under
+      }
     }
-    this.resized = { key, rgb }
-    return rgb
+    this.resized = { key, rgb, alpha }
+    return this.resized
   }
 
   private createPaletteState(display: Uint8Array, mono: boolean): PaletteState {

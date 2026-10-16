@@ -149,6 +149,14 @@ export interface SignalImage {
   width: number
   /** Lines (= picture rows). */
   height: number
+  /**
+   * Which samples show (255) and which are see-through (0): the picture's
+   * own mask (Rendered.alpha), held for each pixel's samples. The engine
+   * only carries colour, so the mask stays where the picture put it and
+   * cuts the signal's smears and noise at the picture's outline. Missing or
+   * null when every sample shows.
+   */
+  alpha?: Uint8Array | null
 }
 
 /** The picture as the machine put it on the wire: each pixel held for its share of samples. */
@@ -300,7 +308,18 @@ export function runSignal(
     rgb[i * 3 + 1] = out[i * 4 + 1]
     rgb[i * 3 + 2] = out[i * 4 + 2]
   }
-  return { rgb, width: input.width, height: input.height }
+  return { rgb, width: input.width, height: input.height, alpha: signalAlpha(r, input.width) }
+}
+
+/** The picture's mask held across each pixel's samples, as signalInput holds its colours. */
+function signalAlpha(r: Rendered, width: number): Uint8Array | null {
+  if (!r.alpha) return null
+  const alpha = new Uint8Array(width * r.height)
+  for (let x = 0; x < width; x++) {
+    const sx = Math.min(r.width - 1, Math.floor((x * r.width) / width))
+    for (let y = 0; y < r.height; y++) alpha[y * width + x] = r.alpha[y * r.width + sx]
+  }
+  return alpha
 }
 
 /**
@@ -359,6 +378,15 @@ export function resampleSignal(img: SignalImage, outW: number): SignalImage {
   const { width: w, height: h } = img
   const out = new Uint8Array(outW * h * 3)
   const scale = w / outW
+  // The mask stays sharp: each output sample takes the one under its middle.
+  let alpha: Uint8Array | null = null
+  if (img.alpha) {
+    alpha = new Uint8Array(outW * h)
+    for (let x = 0; x < outW; x++) {
+      const sx = Math.min(w - 1, Math.floor((x + 0.5) * scale))
+      for (let y = 0; y < h; y++) alpha[y * outW + x] = img.alpha[y * w + sx]
+    }
+  }
   for (let y = 0; y < h; y++) {
     const row = y * w * 3
     for (let x = 0; x < outW; x++) {
@@ -387,12 +415,13 @@ export function resampleSignal(img: SignalImage, outW: number): SignalImage {
       }
     }
   }
-  return { rgb: out, width: outW, height: h }
+  return { rgb: out, width: outW, height: h, alpha }
 }
 
 /**
  * Makes a function that fills one row (r, g, b per pixel) of the signal shown
- * at outW×outH, through the screen effect when one is given (CRT, LCD…).
+ * at outW×outH, through the screen effect when one is given (CRT, LCD…), and,
+ * when given `alpha`, which of its pixels show (1 byte each).
  */
 export function signalRenderer(
   img: SignalImage,
@@ -401,18 +430,21 @@ export function signalRenderer(
   fx: Fx | null,
   phase: number,
   paper: readonly [number, number, number]
-): (oy: number, row: Uint8Array) => void {
+): (oy: number, row: Uint8Array, alpha?: Uint8Array) => void {
   const src = resampleSignal(img, outW)
   if (fx && fx.screen !== 'off') {
-    return fxRenderer({ rgb: src.rgb, width: outW, height: src.height, paper }, outW, outH, fx, phase)
+    return fxRenderer({ rgb: src.rgb, width: outW, height: src.height, paper, alpha: src.alpha }, outW, outH, fx, phase)
   }
-  return (oy, row) => {
+  return (oy, row, alpha) => {
     const line = Math.min(src.height - 1, Math.floor((oy * src.height) / outH))
     row.set(src.rgb.subarray(line * outW * 3, (line + 1) * outW * 3))
+    if (!alpha) return
+    if (src.alpha) alpha.set(src.alpha.subarray(line * outW, (line + 1) * outW))
+    else alpha.fill(255)
   }
 }
 
-/** The whole picture as r, g, b per pixel (animation frames). */
+/** The whole picture as r, g, b per pixel (animation frames), and which pixels show (null: all of them). */
 export function signalFrame(
   img: SignalImage,
   outW: number,
@@ -420,15 +452,16 @@ export function signalFrame(
   fx: Fx | null,
   phase: number,
   paper: readonly [number, number, number]
-): Uint8Array {
+): { rgb: Uint8Array; alpha: Uint8Array | null } {
   const render = signalRenderer(img, outW, outH, fx, phase, paper)
   const out = new Uint8Array(outW * outH * 3)
+  const alpha = img.alpha ? new Uint8Array(outW * outH) : null
   const row = new Uint8Array(outW * 3)
   for (let y = 0; y < outH; y++) {
-    render(y, row)
+    render(y, row, alpha?.subarray(y * outW, (y + 1) * outW))
     out.set(row, y * outW * 3)
   }
-  return out
+  return { rgb: out, alpha }
 }
 
 /** Signal settings checked field by field (saved settings and share links). */

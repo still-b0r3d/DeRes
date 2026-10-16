@@ -28,6 +28,7 @@ export async function readApng(bytes: Uint8Array): Promise<ReadApng> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let ihdr: Uint8Array | null = null
   let plte: Uint8Array | null = null
+  let trns: Uint8Array | null = null
   let frameCount = 0
   let numPlays = 0
   const pending: { delayMs: number; data: Uint8Array[] }[] = []
@@ -38,6 +39,7 @@ export async function readApng(bytes: Uint8Array): Promise<ReadApng> {
     const d = new DataView(data.buffer, data.byteOffset, data.byteLength)
     if (name === 'IHDR') ihdr = data
     else if (name === 'PLTE') plte = data
+    else if (name === 'tRNS') trns = data
     else if (name === 'acTL') {
       frameCount = d.getUint32(0)
       numPlays = d.getUint32(4)
@@ -55,7 +57,14 @@ export async function readApng(bytes: Uint8Array): Promise<ReadApng> {
   const height = new DataView(ihdr.buffer, ihdr.byteOffset).getUint32(4)
   const frames: ApngFrameData[] = []
   for (const f of pending) {
-    const parts = [PNG_SIGNATURE, chunk('IHDR', ihdr), ...(plte ? [chunk('PLTE', plte)] : []), ...f.data.map((c) => chunk('IDAT', c)), chunk('IEND', new Uint8Array(0))]
+    const parts = [
+      PNG_SIGNATURE,
+      chunk('IHDR', ihdr),
+      ...(plte ? [chunk('PLTE', plte)] : []),
+      ...(trns ? [chunk('tRNS', trns)] : []),
+      ...f.data.map((c) => chunk('IDAT', c)),
+      chunk('IEND', new Uint8Array(0))
+    ]
     const png = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
     let p = 0
     for (const part of parts) {

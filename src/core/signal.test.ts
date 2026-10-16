@@ -218,9 +218,10 @@ describe('showing the signal', () => {
   it('fills the export size, with or without a screen effect', () => {
     const img = { width: 6, height: 3, rgb: new Uint8Array(6 * 3 * 3).fill(120) }
     const plain = signalFrame(img, 12, 9, null, 0, [255, 255, 255])
-    expect(plain.length).toBe(12 * 9 * 3)
-    expect(plain.every((v) => v === 120)).toBe(true)
+    expect(plain.rgb.length).toBe(12 * 9 * 3)
+    expect(plain.rgb.every((v) => v === 120)).toBe(true)
+    expect(plain.alpha).toBeNull()
     const crt = signalFrame(img, 12, 9, { ...DEFAULT_FX, screen: 'crt' }, 0, [255, 255, 255])
-    expect(crt.length).toBe(12 * 9 * 3)
+    expect(crt.rgb.length).toBe(12 * 9 * 3)
   })
 })
