@@ -25,6 +25,7 @@ function fakeRendered(k: number, palette = BW): Rendered {
     height,
     indices,
     palette,
+    indexed: true,
     rgb,
     used: 2,
     geometry: { width, height, par: [1, 1], src: rect, dst: rect } as unknown as Rendered['geometry'],

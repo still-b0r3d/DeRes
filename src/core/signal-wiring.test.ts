@@ -24,6 +24,7 @@ function picture(width = 32, height = 24): Rendered {
     rgb,
     indices: new Uint8Array(width * height),
     palette: Uint8Array.of(0, 0, 0, 255, 255, 255),
+    indexed: false,
     used: 2,
     geometry: { width, height, src: { x: 0, y: 0, w: width, h: height }, dst: { x: 0, y: 0, w: width, h: height }, par: [1, 1] },
     paper: [255, 255, 255]

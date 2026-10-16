@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { decodePng } from '../../src/core/png'
 import { profileById } from '../../src/core/profiles'
 import { download, freshPage, readout, ready } from './helpers'
 
@@ -188,4 +189,28 @@ test('machines with no colour list say how many colours, not "of" a made-up tota
   }
   await pick(page, 'snes')
   await expect(readout(page)).toHaveText(/^\d+ of \d+ colours used · /)
+})
+
+test('looks that make their own colours download the colours the preview shows (2026-10-15)', async ({ page }) => {
+  await page.locator('.seg[aria-label="Size"] button[data-value="2"]').click()
+  for (const id of ['n64', 'amiga-ham6', 'ps1', 'deepfry', 'fax']) {
+    await pick(page, id)
+    const shown = await page.evaluate(() => {
+      const c = document.querySelector<HTMLCanvasElement>('canvas.result')!
+      return { width: c.width, height: c.height, rgba: Array.from(c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data) }
+    })
+    const png = await decodePng((await download(page, page.getByRole('button', { name: 'Download PNG' }))).bytes)
+    let wrong = 0
+    for (let y = 0; y < png.height; y++) {
+      for (let x = 0; x < png.width; x++) {
+        const s = (Math.floor((y * shown.height) / png.height) * shown.width + Math.floor((x * shown.width) / png.width)) * 4
+        const p = (y * png.width + x) * 4
+        if (png.rgba[p] !== shown.rgba[s] || png.rgba[p + 1] !== shown.rgba[s + 1] || png.rgba[p + 2] !== shown.rgba[s + 2]) wrong++
+      }
+    }
+    expect(wrong, id).toBe(0)
+    // Up to 256 colours stay a small indexed file; past that, full colour.
+    const count = new Set(Array.from({ length: shown.rgba.length / 4 }, (_, i) => shown.rgba.slice(i * 4, i * 4 + 3).join())).size
+    expect(png.colourType, id).toBe(count <= 256 ? 3 : 2)
+  }
 })

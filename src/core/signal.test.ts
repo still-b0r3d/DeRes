@@ -30,6 +30,7 @@ function picture(width: number, height: number, colour: (x: number, y: number) =
     rgb,
     indices: new Uint8Array(width * height),
     palette: new Uint8Array(0),
+    indexed: false,
     used: 0,
     geometry: { width, height, src: { x: 0, y: 0, w: width, h: height }, dst: { x: 0, y: 0, w: width, h: height }, par: [1, 1] },
     paper: [255, 255, 255]

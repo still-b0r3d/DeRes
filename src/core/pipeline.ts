@@ -83,6 +83,13 @@ export interface Rendered {
   indices: Uint8Array
   /** The machine's colours, r, g, b per entry (what the indices point at). */
   palette: Uint8Array
+  /**
+   * Whether pixel i is palette entry indices[i] (see pixelsArePalette).
+   * When it isn't, the palette is only the first colours seen and the
+   * indices mean something else (HAM codes, colour bits): exports go by
+   * `rgb` then.
+   */
+  indexed: boolean
   /** The picture, r, g, b per pixel. */
   rgb: Uint8Array
   /** How many of the palette's colours the picture uses. */
@@ -154,6 +161,16 @@ export function colourTotal(profile: Profile, palette: Uint8Array): number | nul
   const k = profile.palette.kind
   if (k === 'direct' || k === 'ham' || k === 'n64' || k === 'analog') return null
   return palette.length / 3
+}
+
+/**
+ * Whether a machine's pixels are its palette's colours, each pixel one
+ * entry. Not for the machines that make their own colours (15-bit direct
+ * colour, HAM, the N64 filter, the analog looks).
+ */
+export function pixelsArePalette(profile: Profile): boolean {
+  const k = profile.palette.kind
+  return k === 'fixed' || k === 'range' || k === 'pool' || k === 'custom' || k === 'cell'
 }
 
 /**
@@ -430,6 +447,7 @@ export class Deres {
         height,
         indices,
         palette: palBytes,
+        indexed: false,
         rgb: out,
         used,
         geometry: g,
@@ -514,6 +532,7 @@ export class Deres {
         height,
         indices: cellIndices,
         palette: palBytes,
+        indexed: true,
         rgb: out,
         used,
         geometry: g,
@@ -553,6 +572,7 @@ export class Deres {
         height,
         indices: ham.indices,
         palette: ham.palette,
+        indexed: false,
         rgb: out,
         used: alpha ? usedColours(out, alpha) : ham.usedColours,
         geometry: g,
@@ -607,6 +627,7 @@ export class Deres {
         height,
         indices: n64.indices,
         palette: palBytes,
+        indexed: false,
         rgb: out,
         used: seen.size,
         geometry: g,
@@ -673,6 +694,7 @@ export class Deres {
         height,
         indices: res.indices,
         palette: palBytes,
+        indexed: false,
         rgb: out,
         used: seen.size,
         geometry: g,
@@ -766,6 +788,7 @@ export class Deres {
       height,
       indices,
       palette: pal.display,
+      indexed: true,
       rgb: out,
       used: usedIndices(indices, alpha),
       geometry: g,

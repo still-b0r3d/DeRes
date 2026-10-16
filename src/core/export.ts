@@ -1,3 +1,4 @@
+import { ColourCensus, entriesIn } from './census'
 import { fxRenderer, type Fx } from './fx'
 import { exportSize, MAX_EXPORT_PIXELS, type Rendered } from './pipeline'
 import { encodeIndexedPng, encodeRgbaPng, encodeRgbPng } from './png'
@@ -6,11 +7,14 @@ import { signalRenderer, type SignalImage } from './signal'
 // Export: the picture enlarged by a whole number, nearest-neighbour, so every
 // pixel stays a crisp block. Without screen effects it's an indexed PNG
 // holding the machine's exact palette (open it in a pixel-art editor and the
-// palette is there). With them it's a full-colour PNG. A picture with
-// see-through pixels keeps them: the indexed PNG gets one more palette entry
-// that's see-through (or goes full colour with alpha when the palette is
-// already 256 colours), the full-colour PNG gets alpha. A wallpaper stays
-// solid: its see-through pixels take the wallpaper's own backdrop colour.
+// palette is there). A look that makes its own colours (the PlayStation, HAM,
+// the N64 filter, the analog looks) holds exactly the colours it uses
+// instead, or goes full colour past 256 of them. With screen effects it's a
+// full-colour PNG. A picture with see-through pixels keeps them: the indexed
+// PNG gets one more palette entry that's see-through (or goes full colour
+// with alpha when the palette is already 256 colours), the full-colour PNG
+// gets alpha. A wallpaper stays solid: its see-through pixels take the
+// wallpaper's own backdrop colour.
 
 /** A row renderer that can also say which of its pixels show (1 byte each). */
 type RowRenderer = (y: number, row: Uint8Array, alpha?: Uint8Array) => void
@@ -29,6 +33,14 @@ async function encodeRows(width: number, height: number, render: RowRenderer, wi
       out[x * 4 + 3] = alpha[x]
     }
   })
+}
+
+/** A picture as exactly the colours that show, while there are no more than 256 (else null). */
+function exactEntries(rgb: Uint8Array, alpha: Uint8Array | null): { palette: Uint8Array; indices: Uint8Array } | null {
+  const census = new ColourCensus()
+  census.add(rgb, alpha)
+  const palette = census.palette()
+  return palette && { palette, indices: entriesIn(palette, rgb, alpha) }
 }
 
 /** Screen effects only make it into exports from this size up. */
@@ -69,11 +81,15 @@ export async function exportPng(
   // Which picture column each output column shows.
   const column = new Int32Array(width)
   for (let x = 0; x < width; x++) column[x] = Math.min(r.width - 1, Math.floor((x * r.width) / width))
-  const colours = r.palette.length / 3
+  // The pixels as palette entries: the machine's own palette (every entry,
+  // in its order) when its pixels are entries of it, else exactly the
+  // colours that show.
+  const entries = r.indexed ? { palette: r.palette, indices: r.indices } : exactEntries(r.rgb, alpha)
+  const colours = entries ? entries.palette.length / 3 : 0
 
   // Full colour: too many colours for a palette, or a full palette with no
   // room left for a see-through entry.
-  if (colours > 256 || colours === 0 || (alpha && colours === 256)) {
+  if (!entries || colours > 256 || colours === 0 || (alpha && colours === 256)) {
     const enlarged: RowRenderer = (y, out, a) => {
       const sy = Math.floor(y / m) * r.width
       for (let x = 0; x < width; x++) {
@@ -88,14 +104,15 @@ export async function exportPng(
   }
 
   // See-through pixels point at one more entry, after the machine's colours.
-  const palette = alpha ? Uint8Array.from([...r.palette, 0, 0, 0]) : r.palette
+  const palette = alpha ? Uint8Array.from([...entries.palette, 0, 0, 0]) : entries.palette
+  const indices = entries.indices
   const png = await encodeIndexedPng(
     width,
     height,
     palette,
     (y, out) => {
       const sy = Math.floor(y / m) * r.width
-      for (let x = 0; x < width; x++) out[x] = alpha && !alpha[sy + column[x]] ? colours : r.indices[sy + column[x]]
+      for (let x = 0; x < width; x++) out[x] = alpha && !alpha[sy + column[x]] ? colours : indices[sy + column[x]]
     },
     alpha ? colours : undefined
   )

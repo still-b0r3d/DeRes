@@ -340,6 +340,7 @@ export function artifactPalette(engine: SignalEngine, profileId: string, s: Sign
     height,
     indices,
     palette: new Uint8Array(16 * 3),
+    indexed: true,
     rgb: new Uint8Array(width * height * 3),
     used: 16,
     geometry: { width, height, src: { x: 0, y: 0, w: width, h: height }, dst: { x: 0, y: 0, w: width, h: height }, par: [1, 1] },

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { generateAscii } from './ascii'
 import { asciiImageSize, asciiPixels, renderHalfBlockPng } from './ascii-render'
-import { ColourCensus, encodeRgbAnimation, type RgbAnimationOptions } from './encode-animation'
+import { encodeRgbAnimation, type RgbAnimationOptions } from './encode-animation'
 import { decodeGifFrames } from './gif-decode'
 import { decodePng } from './png'
 import { readApng } from '../test/apng-frames'
@@ -31,22 +31,6 @@ const toRgb = (rgba: Uint8Array | Uint8ClampedArray) => Uint8Array.from({ length
 function options(o: Partial<RgbAnimationOptions> = {}): RgbAnimationOptions {
   return { format: 'gif', width: W, height: H, delaysMs: [70, 120, 50, 90], loopCount: 0, frame: (k) => frameRgb(k), ...o }
 }
-
-describe('ColourCensus', () => {
-  it('lists the exact colours in the order first seen, up to 256', () => {
-    const c = new ColourCensus()
-    c.add(Uint8Array.of(1, 2, 3, 1, 2, 3, 9, 9, 9))
-    c.add(Uint8Array.of(9, 9, 9, 4, 5, 6))
-    expect([...c.palette()!]).toEqual([1, 2, 3, 9, 9, 9, 4, 5, 6])
-  })
-
-  it('gives up past 256 colours', () => {
-    const c = new ColourCensus()
-    c.add(Uint8Array.from({ length: 257 * 3 }, (_, i) => (i % 3 === 0 ? Math.floor(i / 3) % 256 : Math.floor(i / 3 / 256))))
-    expect(c.palette()).toBeNull()
-    expect(new ColourCensus().palette()).toBeNull()
-  })
-})
 
 describe('encodeRgbAnimation', () => {
   it('a GIF of few colours keeps them exactly, with every delay and the loop count', async () => {

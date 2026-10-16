@@ -1,5 +1,6 @@
 import { apngPlays, MAX_ANIMATION_BUDGET, MAX_ANIMATION_PIXELS, type AnimatedExportResult } from './animate'
 import { ApngWriter } from './apng'
+import { ColourCensus } from './census'
 import { GifWriter, NearestColour, PaletteSamples } from './gif'
 
 // A GIF or APNG from full-colour frames made one at a time (the ASCII
@@ -10,44 +11,6 @@ import { GifWriter, NearestColour, PaletteSamples } from './gif'
 // Past that, a GIF gets one shared palette for every frame (so still parts
 // don't shimmer) and an APNG stays full colour. Frames are held between the
 // two passes while they fit the budget; past it, each is made again.
-
-/** The exact colours in a set of frames, while there are no more than 256. */
-export class ColourCensus {
-  private readonly seen = new Set<number>()
-  private over = false
-
-  add(rgb: Uint8Array): void {
-    if (this.over) return
-    const seen = this.seen
-    let last = -1
-    for (let i = 0; i < rgb.length; i += 3) {
-      const c = (rgb[i] << 16) | (rgb[i + 1] << 8) | rgb[i + 2]
-      // Rendered art comes in runs of one colour.
-      if (c === last) continue
-      last = c
-      if (seen.has(c)) continue
-      seen.add(c)
-      if (seen.size > 256) {
-        this.over = true
-        seen.clear()
-        return
-      }
-    }
-  }
-
-  /** r, g, b per colour, in the order first seen; null when there are more than 256 (or none). */
-  palette(): Uint8Array | null {
-    if (this.over || this.seen.size === 0) return null
-    const out = new Uint8Array(this.seen.size * 3)
-    let i = 0
-    for (const c of this.seen) {
-      out[i++] = c >> 16
-      out[i++] = (c >> 8) & 0xff
-      out[i++] = c & 0xff
-    }
-    return out
-  }
-}
 
 export interface RgbAnimationOptions {
   format: 'apng' | 'gif'

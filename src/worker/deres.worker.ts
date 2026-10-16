@@ -5,7 +5,7 @@ import { exportPng, exportWallpaper, wallpaperPresetById } from '../core/export'
 import { exportFilename } from '../core/filename'
 import { renderFxRgba } from '../core/fx'
 import { openAnimatedGif, type AnimatedGif } from '../core/gif-frames'
-import { colourTotal, Deres, previewFxSize, type DeresSettings, type Rendered } from '../core/pipeline'
+import { colourTotal, Deres, pixelsArePalette, previewFxSize, type DeresSettings, type Rendered } from '../core/pipeline'
 import { profileById, type Profile } from '../core/profiles'
 import {
   artifactPalette,
@@ -118,7 +118,7 @@ function frameBase(base: string, frame: number): string {
 function paletteKind(p: Profile | undefined, s: DeresSettings): { indexed: boolean; shared: boolean } {
   const k = p?.palette
   if (!k) return { indexed: false, shared: false }
-  const indexed = k.kind === 'fixed' || k.kind === 'range' || k.kind === 'pool' || k.kind === 'custom' || k.kind === 'cell'
+  const indexed = pixelsArePalette(p)
   const shared =
     k.kind === 'fixed' ||
     (k.kind === 'cell' && k.mode !== 'gbc-tile') ||

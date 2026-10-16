@@ -83,6 +83,7 @@ describe('animate core', () => {
     width: 8,
     height: 8,
     palette: Uint8Array.of(0, 0, 0, 255, 255, 255),
+    indexed: true,
     indices: new Uint8Array(64),
     rgb: new Uint8Array(64 * 3),
     used: 2,

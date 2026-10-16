@@ -1,4 +1,5 @@
 import { ApngWriter, encodeApng, type ApngFrame } from './apng'
+import { ColourCensus, entriesIn } from './census'
 import {
   encodeGif,
   encodeRgbGif,
@@ -465,47 +466,58 @@ export async function generateAnimatedExport(
     return encodeFrames(frames, format, width, height, delayMs, seeThrough)
   }
 
-  // Pure indexed dither shimmer (no screen effects). Kept see-through pixels
-  // take one more palette entry; an APNG with a full palette goes RGBA instead.
-  const colours = r.palette.length / 3
-  const isIndexedPossible = colours <= 256 && colours > 0 && !(seeThrough && isApng && colours === 256)
+  // Pure indexed dither shimmer (no screen effects): the machine's palette
+  // when its pixels are entries of it, else exactly the colours the frames
+  // use, while they fit one. Kept see-through pixels take one more palette
+  // entry; an APNG with a full palette goes RGBA instead.
+  const renders: Rendered[] = []
+  for (let f = 0; f < frameCount; f++) {
+    renders.push(renderAt(f))
+    progress(f + 1, frameCount)
+  }
+  /** Which of a frame's pixels show in the file (null: all of them). */
+  const shows = (fr: Rendered) => (seeThrough ? (fr.alpha ?? null) : null)
+  let palette: Uint8Array | null = r.palette
+  let entries = (fr: Rendered) => fr.indices
+  if (!r.indexed) {
+    const census = new ColourCensus()
+    for (const fr of renders) census.add(fr.rgb, shows(fr))
+    const exact = census.palette()
+    palette = exact
+    if (exact) entries = (fr) => entriesIn(exact, fr.rgb, shows(fr))
+  }
+  const colours = palette ? palette.length / 3 : 0
 
-  if (isIndexedPossible) {
-    const indexedFrames: { indices: Uint8Array; alpha: Uint8Array | null }[] = []
-    for (let f = 0; f < frameCount; f++) {
-      const frameRender = renderAt(f)
-      indexedFrames.push({
-        indices: upscaleIndices(frameRender.indices, frameRender.width, frameRender.height, width, height),
-        alpha: seeThrough && frameRender.alpha ? upscaleIndices(frameRender.alpha, frameRender.width, frameRender.height, width, height) : null
-      })
-      progress(f + 1, frameCount)
-    }
+  if (palette && colours <= 256 && colours > 0 && !(seeThrough && isApng && colours === 256)) {
+    const indexedFrames = renders.map((fr) => ({
+      indices: upscaleIndices(entries(fr), fr.width, fr.height, width, height),
+      alpha: seeThrough && fr.alpha ? upscaleIndices(fr.alpha, fr.width, fr.height, width, height) : null
+    }))
 
     if (isApng) {
       const apngFrames: ApngFrame[] = indexedFrames.map(({ indices, alpha }) => {
         if (alpha) for (let i = 0; i < indices.length; i++) if (!alpha[i]) indices[i] = colours
         return { width, height, delayMs, indices }
       })
-      const palette = seeThrough ? Uint8Array.from([...r.palette, 0, 0, 0]) : r.palette
-      const data = await encodeApng(apngFrames, { palette, numPlays: 0, transparentIndex: seeThrough ? colours : undefined })
+      const data = await encodeApng(apngFrames, {
+        palette: seeThrough ? Uint8Array.from([...palette, 0, 0, 0]) : palette,
+        numPlays: 0,
+        transparentIndex: seeThrough ? colours : undefined
+      })
       return { data, format: 'apng', mimeType: 'image/png', width, height, frameCount }
     } else {
       const gifFrames: GifFrame[] = indexedFrames.map(({ indices, alpha }) => {
         if (!seeThrough) return { width, height, delayMs, indices }
-        const t = withTransparentEntry(r.palette, indices, alpha ?? new Uint8Array(indices.length).fill(255))
+        const t = withTransparentEntry(palette, indices, alpha ?? new Uint8Array(indices.length).fill(255))
         return { width, height, delayMs, indices: t.indices, palette: t.palette, transparentIndex: t.transparentIndex }
       })
-      const data = encodeGif(gifFrames, { palette: gifFrames[0].palette ?? r.palette, loop: 0 })
+      const data = encodeGif(gifFrames, { palette: gifFrames[0].palette ?? palette, loop: 0 })
       return { data, format: 'gif', mimeType: 'image/gif', width, height, frameCount }
     }
   }
 
   // Truecolour fallback for dither shimmer without FX
-  const frames: Frame[] = []
-  for (let f = 0; f < frameCount; f++) {
-    frames.push(enlarged(renderAt(f), width, height))
-    progress(f + 1, frameCount)
-  }
+  const frames: Frame[] = renders.map((fr) => enlarged(fr, width, height))
   return encodeFrames(frames, format, width, height, delayMs, seeThrough)
 }
 
@@ -562,7 +574,7 @@ export async function generateFramesExport(o: FramesExportOptions): Promise<Anim
     throw new Error('That size is too big for an animation. Pick a smaller size.')
   }
   const fx = o.fx && o.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER ? o.fx : null
-  const indexed = o.indexed && !o.signal && !fx
+  const indexed = o.indexed && first.indexed && !o.signal && !fx
   const seeThrough = !!o.seeThrough
   const progress = (done: number) => o.onProgress?.(done, total)
   const mimeType = o.format === 'apng' ? 'image/png' : 'image/gif'
