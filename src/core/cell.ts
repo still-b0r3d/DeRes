@@ -691,6 +691,8 @@ export const TMS9918_PALETTE: readonly string[] = [
 ]
 
 const TMS9918_RGB = TMS9918_PALETTE.map(hexToRgb)
+/** The same, r, g, b one after another. */
+const TMS9918_FLAT = Int32Array.from(TMS9918_RGB.flat())
 
 export interface MsxScreen2Result {
   indices: Uint8Array
@@ -718,29 +720,36 @@ export function processMsxScreen2(
   }
 
   const slicesX = Math.floor(width / 8)
+  // Each slice's 8 pixels against all 15 colours, worked out once. The pairs
+  // below only read these, so a pair costs 8 comparisons (Safari was 10× slower
+  // than Chrome when every pair worked its distances out again).
+  const dist = new Int32Array(8 * 15)
 
   for (let y = 0; y < height; y++) {
     for (let sx = 0; sx < slicesX; sx++) {
       const startX = sx * 8
+
+      for (let px = 0; px < 8; px++) {
+        const i = (y * width + startX + px) * 3
+        const r = srgbBytes[i]
+        const g = srgbBytes[i + 1]
+        const b = srgbBytes[i + 2]
+        for (let c = 0; c < 15; c++) {
+          dist[px * 15 + c] = colorDistSq(r, g, b, TMS9918_FLAT[c * 3], TMS9918_FLAT[c * 3 + 1], TMS9918_FLAT[c * 3 + 2])
+        }
+      }
 
       let bestC1 = 0
       let bestC2 = 14
       let minErr = Infinity
 
       for (let c1 = 0; c1 < 15; c1++) {
-        const [r1, g1, b1] = TMS9918_RGB[c1]
         for (let c2 = c1; c2 < 15; c2++) {
-          const [r2, g2, b2] = TMS9918_RGB[c2]
           let err = 0
           for (let px = 0; px < 8; px++) {
-            const i = (y * width + startX + px) * 3
-            const r = srgbBytes[i]
-            const g = srgbBytes[i + 1]
-            const b = srgbBytes[i + 2]
-
-            const d1 = colorDistSq(r, g, b, r1, g1, b1)
-            const d2 = colorDistSq(r, g, b, r2, g2, b2)
-            err += Math.min(d1, d2)
+            const d1 = dist[px * 15 + c1]
+            const d2 = dist[px * 15 + c2]
+            err += d1 < d2 ? d1 : d2
           }
           if (err < minErr) {
             minErr = err
@@ -750,28 +759,20 @@ export function processMsxScreen2(
         }
       }
 
-      const [r1, g1, b1] = TMS9918_RGB[bestC1]
-      const [r2, g2, b2] = TMS9918_RGB[bestC2]
-
       for (let px = 0; px < 8; px++) {
         const x = startX + px
         const pIdx = y * width + x
         const i = pIdx * 3
 
-        const r = srgbBytes[i]
-        const g = srgbBytes[i + 1]
-        const b = srgbBytes[i + 2]
-
-        const d1 = colorDistSq(r, g, b, r1, g1, b1)
-        const d2 = colorDistSq(r, g, b, r2, g2, b2)
+        const d1 = dist[px * 15 + bestC1]
+        const d2 = dist[px * 15 + bestC2]
 
         const chosen = d1 <= d2 ? bestC1 : bestC2
-        const [cr, cg, cb] = d1 <= d2 ? [r1, g1, b1] : [r2, g2, b2]
 
         indices[pIdx] = chosen
-        outRgb[i] = BYTE_TO_LINEAR[cr]
-        outRgb[i + 1] = BYTE_TO_LINEAR[cg]
-        outRgb[i + 2] = BYTE_TO_LINEAR[cb]
+        outRgb[i] = BYTE_TO_LINEAR[TMS9918_FLAT[chosen * 3]]
+        outRgb[i + 1] = BYTE_TO_LINEAR[TMS9918_FLAT[chosen * 3 + 1]]
+        outRgb[i + 2] = BYTE_TO_LINEAR[TMS9918_FLAT[chosen * 3 + 2]]
       }
     }
   }
@@ -830,26 +831,30 @@ export function processGbcTiles(
 
   // 1. For each 8×8 tile, compute candidate 4-colour palette
   const tileCandidates: number[][] = []
+  // A tile's pixels (where each sits in srgbBytes) sorted by brightness. The
+  // sort is stable, so equally bright pixels keep reading order, as before.
+  const lum = new Float64Array(64)
+  const at = new Int32Array(64)
 
   for (let ty = 0; ty < tilesY; ty++) {
     for (let tx = 0; tx < tilesX; tx++) {
-      const tilePixels: [number, number, number][] = []
+      const order: number[] = []
       for (let py = 0; py < 8; py++) {
         for (let px = 0; px < 8; px++) {
+          const k = py * 8 + px
           const i = ((ty * 8 + py) * width + (tx * 8 + px)) * 3
-          tilePixels.push([srgbBytes[i], srgbBytes[i + 1], srgbBytes[i + 2]])
+          at[k] = i
+          lum[k] = 0.299 * srgbBytes[i] + 0.587 * srgbBytes[i + 1] + 0.114 * srgbBytes[i + 2]
+          order.push(k)
         }
       }
-      tilePixels.sort((a, b) => {
-        const la = 0.299 * a[0] + 0.587 * a[1] + 0.114 * a[2]
-        const lb = 0.299 * b[0] + 0.587 * b[1] + 0.114 * b[2]
-        return la - lb
-      })
-      const c0 = tilePixels[4]
-      const c1 = tilePixels[20]
-      const c2 = tilePixels[40]
-      const c3 = tilePixels[59]
-      tileCandidates.push([...c0, ...c1, ...c2, ...c3])
+      order.sort((a, b) => lum[a] - lum[b])
+      const cand: number[] = []
+      for (const pick of [4, 20, 40, 59]) {
+        const i = at[order[pick]]
+        cand.push(srgbBytes[i], srgbBytes[i + 1], srgbBytes[i + 2])
+      }
+      tileCandidates.push(cand)
     }
   }
 
@@ -898,22 +903,18 @@ export function processGbcTiles(
     }
   }
 
-  const globalPalettes: [number, number, number][][] = []
   const paletteBytes = new Uint8Array(K * 4 * 3)
 
   for (let k = 0; k < K; k++) {
-    const pal: [number, number, number][] = []
     for (let c = 0; c < 4; c++) {
       const r = snapToBits(centroids[k][c * 3], 5)
       const g = snapToBits(centroids[k][c * 3 + 1], 5)
       const b = snapToBits(centroids[k][c * 3 + 2], 5)
-      pal.push([r, g, b])
       const pIdx = (k * 4 + c) * 3
       paletteBytes[pIdx] = r
       paletteBytes[pIdx + 1] = g
       paletteBytes[pIdx + 2] = b
     }
-    globalPalettes.push(pal)
   }
 
   // 3. For each 8×8 tile, assign the best palette and map pixels
@@ -922,8 +923,9 @@ export function processGbcTiles(
       let bestK = 0
       let minTileErr = Infinity
 
+      // The palettes' colours are read straight from paletteBytes, which
+      // Safari does far faster than small arrays of [r, g, b].
       for (let k = 0; k < K; k++) {
-        const pal = globalPalettes[k]
         let err = 0
         for (let py = 0; py < 8; py++) {
           for (let px = 0; px < 8; px++) {
@@ -933,8 +935,8 @@ export function processGbcTiles(
             const b = srgbBytes[i + 2]
             let minD = Infinity
             for (let c = 0; c < 4; c++) {
-              const [pr, pg, pb] = pal[c]
-              const d = colorDistSq(r, g, b, pr, pg, pb)
+              const o = (k * 4 + c) * 3
+              const d = colorDistSq(r, g, b, paletteBytes[o], paletteBytes[o + 1], paletteBytes[o + 2])
               if (d < minD) minD = d
             }
             err += minD
@@ -945,8 +947,6 @@ export function processGbcTiles(
           bestK = k
         }
       }
-
-      const activePal = globalPalettes[bestK]
 
       for (let py = 0; py < 8; py++) {
         const y = ty * 8 + py
@@ -962,8 +962,8 @@ export function processGbcTiles(
           let bestC = 0
           let minD = Infinity
           for (let c = 0; c < 4; c++) {
-            const [pr, pg, pb] = activePal[c]
-            const d = colorDistSq(r, g, b, pr, pg, pb)
+            const o = (bestK * 4 + c) * 3
+            const d = colorDistSq(r, g, b, paletteBytes[o], paletteBytes[o + 1], paletteBytes[o + 2])
             if (d < minD) {
               minD = d
               bestC = c
@@ -971,10 +971,10 @@ export function processGbcTiles(
           }
 
           indices[pIdx] = bestK * 4 + bestC
-          const [cr, cg, cb] = activePal[bestC]
-          outRgb[i] = BYTE_TO_LINEAR[cr]
-          outRgb[i + 1] = BYTE_TO_LINEAR[cg]
-          outRgb[i + 2] = BYTE_TO_LINEAR[cb]
+          const o = (bestK * 4 + bestC) * 3
+          outRgb[i] = BYTE_TO_LINEAR[paletteBytes[o]]
+          outRgb[i + 1] = BYTE_TO_LINEAR[paletteBytes[o + 1]]
+          outRgb[i + 2] = BYTE_TO_LINEAR[paletteBytes[o + 2]]
         }
       }
     }
