@@ -1,14 +1,16 @@
 # Response header rules, copied to the root of dist/ by the build.
 # The rest of the Content-Security-Policy is a <meta> tag in the built page
 # (see vite.config.ts); a <meta> can't set frame-ancestors, so it's here.
-# Permissions-Policy turns off every device feature: the app needs none.
+# Permissions-Policy turns off every device feature except the camera, which
+# only this site itself may use (the live camera; never in a frame of another
+# site, and a frame on b0r3d.org only if that page allows it too).
 
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   X-Frame-Options: SAMEORIGIN
   Content-Security-Policy: frame-ancestors 'self' https://b0r3d.org https://*.b0r3d.org
-  Permissions-Policy: accelerometer=(), autoplay=(), bluetooth=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=(), xr-spatial-tracking=()
+  Permissions-Policy: accelerometer=(), autoplay=(), bluetooth=(), camera=(self), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=(), xr-spatial-tracking=()
   Cross-Origin-Opener-Policy: same-origin
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 

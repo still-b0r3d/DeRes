@@ -137,7 +137,13 @@ async function run(base, remote) {
     check('page loads', resp.status() === 200 && title === 'b0r3d DeRes', `status ${resp.status()}, title "${title}"`)
     if (remote) {
       const h = resp.headers()
-      check('security headers sent', /camera=\(\)/.test(h['permissions-policy'] || '') && h['x-content-type-options'] === 'nosniff')
+      // The camera is for the live camera on this site only; the rest stay off.
+      const pp = h['permissions-policy'] || ''
+      check(
+        'security headers sent',
+        /camera=\(self\)/.test(pp) && /microphone=\(\)/.test(pp) && /geolocation=\(\)/.test(pp) && h['x-content-type-options'] === 'nosniff',
+        pp
+      )
     }
 
     await settle('colours used')
