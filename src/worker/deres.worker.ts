@@ -132,9 +132,26 @@ async function renderView(settings: DeresSettings, fxScale: number, frame: numbe
   const s = await forRender(settings)
   const r = renderFor(s, frame)
   const shown = current
-  let fx: { width: number; height: number; rgba: ArrayBuffer } | null = null
   const sig = await signalFor(s, r, shown)
-  const phase = phaseOf(shown)
+  return viewOf(settings, s, r, fxScale, shown, sig, phaseOf(shown), t0)
+}
+
+/**
+ * A rendered picture as the preview shows it: through the screen effect or
+ * the signal at fxScale, or the picture itself. `s` is what it was rendered
+ * with (forRender's), `settings` what was asked for.
+ */
+function viewOf(
+  settings: DeresSettings,
+  s: DeresSettings,
+  r: Rendered,
+  fxScale: number,
+  shown: number,
+  sig: SignalImage | null,
+  phase: number,
+  t0: number
+): { view: RenderedView; transfer: Transferable[] } {
+  let fx: { width: number; height: number; rgba: ArrayBuffer } | null = null
   if ((s.fx.screen !== 'off' || sig) && fxScale > 0) {
     const [fw, fh] = previewFxSize(r.width, r.height, r.geometry.par, fxScale, s.pixelShape === 'tv')
     let img: Uint8ClampedArray
@@ -191,6 +208,44 @@ async function renderView(settings: DeresSettings, fxScale: number, frame: numbe
   }
 }
 
+/** The animation (an opened GIF or a camera clip) becomes the picture, frame 0 first; the page gets frame 0 and the timing. */
+function useAnimation(gif: AnimatedGif): void {
+  last = null
+  animation = gif
+  current = 0
+  const first = new Uint8Array(gif.frames[0].buffer)
+  sourceCopy = { width: gif.width, height: gif.height, rgba: first }
+  deres.setSource(first, gif.width, gif.height, gif.origW, gif.origH, gif.hasAlpha)
+  const rgba = first.slice().buffer
+  post(
+    {
+      type: 'loaded-gif',
+      gen,
+      gif: {
+        width: gif.width,
+        height: gif.height,
+        origW: gif.origW,
+        origH: gif.origH,
+        rgba,
+        hasAlpha: gif.hasAlpha,
+        frames: gif.frames.length,
+        total: gif.total,
+        delaysMs: gif.delaysMs,
+        loopCount: gif.loopCount
+      }
+    },
+    [rgba]
+  )
+}
+
+// The live camera: a pipeline of its own, so the picture stays loaded in
+// `deres` and is there again when the camera stops.
+let liveDeres: Deres | null = null
+/** Live frames per turn of the screen effect's moving parts. */
+const LIVE_LOOP = 32
+/** A camera clip while it's being recorded. */
+let clip: { width: number; height: number; origW: number; origH: number; delaysMs: number[]; frames: Uint8ClampedArray[] } | null = null
+
 self.onmessage = async (e: MessageEvent<ToWorker>) => {
   const msg = e.data
   if (msg.type === 'load') {
@@ -216,32 +271,62 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       post({ type: 'loaded-gif', gen, gif: null })
       return
     }
-    last = null
-    animation = gif
-    current = 0
-    const first = new Uint8Array(animation.frames[0].buffer)
-    sourceCopy = { width: gif.width, height: gif.height, rgba: first }
-    deres.setSource(first, gif.width, gif.height, gif.origW, gif.origH, gif.hasAlpha)
-    const rgba = first.slice().buffer
-    post(
-      {
-        type: 'loaded-gif',
-        gen,
-        gif: {
-          width: gif.width,
-          height: gif.height,
-          origW: gif.origW,
-          origH: gif.origH,
-          rgba,
-          hasAlpha: gif.hasAlpha,
-          frames: gif.frames.length,
-          total: gif.total,
-          delaysMs: gif.delaysMs,
-          loopCount: gif.loopCount
-        }
-      },
-      [rgba]
-    )
+    useAnimation(gif)
+    return
+  }
+  if (msg.type === 'live-frame') {
+    try {
+      const t0 = performance.now()
+      // Its own, even if the camera stops while this frame is made.
+      const d = (liveDeres ??= new Deres())
+      d.setSource(new Uint8Array(msg.rgba), msg.width, msg.height, msg.origW, msg.origH)
+      const s = await forRender(msg.settings)
+      const r = d.render(s)
+      let sig: SignalImage | null = null
+      if (s.signal && s.signal.mode !== 'off') sig = runSignal(await loadSignalEngine(), r, s.profileId, s.signal, msg.tick)
+      const { view, transfer } = viewOf(msg.settings, s, r, msg.fxScale, 0, sig, (msg.tick % LIVE_LOOP) / LIVE_LOOP, t0)
+      post({ type: 'live-rendered', live: msg.live, view }, transfer)
+    } catch (err) {
+      post({ type: 'live-error', live: msg.live, message: String((err as Error)?.message ?? err) })
+    }
+    return
+  }
+  if (msg.type === 'live-stop') {
+    liveDeres = null
+    return
+  }
+  if (msg.type === 'clip-start') {
+    clip = { width: msg.width, height: msg.height, origW: msg.origW, origH: msg.origH, delaysMs: msg.delaysMs, frames: [] }
+    return
+  }
+  if (msg.type === 'clip-frame') {
+    clip?.frames.push(new Uint8ClampedArray(msg.rgba))
+    return
+  }
+  if (msg.type === 'clip-cancel') {
+    clip = null
+    return
+  }
+  if (msg.type === 'clip-end') {
+    const c = clip
+    clip = null
+    gen = msg.gen
+    if (!c || c.frames.length < 2) {
+      post({ type: 'loaded-gif', gen, gif: null })
+      return
+    }
+    // A camera clip is held exactly like an animated GIF that was opened.
+    useAnimation({
+      width: c.width,
+      height: c.height,
+      origW: c.origW,
+      origH: c.origH,
+      frames: c.frames,
+      delaysMs: c.delaysMs.slice(0, c.frames.length),
+      loopCount: 0,
+      total: c.frames.length,
+      hasAlpha: false
+    })
     return
   }
   if (msg.type === 'render') {

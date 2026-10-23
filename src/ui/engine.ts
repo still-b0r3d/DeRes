@@ -36,6 +36,11 @@ export class Engine {
   onRendered: (r: RenderedMessage) => void = () => {}
   onError: (message: string) => void = () => {}
   onBusy: (busy: boolean) => void = () => {}
+  // The live camera: one frame in the worker at a time, answered through onLive.
+  private live = 0
+  private liveBusy = false
+  onLive: (view: RenderedView) => void = () => {}
+  onLiveError: (message: string) => void = () => {}
 
   constructor() {
     this.worker.onmessage = (e: MessageEvent<FromWorker>) => this.receive(e.data)
@@ -140,6 +145,50 @@ export class Engine {
     )
   }
 
+  /** No live frame is in the worker: one sent now goes straight through. */
+  get liveFree(): boolean {
+    return !this.liveBusy
+  }
+
+  /**
+   * A camera frame through the settings (its pixels move to the worker).
+   * False, and nothing sent, while the last one is still being made: the
+   * caller drops this one, so frames never queue up behind a slow look.
+   */
+  renderLive(frame: LiveFrame, settings: DeresSettings, fxScale: number, tick: number): boolean {
+    if (this.liveBusy) return false
+    this.liveBusy = true
+    this.post({ type: 'live-frame', live: ++this.live, ...frame, settings, fxScale, tick }, [frame.rgba])
+    return true
+  }
+
+  /** The camera is off: a frame still on its way is dropped when it comes. */
+  stopLive(): void {
+    this.live++
+    this.liveBusy = false
+    this.post({ type: 'live-stop' })
+  }
+
+  /** A camera clip starts; its frames follow with clipFrame. The picture stays until clipEnd. */
+  clipStart(clip: { width: number; height: number; origW: number; origH: number; delaysMs: number[] }): void {
+    this.post({ type: 'clip-start', ...clip })
+  }
+
+  clipFrame(rgba: ArrayBuffer): void {
+    this.post({ type: 'clip-frame', rgba }, [rgba])
+  }
+
+  /** The clip becomes the picture, held like an animated GIF; null if it has too few frames. */
+  clipEnd(): Promise<LoadedGif | null> {
+    this.newPicture()
+    this.post({ type: 'clip-end', gen: this.gen })
+    return new Promise((resolve) => (this.loadingGif = resolve))
+  }
+
+  clipCancel(): void {
+    this.post({ type: 'clip-cancel' })
+  }
+
   private request<T>(make: (id: number) => ToWorker, onProgress?: (done: number, total: number, note?: string) => void): Promise<T> {
     const id = ++this.requestId
     this.post(make(id))
@@ -226,8 +275,24 @@ export class Engine {
       case 'progress':
         this.pending.get(msg.id)?.onProgress?.(msg.done, msg.total, msg.note)
         return
+      case 'live-rendered':
+      case 'live-error':
+        if (msg.live !== this.live) return
+        this.liveBusy = false
+        if (msg.type === 'live-rendered') this.onLive(msg.view)
+        else this.onLiveError(msg.message)
+        return
     }
   }
+}
+
+/** A camera frame, r, g, b, a per pixel, grabbed at width × height from a camera of origW × origH. */
+export interface LiveFrame {
+  width: number
+  height: number
+  origW: number
+  origH: number
+  rgba: ArrayBuffer
 }
 
 export interface ExportResult {

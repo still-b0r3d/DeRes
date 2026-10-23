@@ -108,6 +108,33 @@ export type ToWorker =
       /** The frame the other styles start from. */
       frame: number
     }
+  | {
+      /**
+       * A camera frame for the live view. It goes through a second pipeline,
+       * so the picture stays loaded for when the camera stops.
+       */
+      type: 'live-frame'
+      /** Counts up per frame sent; answers carry it. */
+      live: number
+      width: number
+      height: number
+      /** The camera's own size. */
+      origW: number
+      origH: number
+      rgba: ArrayBuffer
+      settings: DeresSettings
+      fxScale: number
+      /** Moves the signal's noise and the screen effect's moving parts on. */
+      tick: number
+    }
+  /** The camera is off: the live pipeline's memory can go. */
+  | { type: 'live-stop' }
+  /** A camera clip on its way: its frames follow, held like an animated GIF's. */
+  | { type: 'clip-start'; width: number; height: number; origW: number; origH: number; delaysMs: number[] }
+  | { type: 'clip-frame'; rgba: ArrayBuffer }
+  /** The clip is whole: it becomes the picture (answered with loaded-gif). */
+  | { type: 'clip-end'; gen: number }
+  | { type: 'clip-cancel' }
 
 /** A frame (or the picture) through the settings, ready to show. */
 export interface RenderedView {
@@ -174,4 +201,6 @@ export type FromWorker =
     }
   /** An animation on its way: frames made so far, and how many in all. */
   | { type: 'progress'; id: number; done: number; total: number; note?: string }
+  | { type: 'live-rendered'; live: number; view: RenderedView }
+  | { type: 'live-error'; live: number; message: string }
   | { type: 'error'; job?: number; id?: number; gen: number; message: string }
