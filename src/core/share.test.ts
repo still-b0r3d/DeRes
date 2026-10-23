@@ -35,6 +35,22 @@ describe('share link encoding/decoding', () => {
     expect(decoded?.customCount).toBe(32)
   })
 
+  it('keeps the custom width and Detail', () => {
+    const s = { ...defaultSettings(), resolution: 'custom' as const, customWidth: 96, detail: 0.8 }
+    const decoded = settingsFromHash(encodeSettings(s), defaultSettings())!
+    expect([decoded.resolution, decoded.customWidth, decoded.detail]).toEqual(['custom', 96, 0.8])
+    // Not picked yet: the link leaves it out, and the machine's width it is.
+    expect(encodeSettings(defaultSettings())).not.toContain('"w"')
+    expect(settingsFromHash(encodeSettings(defaultSettings()), defaultSettings())!.customWidth).toBeUndefined()
+  })
+
+  it('a link from before v0.9.4 (a block size) opens at the machine’s width and today’s Detail', () => {
+    const s = settingsFromHash(link({ p: 'nes', r: 'custom', b: 8 }), defaultSettings())!
+    expect(s.resolution).toBe('custom')
+    expect(s.customWidth).toBeUndefined()
+    expect(s.detail).toBe(defaultSettings().detail)
+  })
+
   it('returns null on corrupted hash', () => {
     expect(decodeSettings('#s=invalid-not-json')).toBeNull()
     expect(decodeSettings('')).toBeNull()
@@ -52,6 +68,8 @@ describe('share links are checked like saved settings', () => {
         f: 'zoom',
         r: 'huge',
         b: 0,
+        w: 'wide',
+        dt: 7,
         bg: 'plaid',
         ps: 'round',
         m: 9999,
@@ -65,7 +83,8 @@ describe('share links are checked like saved settings', () => {
     expect(s.dither).toBe(base.dither)
     expect(s.fit).toBe(base.fit)
     expect(s.resolution).toBe(base.resolution)
-    expect(s.block).toBe(2)
+    expect(s.customWidth).toBe(base.customWidth)
+    expect(s.detail).toBe(1)
     expect(s.background).toBe(base.background)
     expect(s.pixelShape).toBe(base.pixelShape)
     expect(s.multiplier).toBe(base.multiplier)

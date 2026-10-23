@@ -8,9 +8,10 @@ import {
   processGbcTiles
 } from './cell'
 import { BYTE_TO_LINEAR, hexToRgb, linearToByte, luminance, toSrgb } from './color'
+import { detailAmount, keepDetail } from './detail'
 import { dither, PS1_DITHER_TABLE, type DitherId } from './dither'
 import type { Fx } from './fx'
-import { planGeometry, type Fit, type Geometry } from './geometry'
+import { coverage, planGeometry, type Fit, type Geometry } from './geometry'
 import { processAmigaHam6 } from './ham'
 import { PaletteMatcher } from './matcher'
 import { processN64 } from './n64'
@@ -52,7 +53,10 @@ export interface DeresSettings {
   profileId: string
   fit: Fit
   resolution: 'native' | 'custom'
-  block: number
+  /** Custom width in pixels; missing means the machine's own width. */
+  customWidth?: number
+  /** 0–1: how much of the fine detail lost in the shrink is sharpened back (missing: none). */
+  detail?: number
   /** What shows through transparent parts of the photo; 'transparent' keeps them see-through. */
   background: Background
   adjust: Adjust
@@ -353,20 +357,23 @@ export class Deres {
       origH: src.origH,
       profile,
       resolution: s.resolution,
-      block: s.block,
+      customWidth: s.customWidth,
       fit: s.fit
     })
     const { width, height, dst } = g
 
-    // Resize (cached until the framing changes), then lay it on the frame.
+    // Resize (cached until the framing changes), sharpen back what it
+    // blurred (cheap, at the machine's size), then lay it on the frame.
     // A picture with nothing see-through (the choice is hidden then) comes
     // out as it always did, black bars included.
     const background = s.background === 'transparent' && !src.hasAlpha ? 'white' : s.background
     const part = this.resize(src, g, background)
+    const amount = detailAmount(s.detail ?? 0, coverage(g, { srcW: src.width, srcH: src.height, origW: src.origW, origH: src.origH }))
+    const shown = amount > 0 ? keepDetail(part.rgb, dst.w, dst.h, amount) : part.rgb
     const rgb = new Float32Array(width * height * 3)
     const bars = dst.w !== width || dst.h !== height
     for (let y = 0; y < dst.h; y++) {
-      rgb.set(part.rgb.subarray(y * dst.w * 3, (y + 1) * dst.w * 3), ((dst.y + y) * width + dst.x) * 3)
+      rgb.set(shown.subarray(y * dst.w * 3, (y + 1) * dst.w * 3), ((dst.y + y) * width + dst.x) * 3)
     }
     // Kept transparency: the "fit" bars are see-through too, and the
     // picture's edge carries on into them like everywhere else.

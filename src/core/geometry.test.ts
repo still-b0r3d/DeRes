@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AUTO_MAX, CUSTOM_MAX, planGeometry, type GeometryInput } from './geometry'
+import { AUTO_MAX, coverage, CUSTOM_MAX, CUSTOM_MIN, customWidthRange, planGeometry, type GeometryInput } from './geometry'
 import { profileById } from './profiles'
 
 const base = (over: Partial<GeometryInput>): GeometryInput => ({
@@ -9,7 +9,6 @@ const base = (over: Partial<GeometryInput>): GeometryInput => ({
   origH: 2000,
   profile: profileById('gameboy')!,
   resolution: 'native',
-  block: 8,
   fit: 'fill',
   ...over
 })
@@ -57,16 +56,55 @@ describe('framing', () => {
   })
 })
 
-describe('custom block size', () => {
-  it('makes one pixel per block of the original photo', () => {
-    const g = planGeometry(base({ resolution: 'custom', block: 16 }))
+describe('custom width', () => {
+  it('is the width picked, square pixels, the photo’s own shape', () => {
+    const g = planGeometry(base({ resolution: 'custom', customWidth: 250 }))
     expect([g.width, g.height]).toEqual([250, 125])
     expect(g.par).toEqual([1, 1])
+    expect(g.src).toEqual({ x: 0, y: 0, w: 2000, h: 1000 })
+  })
+
+  it('starts at the machine’s own width', () => {
+    expect(planGeometry(base({ resolution: 'custom' })).width).toBe(160)
+    expect(planGeometry(base({ resolution: 'custom', profile: profileById('vga')! })).width).toBe(320)
+  })
+
+  it('is the same for a photo whatever its size: the 256-pixel sample and a phone photo both come out 43 wide', () => {
+    const small = planGeometry(base({ resolution: 'custom', customWidth: 43, srcW: 256, srcH: 256, origW: 256, origH: 256 }))
+    const big = planGeometry(base({ resolution: 'custom', customWidth: 43, srcW: 2016, srcH: 1512, origW: 4032, origH: 3024 }))
+    expect([small.width, small.height]).toEqual([43, 43])
+    expect([big.width, big.height]).toEqual([43, 32])
   })
 
   it('is capped, keeping the shape', () => {
-    const g = planGeometry(base({ resolution: 'custom', block: 2 }))
+    const g = planGeometry(base({ resolution: 'custom', customWidth: 5000 }))
     expect(g.width).toBe(CUSTOM_MAX)
     expect(g.height).toBe(CUSTOM_MAX / 2)
+    expect(planGeometry(base({ resolution: 'custom', customWidth: 1 })).width).toBe(CUSTOM_MIN)
+  })
+
+  it('never enlarges the photo, and a tall photo keeps its height under the cap', () => {
+    expect(customWidthRange({ srcW: 256, srcH: 256, origW: 256, origH: 256 })).toEqual({ min: CUSTOM_MIN, max: 256 })
+    const tall = { srcW: 1500, srcH: 2000, origW: 3000, origH: 4000 }
+    expect(customWidthRange(tall)).toEqual({ min: CUSTOM_MIN, max: 768 })
+    const g = planGeometry(base({ ...tall, resolution: 'custom', customWidth: 2000 }))
+    expect([g.width, g.height]).toEqual([768, 1024])
+    // A sliver narrower than the smallest width can still be made.
+    expect(customWidthRange({ srcW: 4, srcH: 3000, origW: 4, origH: 3000 })).toEqual({ min: 1, max: 1 })
+  })
+})
+
+describe('coverage', () => {
+  it('counts the photo’s own pixels behind each output pixel, past a shrunk working copy', () => {
+    const photo = { srcW: 2000, srcH: 1000, origW: 4000, origH: 2000 }
+    expect(coverage(planGeometry(base({ resolution: 'custom', customWidth: 400 })), photo)).toEqual([10, 10])
+    const [x, y] = coverage(planGeometry(base({})), photo)
+    expect(x).toBeCloseTo(2000 / 144, 6)
+    expect(y).toBeCloseTo(2000 / 144, 6)
+  })
+
+  it('is below 1 when the photo is enlarged', () => {
+    const photo = { srcW: 80, srcH: 72, origW: 80, origH: 72 }
+    expect(coverage(planGeometry(base({ ...photo })), photo)).toEqual([0.5, 0.5])
   })
 })

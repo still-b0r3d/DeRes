@@ -418,7 +418,7 @@ export function startApp(): void {
       origH: picture.copy.origH,
       profile: profileById(settings.profileId)!,
       resolution: settings.resolution,
-      block: settings.block,
+      customWidth: settings.customWidth,
       fit: settings.fit
     })
   }
@@ -427,7 +427,8 @@ export function startApp(): void {
     profileId: s.profileId,
     fit: s.fit,
     resolution: s.resolution,
-    block: s.block,
+    customWidth: s.customWidth,
+    detail: s.detail,
     background: s.background,
     adjust: s.adjust,
     dither: s.dither,
@@ -655,6 +656,8 @@ export function startApp(): void {
         name: picture.name,
         origW: picture.copy.origW,
         origH: picture.copy.origH,
+        copyW: picture.copy.width,
+        copyH: picture.copy.height,
         hasAlpha: picture.hasAlpha,
         frames: picture.frames,
         animation: picture.animation

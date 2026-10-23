@@ -23,6 +23,7 @@ async function expectDeresDefaults(page: Page) {
   for (const id of ['brightness', 'contrast', 'saturation', 'gamma'] as const) {
     expect(Number(await page.locator(`#${id}`).inputValue())).toBeCloseTo(d.adjust[id], 5)
   }
+  expect(Number(await page.locator('#detail').inputValue())).toBeCloseTo(d.detail, 5)
   await expect(pressed(page, 'Signal')).toHaveAttribute('data-value', 'off')
   await expect(pressed(page, 'Screen effect')).toHaveAttribute('data-value', 'off')
   await expect(pressed(page, 'Size')).toHaveAttribute('data-value', String(d.multiplier))
@@ -53,7 +54,8 @@ test('DeRes: change a lot, reset, and every control is back to its default', asy
   await seg(page, 'Size', '2').click()
   await seg(page, 'Loop length', '32').click()
   await seg(page, 'Resolution', 'custom').click()
-  await page.locator('#block').fill('12')
+  await page.getByTestId('custom-width').fill('96')
+  await page.locator('#detail').fill('0.8')
   await ready(page, /colours/)
   const reset = page.getByTestId('reset-settings')
   await expect(reset).toHaveText('Reset settings')

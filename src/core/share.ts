@@ -30,7 +30,8 @@ export function encodeSettings(settings: Settings): string {
     p: settings.profileId,
     f: settings.fit,
     r: settings.resolution,
-    b: settings.block,
+    w: settings.customWidth,
+    dt: settings.detail,
     bg: settings.background,
     d: settings.dither,
     ps: settings.pixelShape,
@@ -109,7 +110,8 @@ export function decodeSettings(hash: string): Record<string, unknown> | null {
     set('profileId', raw.p)
     set('fit', raw.f)
     set('resolution', raw.r)
-    set('block', raw.b)
+    set('customWidth', raw.w)
+    set('detail', raw.dt)
     set('background', raw.bg)
     set('dither', raw.d)
     set('pixelShape', raw.ps)

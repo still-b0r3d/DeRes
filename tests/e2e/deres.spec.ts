@@ -237,11 +237,48 @@ test('screen effects: CRT and LCD previews, kept in the export from 3× up', asy
   )
 })
 
-test('custom block size, framing and the transparent background', async ({ page }) => {
+test('custom width, Detail, framing and the transparent background', async ({ page }) => {
+  const info = page.getByTestId('resolution-info')
+  await expect(info).toHaveText('Game Boy: 160×144 pixels. Each pixel averages 1.6 × 1.6 of your photo’s pixels.')
+
+  // Custom starts at the machine's own width, in the photo's shape.
   await page.locator('.seg[aria-label="Resolution"] button[data-value="custom"]').click()
-  await page.locator('#block').fill('16')
-  await ready(page, '16×16')
-  await expect(page.locator('output[for="block"]')).toHaveText('16 px → 16×16')
+  const width = page.getByTestId('custom-width')
+  await ready(page, '160×160')
+  await expect(width).toHaveValue('160')
+  await expect(info).toHaveText(
+    'Game Boy: 160×144 pixels. Yours: 160×160, the same width. Each pixel averages 1.6 × 1.6 of your photo’s pixels.'
+  )
+  // An exact width shows as it's typed.
+  await width.fill('43')
+  await ready(page, '43×43')
+  await expect(page.getByTestId('custom-height')).toHaveText('× 43 px')
+  await expect(info).toContainText('Yours: 43×43, 27% of its width. Each pixel averages 6 × 6')
+  // Wider than the photo: tidied to the most it can make when it's left.
+  await width.fill('5000')
+  await width.blur()
+  await expect(width).toHaveValue('256')
+  await ready(page, '256×256')
+  // The slider's far left is the narrowest.
+  await page.getByTestId('custom-width-slider').fill('0')
+  await ready(page, '8×8')
+  await expect(width).toHaveValue('8')
+  await width.fill('43')
+  await ready(page, '43×43')
+
+  // Detail: on by default, and it changes the picture.
+  const pixels = () =>
+    page.evaluate(() => {
+      const c = document.querySelector<HTMLCanvasElement>('canvas.result')!
+      return [...c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data].join()
+    })
+  await expect(page.locator('output[for="detail"]')).toHaveText('50%')
+  const sharp = await pixels()
+  await page.locator('#detail').fill('0')
+  await ready(page, '43×43')
+  await expect.poll(pixels).not.toEqual(sharp)
+  await expect(page.getByTestId('detail-hint')).toContainText('Brings back thin lines')
+
   await page.locator('.seg[aria-label="Resolution"] button[data-value="native"]').click()
   await ready(page, '160×144')
 

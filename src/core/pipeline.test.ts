@@ -31,7 +31,6 @@ const settings = (over: Partial<DeresSettings> = {}): DeresSettings => ({
   profileId: 'gameboy',
   fit: 'fill',
   resolution: 'native',
-  block: 8,
   background: 'white',
   adjust: { ...NEUTRAL },
   dither: 'floyd',
@@ -434,6 +433,41 @@ describe('colourTotal (the "of N" in the readout)', () => {
       const r = d.render(settings({ profileId: id }))
       const total = colourTotal(p, r.palette)
       if (total !== null) expect(r.used, id).toBeLessThanOrEqual(total)
+    }
+  })
+})
+
+describe('Detail', () => {
+  // Grey with a dark 2-pixel stripe every 24: thin lines a 6× shrink fades.
+  function stripes(n: number): Uint8ClampedArray {
+    const px = new Uint8ClampedArray(n * n * 4).fill(255)
+    for (let y = 0; y < n; y++)
+      for (let x = 0; x < n; x++) {
+        const v = x % 24 < 2 ? 60 : 190
+        px.fill(v, (y * n + x) * 4, (y * n + x) * 4 + 3)
+      }
+    return px
+  }
+  const darkest = (rgb: Uint8Array) => Math.min(...rgb)
+  const render = (detail: number | undefined, customWidth: number) => {
+    const d = new Deres()
+    d.setSource(stripes(240), 240, 240, 240, 240)
+    return d.render(settings({ profileId: 'vga', dither: 'none', resolution: 'custom', customWidth, detail }))
+  }
+
+  it('brings back the lines a shrink fades', () => {
+    expect(darkest(render(0.5, 40).rgb)).toBeLessThan(darkest(render(0, 40).rgb) - 15)
+  })
+
+  it('missing is none, and a picture that isn’t shrunk is left alone', () => {
+    expect(render(undefined, 40).rgb).toEqual(render(0, 40).rgb)
+    expect(render(1, 240).rgb).toEqual(render(0, 240).rgb)
+  })
+
+  it('every machine renders with it at full', () => {
+    for (const p of PROFILES) {
+      const r = loaded().render(settings({ profileId: p.id, dither: p.dither, detail: 1 }))
+      expect(r.width).toBe(p.width)
     }
   })
 })

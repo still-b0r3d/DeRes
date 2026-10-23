@@ -23,7 +23,6 @@ const settings = (over: Partial<DeresSettings> = {}): DeresSettings => ({
   profileId: 'gameboy',
   fit: 'fill',
   resolution: 'native',
-  block: 8,
   background: 'white',
   adjust: { ...NEUTRAL },
   dither: 'floyd',

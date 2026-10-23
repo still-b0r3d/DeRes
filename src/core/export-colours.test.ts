@@ -36,7 +36,6 @@ const settings = (profileId: string, over: Partial<DeresSettings> = {}): DeresSe
   profileId,
   fit: 'fill',
   resolution: 'native',
-  block: 8,
   background: 'white',
   adjust: { ...NEUTRAL },
   dither: profileById(profileId)!.dither,

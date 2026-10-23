@@ -541,6 +541,32 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+/* Custom width: a box for an exact number, the height beside it. */
+.width-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--brand-font);
+  font-size: 0.85rem;
+}
+
+.width-box {
+  width: 5.5em;
+  padding: 4px 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--brand-font);
+  font-size: 0.85rem;
+  text-align: right;
+}
+
+.width-box:focus {
+  border-color: var(--cyan);
+  outline: none;
+}
+
 .slider input[type='range'],
 .frame-slider {
   grid-column: 1 / -1;

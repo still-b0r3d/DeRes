@@ -1,11 +1,12 @@
 import { NEUTRAL } from '../core/adjust'
+import { detailAmount } from '../core/detail'
 import { DITHERS } from '../core/dither'
 import { FX_MIN_MULTIPLIER } from '../core/export'
-import type { Geometry } from '../core/geometry'
+import { coverage, CUSTOM_MAX, CUSTOM_MIN, customWidthRange, type Geometry } from '../core/geometry'
 import { framesText } from '../core/gif-info'
 import { animationLimit, animationMultiplier, heldFrames } from '../core/animate'
 import { colourCount, ditherApplies, ditherNote, exportSize, MAX_EXPORT_PIXELS, maxColourCount, paletteBytes } from '../core/pipeline'
-import { PROFILES, profileById, representativePalette } from '../core/profiles'
+import { PROFILES, profileById, representativePalette, type Profile } from '../core/profiles'
 import {
   CONNECTION_NAMES,
   LOOP_FPS,
@@ -48,6 +49,9 @@ export interface ControlsContext {
     name: string
     origW: number
     origH: number
+    /** The working copy's size (smaller than the photo when that's huge). */
+    copyW: number
+    copyH: number
     hasAlpha: boolean
     /** Images in the file (a GIF can hold many). */
     frames: number
@@ -96,6 +100,38 @@ function section(title: string, open: boolean, ...body: (Node | null)[]): HTMLDe
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
 const signedPct = (v: number) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}`
+const oneDp = (v: number) => String(Math.round(v * 10) / 10)
+
+/** Steps along the custom width slider. */
+const WIDTH_TRAVEL = 1000
+
+/**
+ * The line under Resolution: the machine's own size, a custom size against
+ * it, and how many of the photo's pixels go into each of the machine's
+ * (`cover`, from geometry's coverage; null without a picture).
+ */
+export function resolutionText(p: Profile, custom: boolean, g: Geometry | null, cover: readonly [number, number] | null): string {
+  const shape = p.par[0] === p.par[1] ? '' : p.par[0] < p.par[1] ? ', each taller than wide' : ', each wider than tall'
+  const parts = [
+    p.height === 'auto'
+      ? `${p.name}: ${p.width} pixels across, as long as the photo needs.`
+      : `${p.name}: ${p.width}×${p.height} pixels${shape}.`
+  ]
+  if (custom && g) {
+    const r = g.width / p.width
+    const against = g.width === p.width ? 'the same width' : r < 1 ? `${Math.round(r * 100)}% of its width` : `${oneDp(r)}× its width`
+    parts.push(`Yours: ${g.width}×${g.height}, ${against}.`)
+  }
+  if (cover) {
+    const mean = Math.sqrt(cover[0] * cover[1])
+    parts.push(
+      mean < 1
+        ? `Your photo is smaller, so it’s enlarged ${oneDp(1 / mean)}×.`
+        : `Each pixel averages ${oneDp(cover[0])} × ${oneDp(cover[1])} of your photo’s pixels.`
+    )
+  }
+  return parts.join(' ')
+}
 
 export function buildControls(ctx: ControlsContext): {
   el: HTMLElement
@@ -121,19 +157,71 @@ export function buildControls(ctx: ControlsContext): {
     'Resolution',
     [
       { value: 'native', text: 'Native' },
-      { value: 'custom', text: 'Custom block size' }
+      { value: 'custom', text: 'Custom size' }
     ] as const,
     (v) => set({ resolution: v })
   )
-  const block = slider({
-    id: 'block',
-    label: 'Block size',
-    min: 2,
-    max: 32,
+  // Custom width: a box for an exact number, and a slider that moves in
+  // even ratios, so 20 → 40 px takes as much travel as 400 → 800.
+  const widthLimits = (): { min: number; max: number } => {
+    const pic = ctx.picture()
+    return pic ? customWidthRange({ srcW: pic.copyW, srcH: pic.copyH, origW: pic.origW, origH: pic.origH }) : { min: CUSTOM_MIN, max: CUSTOM_MAX }
+  }
+  const toTravel = (w: number, r: { min: number; max: number }) =>
+    r.max > r.min ? Math.round((WIDTH_TRAVEL * Math.log(w / r.min)) / Math.log(r.max / r.min)) : 0
+  const fromTravel = (t: number, r: { min: number; max: number }) => Math.round(r.min * (r.max / r.min) ** (t / WIDTH_TRAVEL))
+  const clampWidth = (w: number, r: { min: number; max: number }) => Math.min(r.max, Math.max(r.min, Math.round(w)))
+  const widthBox = h('input', {
+    type: 'number',
+    id: 'custom-width',
+    class: 'width-box',
     step: 1,
-    format: (v) => `${v} px`,
-    onInput: (v) => set({ block: v })
+    inputmode: 'numeric',
+    'data-testid': 'custom-width'
   })
+  // Typing: every whole number in range shows at once; the box is tidied
+  // (clamped) when it's left or Enter is pressed.
+  widthBox.addEventListener('input', () => {
+    const r = widthLimits()
+    const v = Number(widthBox.value)
+    if (widthBox.value !== '' && Number.isInteger(v) && v >= r.min && v <= r.max) set({ customWidth: v })
+  })
+  widthBox.addEventListener('change', () => {
+    const v = Number(widthBox.value)
+    if (widthBox.value !== '' && Number.isFinite(v)) set({ customWidth: clampWidth(v, widthLimits()) })
+    widthBox.value = String(ctx.geometry()?.width ?? ctx.get().customWidth ?? profileById(ctx.get().profileId)!.width)
+  })
+  const widthHeight = h('span', { class: 'width-height', 'data-testid': 'custom-height' })
+  const widthSlider = h('input', {
+    type: 'range',
+    id: 'custom-width-slider',
+    min: 0,
+    max: WIDTH_TRAVEL,
+    step: 1,
+    'aria-label': 'Width',
+    'data-testid': 'custom-width-slider',
+    oninput: () => set({ customWidth: fromTravel(Number(widthSlider.value), widthLimits()) })
+  })
+  const widthEl = h(
+    'div',
+    { class: 'slider' },
+    h('label', { for: 'custom-width' }, 'Width'),
+    h('span', { class: 'width-row' }, widthBox, widthHeight),
+    widthSlider
+  )
+  // What the resolution means: the machine's own size, and how many of the
+  // photo's pixels go into each of the machine's.
+  const resolutionInfo = h('p', { class: 'hint', 'data-testid': 'resolution-info' })
+  const detail = slider({
+    id: 'detail',
+    label: 'Detail',
+    min: 0,
+    max: 1,
+    step: 0.05,
+    format: pct,
+    onInput: (v) => set({ detail: v })
+  })
+  const detailHint = h('p', { class: 'hint', 'data-testid': 'detail-hint' })
   const background = segmented(
     'Transparent areas',
     [
@@ -169,8 +257,11 @@ export function buildControls(ctx: ControlsContext): {
     ),
     pictureInfo,
     h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Resolution'), resolution.el),
-    block.el,
+    widthEl,
+    resolutionInfo,
     fitRow,
+    detail.el,
+    detailHint,
     backgroundRow
   )
 
@@ -659,9 +750,25 @@ export function buildControls(ctx: ControlsContext): {
     resolution.set(s.resolution)
     const native = resolution.buttons.get('native')!
     native.textContent = `Native ${p.width}×${p.height === 'auto' ? 'auto' : p.height}`
-    show(block.el, s.resolution === 'custom')
-    block.set(s.block)
-    if (s.resolution === 'custom' && g) block.el.querySelector('output')!.textContent = `${s.block} px → ${g.width}×${g.height}`
+    const custom = s.resolution === 'custom'
+    show(widthEl, custom)
+    if (custom) {
+      const r = widthLimits()
+      const w = g?.width ?? clampWidth(s.customWidth ?? p.width, r)
+      widthBox.min = String(r.min)
+      widthBox.max = String(r.max)
+      // Not while it's being typed in: that would fight the typing.
+      if (document.activeElement !== widthBox) widthBox.value = String(w)
+      widthHeight.textContent = g ? `× ${g.height} px` : 'px'
+      widthSlider.value = String(toTravel(w, r))
+    }
+    const cover = pic && g ? coverage(g, { srcW: pic.copyW, srcH: pic.copyH, origW: pic.origW, origH: pic.origH }) : null
+    resolutionInfo.textContent = resolutionText(p, custom, g, cover)
+    detail.set(s.detail)
+    detailHint.textContent =
+      cover && detailAmount(1, cover) === 0
+        ? 'Your photo isn’t shrunk here, so there’s nothing for it to bring back.'
+        : 'Brings back thin lines (eyes, outlines, stripes) that shrinking blurs away. 0% is a plain average.'
     fit.set(s.fit)
     show(fitRow, s.resolution === 'native' && p.height !== 'auto')
     background.set(s.background)
@@ -826,7 +933,7 @@ export function buildControls(ctx: ControlsContext): {
           (anim.limit === 'frames' && signalLoop
             ? ' Pick a shorter loop.'
             : anim.limit === 'frame' && s.resolution === 'custom'
-              ? ' Pick a bigger block size.'
+              ? ' Pick a smaller width.'
               : '')
       } else if (anim.multiplier !== null && anim.next !== null) {
         const [aw, ah] = exportSize(g.width, g.height, par, anim.multiplier, tv)

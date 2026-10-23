@@ -4,9 +4,11 @@ import type { Rect } from './resample'
 // Where the photo goes in the output: which part of it is used (src, in
 // working-copy pixels) and where it lands (dst, in output pixels).
 //
-// Native resolution is the main control. "Custom" keeps the old block-size
-// idea: one output pixel per block of the original photo, square pixels, the
-// photo's own shape.
+// Native resolution is the main control. "Custom" is a width in pixels you
+// pick (the machine's own width until you do), square pixels, the photo's own
+// shape. (It used to be a block size counted in the photo's pixels, which
+// meant something different for every photo: block 8 made a 256-pixel sample
+// 32 pixels wide and a phone photo 500.)
 
 export type Fit = 'fill' | 'fit' | 'stretch'
 
@@ -28,26 +30,44 @@ export interface GeometryInput {
   origH: number
   profile: Profile
   resolution: 'native' | 'custom'
-  block: number
+  /** The custom width; missing means the machine's own width. */
+  customWidth?: number
   fit: Fit
 }
 
-/** Largest output side for custom block sizes. */
+/** Largest output side for custom sizes. */
 export const CUSTOM_MAX = 1024
+/** Narrowest custom width. */
+export const CUSTOM_MIN = 8
 /** Tallest strip the receipt printer makes. */
 export const AUTO_MAX = 4096
+
+/**
+ * The widths Custom can make of this photo: never wider than the photo is
+ * (or its working copy, for a huge one), and no side past CUSTOM_MAX.
+ */
+export function customWidthRange(o: { srcW: number; srcH: number; origW: number; origH: number }): { min: number; max: number } {
+  const cap = Math.min(CUSTOM_MAX, Math.max(o.srcW, o.srcH))
+  const max = Math.max(1, Math.floor((cap * o.origW) / Math.max(o.origW, o.origH)))
+  return { min: Math.min(CUSTOM_MIN, max), max }
+}
+
+/**
+ * How many of the photo's own pixels each output pixel covers, across and
+ * down (below 1: the photo is enlarged). The more, the more fine detail the
+ * shrink averages away.
+ */
+export function coverage(g: Geometry, o: { srcW: number; srcH: number; origW: number; origH: number }): [number, number] {
+  return [(g.src.w * o.origW) / o.srcW / g.dst.w, (g.src.h * o.origH) / o.srcH / g.dst.h]
+}
 
 export function planGeometry(o: GeometryInput): Geometry {
   const whole: Rect = { x: 0, y: 0, w: o.srcW, h: o.srcH }
 
   if (o.resolution === 'custom') {
-    const block = Math.max(1, o.block)
-    let w = Math.max(1, Math.round(o.origW / block))
-    let h = Math.max(1, Math.round(o.origH / block))
-    const cap = Math.min(CUSTOM_MAX, Math.max(o.srcW, o.srcH))
-    const s = Math.min(1, cap / Math.max(w, h))
-    w = Math.max(1, Math.round(w * s))
-    h = Math.max(1, Math.round(h * s))
+    const { min, max } = customWidthRange(o)
+    const w = Math.min(max, Math.max(min, Math.round(o.customWidth ?? o.profile.width)))
+    const h = Math.max(1, Math.round((w * o.origH) / o.origW))
     return { width: w, height: h, src: whole, dst: { x: 0, y: 0, w, h }, par: [1, 1] }
   }
 

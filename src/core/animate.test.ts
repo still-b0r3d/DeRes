@@ -101,7 +101,6 @@ describe('animate core', () => {
     profileId: 'gameboy',
     fit: 'fill',
     resolution: 'native',
-    block: 8,
     background: 'white',
     adjust: { brightness: 0, contrast: 1, saturation: 1, gamma: 1 },
     dither: 'bayer4',

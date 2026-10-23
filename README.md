@@ -100,8 +100,16 @@ images.
   to clipboard with one click. Opening one checks every value like saved settings, so a
   link from another version falls back instead of breaking the page.
 - **Resolution:** the machine's native size (crop to fill, fit with bars, or
-  stretch), or a custom block size. Shrinking is an area average in linear
-  light, so nothing aliases.
+  stretch), or a custom width in pixels (typed, or on a slider that moves in
+  even ratios), starting at the machine's own width, in the photo's shape.
+  A line under it gives the machine's size, a custom size against it, and how
+  many of the photo's pixels go into each one. Shrinking is an area average
+  in linear light, so nothing aliases.
+- **Detail** (v0.9.4): the average fades thin lines (eyes, outlines, stripes)
+  that a small picture lives on, so the shrunk picture is sharpened back
+  against each pixel's 3×3 neighbourhood, in sRGB. 50% by default, 0% is the
+  plain average; it does nothing to a photo that isn't shrunk and its full
+  strength from a 2× shrink.
 - **Transparent areas** (offered when the picture has any): laid on white or
   black, or **Keep** (v0.9.3), and they stay see-through. A machine pixel
   shows when at least half of it is covered and is hidden otherwise (the

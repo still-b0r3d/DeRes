@@ -1,6 +1,8 @@
 import { NEUTRAL } from '../core/adjust'
+import { DEFAULT_DETAIL } from '../core/detail'
 import { DITHERS, type DitherId } from '../core/dither'
 import { DEFAULT_FX, type Fx } from '../core/fx'
+import { CUSTOM_MAX } from '../core/geometry'
 import type { DeresSettings } from '../core/pipeline'
 import { DEFAULT_PROFILE, profileById } from '../core/profiles'
 
@@ -13,6 +15,7 @@ import type { AnimationStyle } from '../core/animate'
 import { checkSignal, DEFAULT_SIGNAL, LOOP_FPS, LOOP_FRAMES, type LoopFps, type LoopFrames, type SignalSettings } from '../core/signal'
 
 export interface Settings extends DeresSettings {
+  detail: number
   multiplier: number
   exportFx: boolean
   animationStyle: AnimationStyle
@@ -31,7 +34,9 @@ export function defaultSettings(): Settings {
     profileId: p.id,
     fit: 'fill',
     resolution: 'native',
-    block: 8,
+    // The machine's own width until one is picked.
+    customWidth: undefined,
+    detail: DEFAULT_DETAIL,
     background: 'white',
     adjust: { ...NEUTRAL },
     dither: p.dither,
@@ -94,7 +99,13 @@ export function checkSettings(loaded: Record<string, unknown>, base: Settings): 
     profileId,
     fit: oneOf(loaded.fit, ['fill', 'fit', 'stretch'] as const, base.fit),
     resolution: oneOf(loaded.resolution, ['native', 'custom'] as const, base.resolution),
-    block: Math.round(num(loaded.block, 2, 32, base.block)),
+    // Settings and links from before v0.9.4 have a block size instead: it
+    // meant something different for every photo, so it's left behind.
+    customWidth:
+      typeof loaded.customWidth === 'number' && Number.isFinite(loaded.customWidth)
+        ? Math.round(num(loaded.customWidth, 1, CUSTOM_MAX, CUSTOM_MAX))
+        : base.customWidth,
+    detail: num(loaded.detail, 0, 1, base.detail),
     background: oneOf(loaded.background, ['white', 'black', 'transparent'] as const, base.background),
     adjust: {
       brightness: num(a.brightness, -0.5, 0.5, base.adjust.brightness),
