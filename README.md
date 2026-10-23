@@ -14,11 +14,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.9.3.2 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v0.9.4 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.9.3.2)
+## What it does (v0.9.4)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try a sample. Pictures: Rukus, who carries made-up,
@@ -404,6 +404,7 @@ built from) and a link to this repository.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.9.4 | 2026-10-22 | Custom size is a width in pixels instead of a block size (which meant something different for every photo: block 6 made the 256-pixel Rukus sample 43 pixels wide and a phone photo 670). Type an exact width or use the slider, which moves in even ratios; it starts at the machine's own width. A line under Resolution gives the machine's size, a custom size against it, and how many of the photo's pixels each one averages. New **Detail** slider (50% by default): the shrink's average fades thin lines like eyes and outlines, and Detail sharpens them back, more the more the photo is shrunk; 0% is the old look. Old saved settings and share links with a block size open at the machine's width. |
 | 0.9.3.2 | 2026-10-15 | The new b0r3d cup: the logo and the tab icon are the Game Boy cup now used across b0r3d.org. |
 | 0.9.3.1 | 2026-10-15 | Fix: "Download PNG" without a screen effect wrote the wrong colours on the looks that make their own colours (PlayStation, Amiga HAM6, N64, Early CCD, Deep Fry, Newspaper, Risograph), and so did the Shimmer loop: their colour codes went into the file as if they were palette entries. Those files now hold exactly the colours the preview shows (indexed while they fit 256 colours, RGB past that). Every machine is now checked pixel for pixel against its preview. |
 | 0.9.3 | 2026-10-15 | Transparent areas: Keep. A picture's see-through parts can stay see-through instead of going white or black: a pixel shows when at least half of it is covered, and the picture's edge carries on under the hidden ones, so the dither, the screen effects and the Signal leave no fringe and their glow stops at the outline. The PNG (indexed with a see-through entry, or RGBA), APNG and GIF (a transparent index, frames cleared after they show) keep them; wallpapers stay solid, `.scr` and `.koa` are made as on black, `.chr` tiles use colour 0. The preview and Compare show a checkerboard. |
