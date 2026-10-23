@@ -30,6 +30,18 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } }
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    // The live camera (camera.spec.ts only): Chromium's fake camera, allowed
+    // without asking. WebKit's Windows build has no camera API to test.
+    //   pnpm test:e2e --project=chromium-camera
+    {
+      name: 'chromium-camera',
+      testMatch: /camera\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        permissions: ['camera'],
+        launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] }
+      }
+    }
   ]
 })

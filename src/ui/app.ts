@@ -38,9 +38,11 @@ import {
 } from '../core/scrub'
 import { createZip } from '../core/zip'
 import { injectExif } from '../core/inject'
-import type { RenderedView } from '../worker/protocol'
+import type { LoadedGif, RenderedView } from '../worker/protocol'
 import { asciiAnimationFit, buildAsciiControls, type AsciiScale } from './ascii-controls'
 import { AsciiStage } from './ascii-stage'
+import { LiveCamera } from './camera'
+import { liveFxScale } from './camera-plan'
 import { animationFit, buildControls } from './controls'
 import { buildScrubControls } from './scrub-controls'
 import { buildInjectControls } from './inject-controls'
@@ -266,6 +268,53 @@ export function startApp(): void {
   asciiStage.addPlaybar(asciiPlayer.el)
   asciiStage.onDial = () => asciiPlayer.pause()
 
+  // The live camera, in the Image section. While it's on, the preview shows
+  // its frames, the controls work on them, and the picture waits in the
+  // worker for Stop.
+  const camera = new LiveCamera({
+    engine,
+    settings: () => deres(settings),
+    geometryChoice: () => ({
+      profile: profileById(settings.profileId)!,
+      resolution: settings.resolution,
+      customWidth: settings.customWidth,
+      fit: settings.fit
+    }),
+    fxScale() {
+      const g = geometry()
+      return g ? liveFxScale(previewScale(false), g.width, g.height, g.par, settings.pixelShape === 'tv') : 0
+    },
+    show(view, fps) {
+      showResult(view)
+      readout.textContent += ` · ${fps} fps`
+      readout.dataset.fps = String(fps)
+    },
+    started() {
+      player.pause()
+      stage.setPlaying(true)
+      show(player.el, false)
+      controls.sync()
+    },
+    stopped(restore) {
+      stage.setPlaying(false)
+      show(player.el, (picture?.animation?.frames ?? 0) > 1)
+      delete readout.dataset.fps
+      controls.sync()
+      if (!restore) return
+      if (picture) {
+        showOriginal(player.frame)
+        render()
+      } else {
+        stage.message('Choose a photo to start.')
+      }
+    },
+    resized: () => controls.sync(),
+    problem: (text) => stage.problem(text),
+    status: (text) => controls.status(text),
+    open: (blob, name) => open(blob, name),
+    openClip: (gif, name) => openClip(gif, name)
+  })
+
   const readout = h('p', { class: 'readout', 'data-testid': 'readout' })
   const busy = h('span', { class: 'busy', hidden: true }, 'working…')
   const holdHint = h(
@@ -411,12 +460,14 @@ export function startApp(): void {
   }
 
   const geometry = (): Geometry | null => {
-    if (!picture) return null
+    // While the camera is live, its frames are the picture.
+    const src = camera.source() ?? (picture && picture.copy)
+    if (!src) return null
     return planGeometry({
-      srcW: picture.copy.width,
-      srcH: picture.copy.height,
-      origW: picture.copy.origW,
-      origH: picture.copy.origH,
+      srcW: src.width,
+      srcH: src.height,
+      origW: src.origW,
+      origH: src.origH,
       profile: profileById(settings.profileId)!,
       resolution: settings.resolution,
       customWidth: settings.customWidth,
@@ -460,7 +511,8 @@ export function startApp(): void {
   // What the played frames were made with: when it changes, they're dropped.
   let playKey = ''
   const render = () => {
-    if (!geometry()) return
+    // The camera's frames carry the settings of the moment.
+    if (camera.live || !geometry()) return
     const key = JSON.stringify([deres(settings), previewScale(true)])
     if (key !== playKey) {
       playKey = key
@@ -643,27 +695,36 @@ export function startApp(): void {
     },
     resetSettings() {
       // Every setting back to how a first visit starts (palettes grabbed or
-      // loaded go too); the picture stays.
+      // loaded go too, and the camera choices); the picture stays.
       settings = defaultSettings()
       gifFramesChosen = true
+      camera.forgetPrefs()
       saveSettings(settings, true)
       dropShareLink()
       controls.sync()
       render()
       controls.status('Settings reset.')
     },
-    picture: () =>
-      picture && {
-        name: picture.name,
-        origW: picture.copy.origW,
-        origH: picture.copy.origH,
-        copyW: picture.copy.width,
-        copyH: picture.copy.height,
-        hasAlpha: picture.hasAlpha,
-        frames: picture.frames,
-        animation: picture.animation
-      },
-    geometry
+    picture: () => {
+      const live = camera.source()
+      if (live) {
+        return { name: camera.label, origW: live.origW, origH: live.origH, copyW: live.width, copyH: live.height, hasAlpha: false, frames: 1, animation: null }
+      }
+      return (
+        picture && {
+          name: picture.name,
+          origW: picture.copy.origW,
+          origH: picture.copy.origH,
+          copyW: picture.copy.width,
+          copyH: picture.copy.height,
+          hasAlpha: picture.hasAlpha,
+          frames: picture.frames,
+          animation: picture.animation
+        }
+      )
+    },
+    geometry,
+    camera: { useButton: camera.useButton, panel: camera.panel, live: () => camera.live }
   })
 
   const asciiControls = buildAsciiControls({
@@ -998,6 +1059,8 @@ export function startApp(): void {
   const layoutEl = document.querySelector('.layout') as HTMLElement | null
 
   function switchTool(tool: 'deres' | 'ascii' | 'scrub' | 'inject'): void {
+    // The camera is DeRes's: another tab turns it off.
+    if (tool !== 'deres') camera.stop()
     // Leaving a preview pauses its playback; the other preview opens on the frame it was on.
     if (tool !== 'deres') player.pause()
     if (tool !== 'ascii') asciiPlayer.pause()
@@ -1065,8 +1128,10 @@ export function startApp(): void {
   // held, it shows only frames at the playing size (the full-size one is
   // made when it's let go).
   engine.onRendered = (m) => {
-    if (!player.playing && !player.holding && m.frame === player.frame) showResult(m)
+    if (!camera.live && !player.playing && !player.holding && m.frame === player.frame) showResult(m)
   }
+  engine.onLive = (view) => camera.shown(view)
+  engine.onLiveError = (message) => stage.problem(`Something went wrong: ${message}`)
 
   function showResult(m: RenderedView): void {
     const tv = settings.pixelShape === 'tv'
@@ -1101,6 +1166,7 @@ export function startApp(): void {
   /** Opens one picture. A batch (several files picked together) passes inBatch for its first file. */
   async function open(blob: Blob, name: string, inBatch = false): Promise<void> {
     const ticket = ++opening
+    camera.stop()
     player.halt()
     asciiPlayer.halt()
     stage.setPlaying(false)
@@ -1137,13 +1203,7 @@ export function startApp(): void {
         try {
           copy = workingCopyFromRgba(new Uint8ClampedArray(gif.rgba), gif.width, gif.height, gif.origW, gif.origH)
           hasAlpha = gif.hasAlpha
-          animation = {
-            frames: gif.frames,
-            total: gif.total,
-            delaysMs: gif.delaysMs,
-            durationMs: gif.delaysMs.reduce((a, b) => a + b, 0),
-            loopCount: gif.loopCount
-          }
+          animation = animationOf(gif)
         } catch {
           copy = null
         }
@@ -1161,7 +1221,43 @@ export function startApp(): void {
       hasAlpha = await engine.load(copy)
       if (ticket !== opening) return
     }
-    picture = { copy, name, base: baseName(name), hasAlpha, frames, animation }
+    usePicture(
+      { copy, name, base: baseName(name), hasAlpha, frames, animation },
+      bytes ? { bytes, meta: inspectMetadata(bytes), url: URL.createObjectURL(blob), name } : null
+    )
+  }
+
+  /** The timing of an animation the worker now holds (an animated GIF, or a camera clip). */
+  const animationOf = (gif: LoadedGif): PictureAnimation => ({
+    frames: gif.frames,
+    total: gif.total,
+    delaysMs: gif.delaysMs,
+    durationMs: gif.delaysMs.reduce((a, b) => a + b, 0),
+    loopCount: gif.loopCount
+  })
+
+  /** A camera clip the worker now holds, opened like an animated GIF. */
+  function openClip(gif: LoadedGif, name: string): void {
+    ++opening
+    batchItems = []
+    activeBatchIndex = 0
+    let copy: WorkingCopy
+    try {
+      copy = workingCopyFromRgba(new Uint8ClampedArray(gif.rgba), gif.width, gif.height, gif.origW, gif.origH)
+    } catch {
+      stage.problem('The clip didn’t open. Try again.')
+      return
+    }
+    usePicture({ copy, name, base: baseName(name), hasAlpha: false, frames: gif.frames, animation: animationOf(gif) }, 'camera')
+  }
+
+  /**
+   * The picture the worker now holds becomes every tool's. `scrub`: the file
+   * for the EXIF tools; 'camera' for a clip made here, which has no file.
+   */
+  function usePicture(p: Picture, scrub: ScrubFile | 'camera' | null): void {
+    const { copy, animation } = p
+    picture = p
     if (animation) gifFramesChosen = true
     player.setAnimation(animation?.delaysMs ?? null)
     asciiPlayer.setAnimation(animation?.delaysMs ?? null)
@@ -1169,11 +1265,17 @@ export function startApp(): void {
     // The ASCII art of the last picture is no good for exports any more.
     asciiShown = null
     asciiTicket++
-    if (bytes) setScrubFile({ bytes, meta: inspectMetadata(bytes), url: URL.createObjectURL(blob), name })
+    if (scrub === 'camera') {
+      if (scrubFile?.url) URL.revokeObjectURL(scrubFile.url)
+      scrubFile = null
+    } else if (scrub) {
+      setScrubFile(scrub)
+    }
     stage.setSource(copy.canvas)
     controls.sync()
     asciiControls.sync()
     showScrub()
+    if (scrub === 'camera') scrubStage.message('Made by the camera here: there’s no metadata to scrub.')
     if (activeTool === 'ascii') {
       renderAscii()
     } else if (activeTool === 'scrub' || activeTool === 'inject') {

@@ -31,6 +31,32 @@ images.
   decoded once into a working copy no bigger than 2048 px
   on its long edge (big phone photos would otherwise break the page on
   iPhones), with the photo's rotation applied.
+- **Live camera:** **Use camera** beside Choose photo turns the preview into
+  a live view through whatever machine is picked (the Game Boy Camera look on
+  an actual camera), and every control keeps working while it's live. Only
+  where the browser can reach a camera: a secure page with `getUserMedia`.
+  - **Snap** makes the frame the picture, exactly as if a photo had been
+    opened: a fresh PNG made right there, so it holds no metadata at all.
+    **Record 3 s** takes 30 frames at 10 a second and opens them like an
+    animated GIF (play bar, every look, GIF/APNG downloads, ASCII animation);
+    the camera's own frames are kept, so the look can change afterwards.
+    **Flip** (shown when there are two cameras), **Mirror** (selfies are
+    mirrored by default, and what's seen is what's saved), **Stop** (the
+    picture that was open comes back). The last camera and the mirror choice
+    are remembered; Reset settings forgets them.
+  - Nothing leaves the device: frames go to the same in-page worker photos
+    go to, through a second pipeline so the open picture stays loaded. Each
+    frame is grabbed at about 3 camera pixels per machine pixel (at most 960
+    on its long side, 1280 for wide custom sizes) and only one is ever in the
+    worker: frames that come meanwhile are skipped, so a slow look never
+    queues up. The readout adds the frame rate, and a look slower than 8
+    frames a second for 2 seconds says so. Screen effects are drawn smaller
+    while live (at most 600k pixels, never below 2×).
+  - The camera turns off on Snap, Stop, a finished clip, another tab,
+    opening a file, or the page going into the background. Downloads wait
+    for a snap or a clip. Inside a page that doesn't pass the camera on
+    (b0r3d 95's Navigator), it says to open DeRes in its own tab, with a
+    link.
 - **Settings sections:** each visit starts with only Image open (the EXIF
   tools also keep the section with their main button open); the rest open
   with a click.
@@ -284,7 +310,10 @@ pnpm build:signal      # rebuild the signal engine (needs Rust, see below)
 ```
 
 `test:e2e` and `verify:site` need Playwright's browsers
-(`pnpm exec playwright install`).
+(`pnpm exec playwright install`). The live camera's tests run in their own
+project, `pnpm test:e2e --project=chromium-camera`: Chromium's fake camera (a
+moving test pattern), allowed without asking. WebKit's build for Windows has
+no camera API, so a real phone is the camera's real test.
 
 **The signal engine** is Rust: `signal/` is a small wrapper around the
 [ntsc-rs](https://github.com/valadaptive/ntsc-rs) engine crate (`crates/ntscrs`

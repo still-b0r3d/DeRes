@@ -59,6 +59,8 @@ export interface ControlsContext {
     animation: { frames: number; total: number; durationMs: number } | null
   } | null
   geometry(): Geometry | null
+  /** The live camera's button and panel for the Image section, and whether it's on (absent: no camera). */
+  camera?: { useButton: HTMLElement; panel: HTMLElement; live(): boolean }
 }
 
 export { MULTIPLIERS }
@@ -245,16 +247,25 @@ export function buildControls(ctx: ControlsContext): {
     keepNote
   )
   const fitRow = h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Framing'), fit.el)
+  // Choose photo, and Use camera beside it where there's one.
+  const chooseRow = h(
+    'div',
+    { class: 'choose-row' },
+    h('button', { type: 'button', class: 'choose', onclick: () => ctx.openFile() }, 'Choose photo'),
+    ctx.camera?.useButton ?? null
+  )
+  const sampleHint = h(
+    'p',
+    { class: 'hint' },
+    sampleLinks((id) => ctx.loadSample(id)),
+    h('span', { class: 'sample-line desktop-only' }, 'Or drop a photo on the page, or paste one.')
+  )
   const imageSec = section(
     'Image',
     true,
-    h('button', { type: 'button', class: 'choose', onclick: () => ctx.openFile() }, 'Choose photo'),
-    h(
-      'p',
-      { class: 'hint' },
-      sampleLinks((id) => ctx.loadSample(id)),
-      h('span', { class: 'sample-line desktop-only' }, 'Or drop a photo on the page, or paste one.')
-    ),
+    chooseRow,
+    ctx.camera?.panel ?? null,
+    sampleHint,
     pictureInfo,
     h('div', { class: 'row' }, h('span', { class: 'row-label' }, 'Resolution'), resolution.el),
     widthEl,
@@ -704,6 +715,7 @@ export function buildControls(ctx: ControlsContext): {
   )
 
   const statusLine = h('p', { class: 'status', role: 'status' })
+  const liveNote = h('p', { class: 'hint', 'data-testid': 'live-export-note', hidden: true }, 'Snap first: downloads work on a still or a clip.')
   const exportSec = section(
     'Export',
     false,
@@ -714,6 +726,7 @@ export function buildControls(ctx: ControlsContext): {
     animRow,
     loopRows,
     h('div', { class: 'export-actions' }, downloadBtn, animActions, animHint, emuActions, shareBtn),
+    liveNote,
     exportNote,
     wallRow,
     statusLine
@@ -977,6 +990,17 @@ export function buildControls(ctx: ControlsContext): {
       wallWin95Btn.disabled = true
       wall1080pBtn.disabled = true
       show(emuActions, false)
+    }
+
+    // The camera is live: choosing a photo and downloading wait for Stop or a snap.
+    const live = ctx.camera?.live() ?? false
+    show(chooseRow, !live)
+    show(sampleHint, !live)
+    show(liveNote, live)
+    if (live) {
+      for (const b of [downloadBtn, downloadApngBtn, downloadGifBtn, wallPhoneBtn, wallWin95Btn, wall1080pBtn, emuScrBtn, emuKoaBtn, emuChrBtn]) {
+        b.disabled = true
+      }
     }
   }
 

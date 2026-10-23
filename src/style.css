@@ -428,6 +428,66 @@ button:disabled {
   background: rgba(0, 255, 157, 0.16);
 }
 
+/* Choose photo, and Use camera beside it when there's a camera. */
+.choose-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.choose-row:has(> .camera-use:not([hidden])) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.choose-row:has(> .camera-use:not([hidden])) .choose {
+  padding: 12px 6px;
+  font-size: 1rem;
+  letter-spacing: 0.5px;
+}
+
+/* The live camera: Snap across the top, then Record, Flip, Mirror, Stop. */
+.camera-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.camera-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.camera-row .camera-snap {
+  grid-column: 1 / -1;
+}
+
+.camera-row .small {
+  width: 100%;
+  align-self: stretch;
+  min-height: 40px;
+}
+
+.camera-row button[aria-pressed='true'] {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.camera-row button:disabled {
+  opacity: 0.5;
+}
+
+/* The camera's own picture: in the page (iOS stops a video that isn't) but never seen. */
+.camera-video {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .hint,
 .about,
 .picture-info,
