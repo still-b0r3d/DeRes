@@ -178,6 +178,8 @@ export class LiveCamera {
   private loopToken = 0
   private tick = 0
   private lastSize = ''
+  /** A camera frame came while the worker was busy: the next one goes as soon as it's free. */
+  private missed = false
   private devices: string[] = []
   private recording: { width: number; height: number; shots: number; next: number; name: string } | null = null
 
@@ -293,6 +295,10 @@ export class LiveCamera {
     this.meter.frame(now)
     const fps = this.meter.fps(now)
     this.host.show(view, fps)
+    // The camera moved on while this one was made: the frame it shows now goes
+    // straight away, rather than at the camera's next frame (which would halve
+    // the rate of any look a little slower than the camera).
+    if (this.missed) this.frame(now)
     if (!this.recording) {
       this.say(this.meter.slow(now) ? `This look is slow live (about ${Math.max(1, fps)} frame${fps === 1 ? '' : 's'} a second). Snap to see it in full.` : null)
     }
@@ -318,7 +324,11 @@ export class LiveCamera {
     const vh = this.feed.height
     if (!vw || !vh) return
     if (this.recording) this.shoot(now)
-    if (!this.host.engine.liveFree) return
+    if (!this.host.engine.liveFree) {
+      this.missed = true
+      return
+    }
+    this.missed = false
     const src = this.source()
     if (!src) return
     const key = `${src.width}x${src.height}/${vw}x${vh}`

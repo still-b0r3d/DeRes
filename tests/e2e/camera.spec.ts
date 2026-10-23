@@ -47,9 +47,9 @@ test.describe('with a camera', () => {
         const c = document.querySelector<HTMLCanvasElement>('canvas.result')!
         return c.width * c.height
       })
-    // The effect is drawn smaller while live: at most 600k pixels a frame, never below 2×.
+    // The effect is drawn smaller while live: at most 300k pixels a frame, never below 2×.
     await expect.poll(fxSize).toBeGreaterThanOrEqual(256 * 2 * 240 * 2)
-    expect(await fxSize()).toBeLessThanOrEqual(600_000)
+    expect(await fxSize()).toBeLessThanOrEqual(300_000)
 
     await page.getByTestId('camera-stop').click()
     await expect(use).toBeVisible()

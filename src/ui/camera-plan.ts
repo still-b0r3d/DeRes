@@ -17,7 +17,7 @@ export const LIVE_MAX = 960
 export const LIVE_MAX_WIDE = 1280
 export const LIVE_WIDE_FROM = 320
 /** Most pixels the screen effect is drawn at while live (a whole frame, every frame). */
-export const LIVE_FX_PIXELS = 600_000
+export const LIVE_FX_PIXELS = 300_000
 /** Below this many frames a second for SLOW_AFTER_MS, the live view says the look is slow. */
 export const SLOW_FPS = 8
 export const SLOW_AFTER_MS = 2000

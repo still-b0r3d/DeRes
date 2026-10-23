@@ -51,7 +51,7 @@ images.
     worker: frames that come meanwhile are skipped, so a slow look never
     queues up. The readout adds the frame rate, and a look slower than 8
     frames a second for 2 seconds says so. Screen effects are drawn smaller
-    while live (at most 600k pixels, never below 2×).
+    while live (at most 300k pixels, never below 2×).
   - The camera turns off on Snap, Stop, a finished clip, another tab,
     opening a file, or the page going into the background. Downloads wait
     for a snap or a clip. Inside a page that doesn't pass the camera on
