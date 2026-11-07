@@ -3,13 +3,18 @@ b0r3d DeRes: third-party notices
 DeRes's own code is under the MIT licence in LICENSE. The Signal step runs a
 WebAssembly build (src/signal/wasm/, built from signal/) that contains the
 following open-source code. Each is used under its MIT licence (several offer
-others too). The MIT licence text follows the list.
+others too). The MIT licence text follows the list. Two parts of ntsc-rs came
+from elsewhere and keep their own licences, printed after the MIT text: its
+simplex noise (from Clatter, used under zlib) and its filters (from SciPy,
+BSD-3-Clause).
 
 - ntsc-rs (the analog-signal engine, crates/ntscrs only), commit 450c6ee
   https://github.com/valadaptive/ntsc-rs
   Copyright © valadaptive
   Licensed MIT OR ISC OR Apache-2.0; used under MIT.
   (Its desktop app, crates/gui, is GPL-3.0 and is not used here.)
+  Its simplex noise is adapted from Clatter, and its filter start-up state,
+  filter loop and notch filter from SciPy's signal module: see the end.
 
 - fearless_simd 0.7.0, https://github.com/linebender/fearless_simd
   Copyright (c) 2018 Raph Levien
@@ -59,3 +64,67 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+----------------------------------------------------------------------------
+Clatter, https://github.com/Ralith/clatter
+ntsc-rs's simplex noise (crates/ntscrs/src/noise/) is adapted from Clatter,
+which is available under MIT, Apache-2.0 or zlib; used here under zlib. Its
+licence, as its LICENSE-ZLIB has it:
+
+Copyright (c) 2024 The lru-slab Developers
+
+This software is provided 'as-is', without any express or implied warranty. In
+no event will the authors be held liable for any damages arising from the use of
+this software.
+
+Permission is granted to anyone to use this software for any purpose, including
+commercial applications, and to alter it and redistribute it freely, subject to
+the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not claim
+   that you wrote the original software. If you use this software in a product, an
+   acknowledgment in the product documentation would be appreciated but is not
+   required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
+
+----------------------------------------------------------------------------
+SciPy's signal module, https://scipy.org
+ntsc-rs's filter start-up state, its filter loop and its notch filter
+(crates/ntscrs/src/filter.rs and ntsc.rs) are adapted from SciPy's signal
+module (scipy/signal/_signaltools.py, _lfilter.c.in and _filter_design.py).
+Its licence (BSD-3-Clause):
+
+Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy Developers.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above
+   copyright notice, this list of conditions and the following
+   disclaimer in the documentation and/or other materials provided
+   with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived
+   from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

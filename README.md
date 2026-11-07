@@ -379,8 +379,9 @@ their colours and every emulator's numbers differ a little.
 All the code here is written for this project, with two things bundled from
 elsewhere: the ASCII studio's font (below, CC BY-SA 4.0), and the Signal step's
 engine, [ntsc-rs](https://github.com/valadaptive/ntsc-rs) by valadaptive (MIT),
-compiled to WebAssembly with a few small libraries (all MIT; see
-[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)). The methods come from:
+compiled to WebAssembly with a few small libraries (all MIT), its noise adapted
+from Clatter (zlib) and its filters from SciPy (BSD-3-Clause); see
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). The methods come from:
 
 - OKLab, by Björn Ottosson.
 - Ordered dithering for arbitrary palettes, by Joel Yliluoma ("algorithm 2").
