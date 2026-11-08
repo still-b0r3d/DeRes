@@ -153,7 +153,7 @@ async function run(base, remote) {
     const versionLine = (await page.getByTestId('app-version').innerText()).trim()
     check(
       'footer shows the version and build',
-      versionLine.startsWith(`b0r3d DeRes v${SHOWN_VERSION} `) && /build [0-9a-f]{7}/.test(versionLine) && versionLine.includes('MIT'),
+      versionLine.startsWith(`b0r3d DeRes v${SHOWN_VERSION} `) && /Build: [0-9a-f]{7}/.test(versionLine) && versionLine.includes('MIT'),
       versionLine
     )
     const source = await page.getByTestId('app-version').locator('a', { hasText: 'Source' }).getAttribute('href')

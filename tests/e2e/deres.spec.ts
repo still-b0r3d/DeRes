@@ -67,7 +67,7 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
 
 test('links to the Windows app in the footer, after Source', async ({ page }) => {
   const line = page.getByTestId('app-version')
-  await expect(line).toHaveText(/^b0r3d DeRes v\S+ · (build [0-9a-f]{7} · )?Source · Windows app · MIT$/)
+  await expect(line).toHaveText(/^b0r3d DeRes v\S+ · (Build: [0-9a-f]{7} · )?Source · Windows app · MIT$/)
   const link = line.getByTestId('pc-link')
   await expect(link).toHaveText('Windows app')
   await expect(link).toHaveAttribute('href', 'https://github.com/still-b0r3d/b0r3d-DeRes-PC')

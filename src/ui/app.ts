@@ -1535,7 +1535,7 @@ function footer(): void {
   const dot = () => h('span', { 'aria-hidden': 'true' }, ' · ')
   line.replaceChildren(
     `b0r3d DeRes v${version}`,
-    ...(commit ? [dot(), `build ${commit}`] : []),
+    ...(commit ? [dot(), `Build: ${commit}`] : []),
     dot(),
     h('a', { href: SOURCE_URL, target: '_blank', rel: 'noopener noreferrer' }, 'Source'),
     dot(),
