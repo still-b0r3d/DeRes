@@ -65,6 +65,19 @@ test('loads the sample and shows the Game Boy look', async ({ page }) => {
   await expect(page.locator('footer a', { hasText: '← b0r3d.org' })).toHaveAttribute('href', 'https://b0r3d.org')
 })
 
+test('links to the Windows app, at the end of the tab row', async ({ page }) => {
+  const link = page.getByTestId('pc-link')
+  await expect(link).toHaveText('Windows app')
+  await expect(link).toHaveAttribute('href', 'https://github.com/still-b0r3d/b0r3d-DeRes-PC')
+  await expect(link).toHaveAttribute('target', '_blank')
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  // Beside the tab list, not in it: it's still four tabs to a screen reader.
+  await expect(page.getByRole('tablist').getByRole('link')).toHaveCount(0)
+  await expect(page.getByRole('tablist').getByRole('tab')).toHaveCount(4)
+  const [tab, pc] = await Promise.all([page.getByTestId('tab-deres').boundingBox(), link.boundingBox()])
+  expect(Math.abs(tab!.y + tab!.height / 2 - (pc!.y + pc!.height / 2))).toBeLessThan(2)
+})
+
 test('every sample opens and renders, pictures on one line and GIFs on the next', async ({ page }) => {
   const image = page.getByTestId('deres-controls').locator('.sample-line')
   await expect(image.nth(0)).toHaveText('Try a picture: Rukus · Crystal forest · Cat nap')

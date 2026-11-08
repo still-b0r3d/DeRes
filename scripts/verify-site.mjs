@@ -152,6 +152,8 @@ async function run(base, remote) {
     )
     const source = await page.getByTestId('app-version').locator('a', { hasText: 'Source' }).getAttribute('href')
     check('footer links to the source code', source === 'https://github.com/still-b0r3d/DeRes', source)
+    const pc = await page.getByTestId('pc-link').getAttribute('href', { timeout: 5000 }).catch(() => null)
+    check('links to the Windows app', pc === 'https://github.com/still-b0r3d/b0r3d-DeRes-PC', pc)
     const workerReqs = requests.filter((u) => /worker[^/]*\.js(\?|$)/.test(u))
     check('image worker loads from this site', workerReqs.length > 0 && workerReqs.every((u) => u.startsWith(origin)), workerReqs[0] || 'no worker request')
 
