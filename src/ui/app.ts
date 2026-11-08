@@ -1423,6 +1423,8 @@ export function startApp(): void {
 
 /** Where the code lives (MIT, so anyone can read it and host a copy). */
 const SOURCE_URL = 'https://github.com/still-b0r3d/DeRes'
+/** b0r3d DeRes for Windows: the same pictures as a program for the PC. */
+const PC_URL = 'https://github.com/still-b0r3d/b0r3d-DeRes-PC'
 
 function footer(): void {
   const version = shownVersion(import.meta.env.VITE_APP_VERSION || 'dev')
@@ -1434,6 +1436,8 @@ function footer(): void {
     ...(commit ? [dot(), `build ${commit}`] : []),
     dot(),
     h('a', { href: SOURCE_URL, target: '_blank', rel: 'noopener noreferrer' }, 'Source'),
+    dot(),
+    h('a', { href: PC_URL, target: '_blank', rel: 'noopener noreferrer', 'data-testid': 'pc-link' }, 'Windows app'),
     dot(),
     h('a', { href: './LICENSE.txt' }, 'MIT')
   )
