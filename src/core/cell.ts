@@ -823,6 +823,11 @@ export function processGbcTiles(
   const tilesY = Math.floor(height / 8)
   const totalTiles = tilesX * tilesY
 
+  // Only whole tiles get colours: what's past the last whole one, across or
+  // down, stays black. So a picture with no whole tile (a custom width of 8
+  // on a wide photo) comes out all black, with 8 black palettes.
+  if (totalTiles === 0) return { indices, rgb: outRgb, palette: new Uint8Array(32 * 3) }
+
   // 1. For each 8×8 tile, compute candidate 4-colour palette
   const tileCandidates: number[][] = []
 

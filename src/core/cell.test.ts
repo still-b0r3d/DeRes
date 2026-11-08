@@ -187,6 +187,28 @@ describe('cell mode processing', () => {
       }
     }
   })
+
+  it('Game Boy Color: a picture with no whole 8×8 tile comes out black, like the strip past the last whole tile', () => {
+    for (const [w, h] of [[8, 6], [5, 5], [200, 7], [7, 120], [1, 1]]) {
+      const rgb = new Float32Array(w * h * 3).fill(0.5)
+      const res = processGbcTiles(rgb, w, h)
+      expect(res.indices).toEqual(new Uint8Array(w * h))
+      expect(res.rgb).toEqual(new Float32Array(w * h * 3))
+      expect(res.palette).toEqual(new Uint8Array(96))
+    }
+    // The rule that was already there, for a picture with whole tiles: what's
+    // past the last whole tile, across or down, stays black.
+    const w = 13
+    const h = 10
+    const res = processGbcTiles(new Float32Array(w * h * 3).fill(0.5), w, h)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 3
+        const black = x >= 8 || y >= 8
+        expect(res.rgb[i] === 0 && res.rgb[i + 1] === 0 && res.rgb[i + 2] === 0).toBe(black)
+      }
+    }
+  })
 })
 
 describe('NES attributes keep each pixel\'s place in its sub-palette', () => {

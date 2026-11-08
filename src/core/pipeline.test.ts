@@ -268,6 +268,32 @@ describe('.chr tile exports', () => {
     expect(tile(r.emulatorData!.data, 0, false)).toEqual(firstTile(r.indices, r.width).map((v) => v & 3))
   })
 
+  it('Game Boy Color: a custom width too small for one whole 8×8 tile comes out black', async () => {
+    // 8 wide on a 4:3 picture is 8×6: not one whole tile.
+    const r = loaded().render(settings({ profileId: 'gbc', resolution: 'custom', customWidth: 8 }))
+    expect([r.width, r.height]).toEqual([8, 6])
+    expect(r.rgb).toEqual(new Uint8Array(8 * 6 * 3))
+    expect(r.palette).toEqual(new Uint8Array(96))
+    expect(r.used).toBe(1)
+    expect(r.tileFit?.uniqueTiles).toBe(0)
+    expect(r.emulatorData?.data.length).toBe(0)
+    const png = await decodePng((await exportPng(r, { multiplier: 1, tv: false, fx: null })).png)
+    expect([png.width, png.height]).toEqual([8, 6])
+    // Every one of the machine's 32 entries, as always, all black here.
+    expect(png.palette).toEqual(new Uint8Array(96))
+    expect(png.indices).toEqual(new Uint8Array(8 * 6))
+  })
+
+  it.each(PROFILES.map((p) => p.id))('%s renders a picture smaller than one 8×8 tile', (id) => {
+    const r = loaded().render(settings({ profileId: id, resolution: 'custom', customWidth: 8 }))
+    expect(r.width).toBe(8)
+    expect(r.rgb.length).toBe(r.width * r.height * 3)
+    const tiny = new Deres()
+    tiny.setSource(testPicture(5, 5), 5, 5, 5, 5)
+    const t = tiny.render(settings({ profileId: id, resolution: 'custom', customWidth: 5 }))
+    expect([t.width, t.height]).toEqual([5, 5])
+  })
+
   it("NES (attributes): real NES tiles, one number per colour of the tile's sub-palette", () => {
     // A busy, opaque picture, so the first tile holds several colours.
     const d = new Deres()
