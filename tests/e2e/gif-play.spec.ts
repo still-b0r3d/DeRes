@@ -167,6 +167,7 @@ test('held, the slider shows the frames already made, and the sharp one comes on
     })
   await expect.poll(shown).not.toBe('160x144')
   await ready(page)
+  const sharp = await shown()
   // Every picture the preview draws, by size.
   await page.evaluate(() => {
     const drawn: string[] = []
@@ -207,6 +208,9 @@ test('held, the slider shows the frames already made, and the sharp one comes on
   await expect(playbar(page)).toHaveAttribute('data-cached', '58', { timeout: 30_000 })
   await page.getByTestId('play').click()
   await ready(page)
+  // The paused frame's sharp picture lands about 0.1 s after Pause, too soon
+  // for the busy sign: wait for it, or it's counted as drawn while held.
+  await expect.poll(shown).toBe(sharp)
   await drawn()
   await drag()
   const held = await drawn()
