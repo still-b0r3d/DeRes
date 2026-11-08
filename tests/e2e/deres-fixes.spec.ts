@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
-import { decodePng } from '../../src/core/png'
+import { decodeGifFrames } from '../../src/core/gif-decode'
+import { decodePng, encodeRgbPng } from '../../src/core/png'
 import { profileById } from '../../src/core/profiles'
-import { download, freshPage, readout, ready } from './helpers'
+import { download, freshPage, gradientPng, openSection, readout, ready } from './helpers'
 
 // DeRes fixes from the 2026-10-07 review.
 
@@ -213,4 +214,41 @@ test('looks that make their own colours download the colours the preview shows (
     const count = new Set(Array.from({ length: shown.rgba.length / 4 }, (_, i) => shown.rgba.slice(i * 4, i * 4 + 3).join())).size
     expect(png.colourType, id).toBe(count <= 256 ? 3 : 2)
   }
+})
+
+// Found while making the Windows app, which does the same sums (2026-11).
+
+test('Game Boy Color: a custom width with no whole 8×8 tile comes out black, with no error', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.locator('#file-input').setInputFiles({ name: 'wide.png', mimeType: 'image/png', buffer: await gradientPng(400, 300) })
+  await expect(page.getByTestId('picture-info')).toHaveText('wide.png · 400×300')
+  await pick(page, 'gbc')
+  await page.locator('.seg[aria-label="Resolution"] button[data-value="custom"]').click()
+  // 8 wide on a 4:3 picture is 8×6: not one whole tile.
+  await page.getByTestId('custom-width').fill('8')
+  await ready(page, '8×6')
+  await expect(readout(page)).toContainText('0 / 360 tiles')
+  await page.locator('.seg[aria-label="Size"] button[data-value="1"]').click()
+  const png = await decodePng((await download(page, page.getByRole('button', { name: 'Download PNG' }))).bytes)
+  expect([png.width, png.height]).toEqual([8, 6])
+  expect(new Set(png.rgba).size === 2 && png.rgba.every((v, i) => v === (i % 4 === 3 ? 255 : 0))).toBe(true)
+  await expect(page.locator('.stage-note')).toBeHidden()
+  expect(errors).toEqual([])
+})
+
+test('GIF and APNG: a side past 65,535 px drops to the biggest Size that fits', async ({ page }) => {
+  // 1×4096 with a custom width of 1 at 16× would be 16×65,536: more than a GIF can say.
+  const strip = await encodeRgbPng(1, 4096, (y, row) => row.set((y >> 8) & 1 ? [255, 255, 255] : [0, 0, 0]))
+  await page.locator('#file-input').setInputFiles({ name: 'strip.png', mimeType: 'image/png', buffer: Buffer.from(strip) })
+  await expect(page.getByTestId('picture-info')).toHaveText('strip.png · 1×4096')
+  await page.locator('.seg[aria-label="Resolution"] button[data-value="custom"]').click()
+  await ready(page, '1×4096')
+  await openSection(page, 'Export')
+  await page.locator('.seg[aria-label="Size"] button[data-value="16"]').click()
+  await expect(page.getByTestId('export-size')).toHaveText(/^16×65536 px · /)
+  await expect(page.getByTestId('anim-hint')).toHaveText('GIF and APNG come out at 12× (12×49152 px): 16× is too big for an animation.')
+  const gif = await download(page, page.getByTestId('download-gif'))
+  const { reader } = decodeGifFrames(gif.bytes)
+  expect([reader.width, reader.height]).toEqual([12, 49152])
 })
