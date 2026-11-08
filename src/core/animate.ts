@@ -157,12 +157,19 @@ export function heldFrames(kind: AnimationKind, signalLoop: number | null): numb
 }
 
 /**
+ * The longest side an animation may have: a GIF writes its sides in 16 bits.
+ * APNG keeps to it too, so the two always come out at the same Size.
+ */
+export const MAX_ANIMATION_SIDE = 65535
+
+/**
  * Why an animation of `held` frames at width × height won't fit: one frame
- * is too big, or all of them together are. Null when it fits.
+ * is too big (too many pixels, or a side too long), or all of them together
+ * are. Null when it fits.
  */
 export function animationLimit(width: number, height: number, held: number): 'frame' | 'frames' | null {
   const px = width * height
-  if (px > MAX_ANIMATION_PIXELS || px > MAX_EXPORT_PIXELS) return 'frame'
+  if (px > MAX_ANIMATION_PIXELS || px > MAX_EXPORT_PIXELS || Math.max(width, height) > MAX_ANIMATION_SIDE) return 'frame'
   return px * held > MAX_ANIMATION_BUDGET ? 'frames' : null
 }
 
@@ -305,7 +312,7 @@ export async function generateAnimatedExport(
 ): Promise<AnimatedExportResult> {
   const m = Math.max(1, Math.floor(options.multiplier))
   const [width, height] = exportSize(r.width, r.height, r.geometry.par, m, options.tv)
-  if (width * height > MAX_EXPORT_PIXELS || width * height > MAX_ANIMATION_PIXELS) {
+  if (animationLimit(width, height, 0) !== null) {
     throw new Error('That size is too big for an animation. Pick a smaller size.')
   }
   const progress = (done: number, total: number) => options.onProgress?.(done, total)
@@ -570,7 +577,7 @@ export async function generateFramesExport(o: FramesExportOptions): Promise<Anim
   const m = Math.max(1, Math.floor(o.multiplier))
   const first = o.render(0)
   const [width, height] = exportSize(first.width, first.height, first.geometry.par, m, o.tv)
-  if (width * height > MAX_EXPORT_PIXELS || width * height > MAX_ANIMATION_PIXELS) {
+  if (animationLimit(width, height, 0) !== null) {
     throw new Error('That size is too big for an animation. Pick a smaller size.')
   }
   const fx = o.fx && o.fx.screen !== 'off' && m >= FX_MIN_MULTIPLIER ? o.fx : null

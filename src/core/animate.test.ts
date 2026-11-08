@@ -6,9 +6,11 @@ import {
   heldFrames,
   MAX_ANIMATION_BUDGET,
   MAX_ANIMATION_PIXELS,
+  MAX_ANIMATION_SIDE,
   STYLE_LOOPS
 } from './animate'
 import { DEFAULT_FX } from './fx'
+import { decodeGifFrames } from './gif-decode'
 import { exportSize, type DeresSettings, type Rendered } from './pipeline'
 import { decodePng } from './png'
 import { MULTIPLIERS } from '../ui/settings'
@@ -75,6 +77,18 @@ describe('the size an animation drops to', () => {
     expect(fit(2000, 1500, 4, 12)).toBeNull()
     // A long loop on a big machine: every frame together is too much.
     expect(fit(480, 360, 4, 256)).toBeNull()
+  })
+
+  it('no side past 65,535 px, the most a GIF can say: a thin strip drops a Size', () => {
+    expect(MAX_ANIMATION_SIDE).toBe(65535)
+    expect(animationLimit(16, 65535, 0)).toBeNull()
+    expect(animationLimit(16, 65536, 0)).toBe('frame')
+    expect(animationLimit(65536, 16, 0)).toBe('frame')
+    // A custom width of 1 on a picture 4,096 px tall: 16× is 16×65,536 px,
+    // within one frame's pixels but a side too long, so it comes out at 12×.
+    expect(fit(1, 4096, 16, heldFrames('gif-frames', null))).toBe(12)
+    expect(fit(4096, 1, 16, 12)).toBe(12)
+    expect(fit(1, 4096, 12, 12)).toBe(12)
   })
 })
 
@@ -204,6 +218,28 @@ describe('animate core', () => {
     const opts = { style: 'screen-fx' as const, format: 'gif' as const, tv: false, fx: null, frameCount: 2 }
     await expect(generateAnimatedExport(dummyRendered, { ...opts, multiplier: 129 }, dummySettings)).rejects.toThrow(/too big for an animation/)
     await expect(generateAnimatedExport(dummyRendered, { ...opts, multiplier: 128 }, dummySettings)).resolves.toBeDefined()
+  })
+
+  it('refuses a GIF or APNG with a side past 65,535 px, which a GIF cannot say', async () => {
+    // 1×4096 at 16× is 16×65,536: few enough pixels, but too tall.
+    const rect = { x: 0, y: 0, w: 1, h: 4096 }
+    const strip: Rendered = {
+      ...dummyRendered,
+      width: 1,
+      height: 4096,
+      indices: Uint8Array.from({ length: 4096 }, (_, i) => (i >> 9) & 1),
+      rgb: new Uint8Array(4096 * 3),
+      geometry: { src: rect, dst: rect, width: 1, height: 4096, par: [1, 1] }
+    }
+    strip.indices.forEach((c, i) => strip.rgb.set(strip.palette.subarray(c * 3, c * 3 + 3), i * 3))
+    const opts = { style: 'screen-fx' as const, tv: false, fx: null, frameCount: 2 }
+    for (const format of ['gif', 'apng'] as const) {
+      await expect(generateAnimatedExport(strip, { ...opts, format, multiplier: 16 }, dummySettings)).rejects.toThrow(/too big for an animation/)
+    }
+    // 12× is 12×49,152, and the GIF says so.
+    const gif = await generateAnimatedExport(strip, { ...opts, format: 'gif', multiplier: 12 }, dummySettings)
+    const { reader, frames } = decodeGifFrames(gif.data)
+    expect([reader.width, reader.height, frames.length]).toEqual([12, 49152, 2])
   })
 
   it.each(['screen-fx', 'compare-wipe', 'dither-shimmer'] as const)('%s reports its progress frame by frame', async (style) => {

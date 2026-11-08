@@ -1,4 +1,4 @@
-import { apngPlays, MAX_ANIMATION_BUDGET, MAX_ANIMATION_PIXELS, type AnimatedExportResult } from './animate'
+import { animationLimit, apngPlays, MAX_ANIMATION_BUDGET, type AnimatedExportResult } from './animate'
 import { ApngWriter } from './apng'
 import { ColourCensus } from './census'
 import { GifWriter, NearestColour, PaletteSamples } from './gif'
@@ -35,7 +35,7 @@ export async function encodeRgbAnimation(o: RgbAnimationOptions): Promise<Animat
   if (total === 0) throw new Error('There are no frames to export.')
   const { width, height } = o
   const pixels = width * height
-  if (pixels > MAX_ANIMATION_PIXELS) throw new Error('That size is too big for an animation. Pick a smaller size.')
+  if (animationLimit(width, height, 0) !== null) throw new Error('That size is too big for an animation. Pick a smaller size.')
 
   // First pass: every frame's colours (and, for a GIF, samples for a shared palette).
   const held: (Uint8Array | null)[] | null = pixels * total <= (o.budget ?? MAX_ANIMATION_BUDGET) ? [] : null

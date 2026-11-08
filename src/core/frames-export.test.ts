@@ -144,6 +144,26 @@ describe('generateFramesExport', () => {
   it('refuses a frame too big for a phone (a frame count is never refused: see below)', async () => {
     await expect(generateFramesExport(options({ multiplier: 600 }))).rejects.toThrow('too big for an animation')
   })
+
+  it('refuses a side past 65,535 px, which a GIF cannot say', async () => {
+    // A 1×4096 strip at 16× is 16×65,536 px: few enough pixels, but too tall.
+    const rect = { x: 0, y: 0, w: 1, h: 4096 }
+    const strip = (k: number): Rendered => ({
+      ...fakeRendered(k),
+      width: 1,
+      height: 4096,
+      indices: new Uint8Array(4096).fill(k & 1),
+      rgb: new Uint8Array(4096 * 3).fill(k & 1 ? 255 : 0),
+      geometry: { width: 1, height: 4096, par: [1, 1], src: rect, dst: rect } as unknown as Rendered['geometry']
+    })
+    for (const format of ['gif', 'apng'] as const) {
+      await expect(generateFramesExport(options({ format, multiplier: 16, render: strip }))).rejects.toThrow('too big for an animation')
+    }
+    const ok = await generateFramesExport(options({ multiplier: 12, render: strip }))
+    expect([ok.width, ok.height, ok.frameCount]).toEqual([12, 49152, 3])
+    const { reader } = decodeGifFrames(ok.data)
+    expect([reader.width, reader.height]).toEqual([12, 49152])
+  })
 })
 
 /** Frame k in full colour: a red that grows with k on the left, a blue that fades on the right. */

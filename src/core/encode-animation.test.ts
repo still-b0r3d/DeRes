@@ -94,6 +94,9 @@ describe('encodeRgbAnimation', () => {
     // Between frames of the first pass, and before each of the second.
     expect(breaths).toBe(3 + 4)
     await expect(encodeRgbAnimation(options({ width: 1025, height: 1024 }))).rejects.toThrow(/too big for an animation/)
+    // Few enough pixels, but a side past 65,535 px, which a GIF can't say.
+    await expect(encodeRgbAnimation(options({ width: 16, height: 65536 }))).rejects.toThrow(/too big for an animation/)
+    await expect(encodeRgbAnimation(options({ format: 'apng', width: 65536, height: 16 }))).rejects.toThrow(/too big for an animation/)
     await expect(encodeRgbAnimation(options({ delaysMs: [] }))).rejects.toThrow(/no frames/)
   })
 })

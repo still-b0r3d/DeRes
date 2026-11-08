@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { coverage, planGeometry } from '../core/geometry'
 import { profileById } from '../core/profiles'
-import { resolutionText } from './controls'
+import { animationFit, resolutionText } from './controls'
+import { defaultSettings } from './settings'
 
 // What the line under Resolution says, for the Rukus sample (256×256) unless
 // a photo is given.
@@ -31,5 +32,18 @@ describe('the resolution line', () => {
 
   it('has no photo part without a photo', () => {
     expect(resolutionText(profileById('gameboy')!, false, null, null)).toBe('Game Boy: 160×144 pixels.')
+  })
+})
+
+describe('the size GIF and APNG come out at', () => {
+  it('drops a Size when a side would pass 65,535 px, the most a GIF can say', () => {
+    // A custom width of 1 on a picture 4,096 px tall: 16× would be 16×65,536.
+    const photo = { srcW: 1, srcH: 2048, origW: 1, origH: 4096 }
+    const g = planGeometry({ ...photo, profile: profileById('gameboy')!, resolution: 'custom', customWidth: 1, fit: 'fill' })
+    expect([g.width, g.height]).toEqual([1, 4096])
+    const s = { ...defaultSettings(), resolution: 'custom' as const, customWidth: 1, multiplier: 16 }
+    for (const gifFrames of [false, true]) {
+      expect(animationFit(s, g, gifFrames)).toEqual({ multiplier: 12, held: gifFrames ? 0 : 12, next: 16, limit: 'frame' })
+    }
   })
 })
