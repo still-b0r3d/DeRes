@@ -24,6 +24,8 @@ import { PNG } from 'pngjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PKG_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version
+// The footer leaves off a last .0, so 1.0.0 shows as v1.0 (src/ui/version.ts).
+const SHOWN_VERSION = PKG_VERSION.replace(/^(\d+\.\d+)\.0$/, '$1')
 
 // b0r3d.org has Bot Fight Mode on, so Cloudflare adds its JavaScript Detections
 // snippet (an inline script, plus one inside a hidden iframe) to every page it
@@ -145,7 +147,7 @@ async function run(base, remote) {
     const versionLine = (await page.getByTestId('app-version').innerText()).trim()
     check(
       'footer shows the version and build',
-      versionLine.includes(`b0r3d DeRes v${PKG_VERSION}`) && /build [0-9a-f]{7}/.test(versionLine) && versionLine.includes('MIT'),
+      versionLine.startsWith(`b0r3d DeRes v${SHOWN_VERSION} `) && /build [0-9a-f]{7}/.test(versionLine) && versionLine.includes('MIT'),
       versionLine
     )
     const source = await page.getByTestId('app-version').locator('a', { hasText: 'Source' }).getAttribute('href')

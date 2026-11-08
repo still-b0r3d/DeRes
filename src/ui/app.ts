@@ -60,6 +60,7 @@ import { DEFAULT_SAMPLE, sampleById } from './samples'
 import { Player, playScale } from './player'
 import { defaultSettings, loadSettings, saveSettings, settingsFromHash, type Settings } from './settings'
 import { Stage } from './stage'
+import { shownVersion } from './version'
 
 // Wires the page together: one loaded picture, the image worker, the preview
 // and the controls across DeRes, ASCII / ANSI Studio, and EXIF Scrubber.
@@ -1424,7 +1425,7 @@ export function startApp(): void {
 const SOURCE_URL = 'https://github.com/still-b0r3d/DeRes'
 
 function footer(): void {
-  const version = import.meta.env.VITE_APP_VERSION || 'dev'
+  const version = shownVersion(import.meta.env.VITE_APP_VERSION || 'dev')
   const commit = (import.meta.env.VITE_BUILD_COMMIT || '').slice(0, 7)
   const line = document.getElementById('app-version')!
   const dot = () => h('span', { 'aria-hidden': 'true' }, ' · ')

@@ -24,6 +24,7 @@ import {
   type InjectorFields
 } from '../core/inject'
 import { h, show } from './dom'
+import { shownVersion } from './version'
 
 export interface InjectControlsContext {
   openFile(): void
@@ -186,7 +187,7 @@ export function buildInjectControls(ctx: InjectControlsContext): {
           lens: 'b0r3d Prime 28mm f/1.4 Deluxe',
           artist: 'still_b0r3d',
           copyright: '(c) 2026 b0r3d.org - All rights reserved',
-          software: `b0r3d DeRes v${import.meta.env.VITE_APP_VERSION || 'dev'}`,
+          software: `b0r3d DeRes v${shownVersion(import.meta.env.VITE_APP_VERSION || 'dev')}`,
           orientation: '1',
           aperture: '1.4',
           shutter: '1/250',

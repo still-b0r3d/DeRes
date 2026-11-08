@@ -401,7 +401,9 @@ feature release, the third for fixes and small changes (`0.1.1`), and a
 fourth now and then for a small addition between them (`0.9.2.1`). The version
 lives in `package.json` and is bumped for every release that goes live, with a
 row added below. The footer shows the version, the build (the commit it was
-built from) and a link to this repository.
+built from) and a link to this repository. It leaves off a last `.0`, so
+`1.0.0` shows as `v1.0`, the way the
+[Windows app](https://github.com/still-b0r3d/b0r3d-DeRes-PC) writes its version.
 
 | Version | Date | Notes |
 |---------|------|-------|
