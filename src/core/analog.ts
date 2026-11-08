@@ -71,13 +71,14 @@ function isSevenSegmentPixel(ch: string, px: number, py: number): boolean {
   return false
 }
 
-// 5×7 monospace bitmap font for teletype / fax headers
+// 5×7 monospace bitmap font for teletype / fax headers: one number per
+// column, left to right, bit 0 the top row.
 const FONT_5X7: Record<string, number[]> = {
   ' ': [0, 0, 0, 0, 0],
   ':': [0, 0x24, 0, 0, 0],
   '-': [0x08, 0x08, 0x08, 0x08, 0x08],
   '+': [0x08, 0x08, 0x3e, 0x08, 0x08],
-  '/': [0x03, 0x0c, 0x30, 0xc0, 0],
+  '/': [0, 0xc0, 0x30, 0x0c, 0x03],
   '.': [0, 0x40, 0, 0, 0],
   '0': [0x3e, 0x51, 0x49, 0x45, 0x3e],
   '1': [0x00, 0x42, 0x7f, 0x40, 0x00],

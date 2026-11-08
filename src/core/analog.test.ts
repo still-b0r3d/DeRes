@@ -156,5 +156,16 @@ describe('analog, print & video aesthetics', () => {
       }
       expect(headerBlack).toBeGreaterThan(30)
     })
+
+    it('draws the header’s “/” leaning right, from bottom left to top right', () => {
+      const w = 408
+      const h = 40
+      const res = processFax(createTestImage(w, h), w, h)
+      // "PAGE: 001/001": the header's letters start 12 px in, 6 px apart, on rows 6 to 12.
+      const at = 12 + 6 * 'FROM: B0R3D FAX G3       TEL: +1-800-B0R3D       PAGE: 001'.length
+      const lit = (px: number, py: number) => res.rgb[((6 + py) * w + at + px) * 3] === 0
+      const rows = Array.from({ length: 7 }, (_, py) => Array.from({ length: 5 }, (_, px) => (lit(px, py) ? '#' : '.')).join(''))
+      expect(rows).toEqual(['....#', '....#', '...#.', '...#.', '..#..', '..#..', '.#...'])
+    })
   })
 })
