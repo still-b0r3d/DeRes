@@ -14,11 +14,11 @@ your device, never uploaded, and the app loads nothing from any other site.
 Like the rest of b0r3d.org, the site counts visits; that never includes your
 images.
 
-**Status:** v0.9.4 is live at [img.b0r3d.org](https://img.b0r3d.org).
+**Status:** v1.0 is live at [img.b0r3d.org](https://img.b0r3d.org).
 
 ---
 
-## What it does (v0.9.4)
+## What it does (v1.0)
 
 - **Open a picture** with the button, by dragging it onto the page, by pasting
   it (Ctrl+V / Cmd+V), or try a sample. Pictures: Rukus, who carries made-up,
